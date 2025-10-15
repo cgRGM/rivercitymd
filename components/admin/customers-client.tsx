@@ -1,22 +1,101 @@
 "use client";
 
-import { Preloaded, usePreloadedQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, Mail, Phone, MapPin } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Search, Plus, Mail, Phone, MapPin, AlertCircle } from "lucide-react";
 import { useState } from "react";
 // import { AddCustomerForm } from "@/components/forms"; // TODO: Fix form
 
-type Props = {
-  customersPreloaded: Preloaded<typeof api.users.listWithStats>;
-};
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type Props = {};
 
-export default function CustomersClient({ customersPreloaded }: Props) {
-  const customers = usePreloadedQuery(customersPreloaded);
+export default function CustomersClient({}: Props) {
+  const customersQuery = useQuery(api.users.listWithStats);
   const [searchQuery, setSearchQuery] = useState("");
   // const [showAddForm, setShowAddForm] = useState(false); // TODO: Re-enable when form is fixed
+
+  // Handle loading state
+  if (customersQuery === undefined) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold">Customers</h2>
+            <p className="text-muted-foreground mt-1">
+              Manage your customer database
+            </p>
+          </div>
+          <Skeleton className="h-9 w-32" />
+        </div>
+
+        <div className="flex gap-4 mb-6">
+          <div className="relative flex-1">
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <Skeleton className="h-9 w-20" />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <Skeleton className="h-5 w-32 mb-1" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                  <Skeleton className="h-6 w-16" />
+                </div>
+                <div className="space-y-2 mb-4">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-4 w-36" />
+                  <Skeleton className="h-4 w-44" />
+                </div>
+                <div className="flex gap-2">
+                  <Skeleton className="h-8 flex-1" />
+                  <Skeleton className="h-8 flex-1" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (customersQuery === null) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold">Customers</h2>
+          <p className="text-muted-foreground mt-1">
+            Manage your customer database
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Unable to load customers
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              There was an error loading the customer data. Please try again
+              later.
+            </p>
+            <Button onClick={() => window.location.reload()}>Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const customers = customersQuery;
 
   const filteredCustomers = customers.filter((customer) => {
     const query = searchQuery.toLowerCase();

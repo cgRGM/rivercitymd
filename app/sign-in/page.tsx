@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -35,6 +37,21 @@ export default function SignInPage() {
       setIsInitializing(false);
     }
   }, [authActions]);
+
+  // Check if user is already authenticated
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const userRole = useQuery(api.auth.getUserRole);
+
+  useEffect(() => {
+    if (currentUser && userRole) {
+      // User is authenticated, redirect based on role
+      if (userRole.type === "admin") {
+        router.push("/admin");
+      } else {
+        router.push("/dashboard");
+      }
+    }
+  }, [currentUser, userRole, router]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();

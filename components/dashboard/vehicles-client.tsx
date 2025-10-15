@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { preloadedQueryResult } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -13,7 +12,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Calendar } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, Trash2, Calendar, AlertCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -38,14 +38,11 @@ type Vehicle = {
   notes?: string;
 };
 
-interface VehiclesClientProps {
-  vehiclesPreloaded: ReturnType<typeof preloadedQueryResult>;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface VehiclesClientProps {}
 
-export default function VehiclesClient({
-  vehiclesPreloaded,
-}: VehiclesClientProps) {
-  const vehicles = preloadedQueryResult(vehiclesPreloaded);
+export default function VehiclesClient({}: VehiclesClientProps) {
+  const vehiclesQuery = useQuery(api.vehicles.getMyVehicles);
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -66,6 +63,79 @@ export default function VehiclesClient({
       api.appointments.getByUser,
       currentUser?._id ? { userId: currentUser._id } : "skip",
     ) || [];
+
+  // Handle loading state
+  if (vehiclesQuery === undefined) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold">My Vehicles</h2>
+            <p className="text-muted-foreground mt-1">
+              Manage your vehicle information
+            </p>
+          </div>
+          <Skeleton className="h-9 w-32" />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <Skeleton className="h-6 w-24 mb-2" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                  <Skeleton className="h-6 w-16" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <Skeleton className="h-8 flex-1" />
+                  <Skeleton className="h-8 w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (vehiclesQuery === null) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Vehicles</h2>
+          <p className="text-muted-foreground mt-1">
+            Manage your vehicle information
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Unable to load vehicles
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              There was an error loading your vehicles. Please try again later.
+            </p>
+            <Button onClick={() => window.location.reload()}>Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const vehicles = vehiclesQuery;
 
   const getVehicleStats = (vehicleId: string) => {
     const vehicleAppointments = userAppointments.filter((apt) =>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Preloaded, usePreloadedQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   Card,
@@ -27,9 +27,8 @@ import {
   LineChart,
 } from "recharts";
 
-type Props = {
-  analyticsPreloaded: Preloaded<typeof api.analytics.getDashboardAnalytics>;
-};
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type Props = {};
 
 const chartConfig = {
   revenue: {
@@ -42,8 +41,18 @@ const chartConfig = {
   },
 };
 
-export default function AnalyticsClient({ analyticsPreloaded }: Props) {
-  const analytics = usePreloadedQuery(analyticsPreloaded);
+export default function AnalyticsClient({}: Props) {
+  const analytics = useQuery(api.analytics.getDashboardAnalytics, {
+    months: 6,
+  }) || {
+    monthlyData: [],
+    topServices: [],
+    customerInsights: {
+      newCustomers: 0,
+      returningCustomers: 0,
+      retentionRate: "0",
+    },
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -92,8 +101,8 @@ export default function AnalyticsClient({ analyticsPreloaded }: Props) {
         <CardHeader>
           <CardTitle>Appointments Trend</CardTitle>
           <CardDescription>
-            Number of appointments over the past{" "}
-            {analytics.monthlyData.length} months
+            Number of appointments over the past {analytics.monthlyData.length}{" "}
+            months
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -138,7 +147,10 @@ export default function AnalyticsClient({ analyticsPreloaded }: Props) {
             ) : (
               <div className="space-y-4">
                 {analytics.topServices.map((service, index) => (
-                  <div key={index} className="flex items-center justify-between">
+                  <div
+                    key={index}
+                    className="flex items-center justify-between"
+                  >
                     <div>
                       <div className="font-medium">{service.name}</div>
                       <div className="text-sm text-muted-foreground">
@@ -191,7 +203,7 @@ export default function AnalyticsClient({ analyticsPreloaded }: Props) {
                     style={{
                       width: `${Math.min(
                         (analytics.customerInsights.newCustomers / 50) * 100,
-                        100
+                        100,
                       )}%`,
                     }}
                   />
@@ -213,7 +225,7 @@ export default function AnalyticsClient({ analyticsPreloaded }: Props) {
                       width: `${Math.min(
                         (analytics.customerInsights.returningCustomers / 200) *
                           100,
-                        100
+                        100,
                       )}%`,
                     }}
                   />
@@ -253,8 +265,7 @@ export default function AnalyticsClient({ analyticsPreloaded }: Props) {
                 .toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Total Revenue (
-              {analytics.monthlyData.length} months)
+              Total Revenue ({analytics.monthlyData.length} months)
             </p>
           </CardContent>
         </Card>
@@ -263,7 +274,7 @@ export default function AnalyticsClient({ analyticsPreloaded }: Props) {
             <div className="text-2xl font-bold">
               {analytics.monthlyData.reduce(
                 (sum, month) => sum + month.bookings,
-                0
+                0,
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
@@ -279,7 +290,7 @@ export default function AnalyticsClient({ analyticsPreloaded }: Props) {
                 ? (
                     analytics.monthlyData.reduce(
                       (sum, month) => sum + month.revenue,
-                      0
+                      0,
                     ) / analytics.monthlyData.length
                   ).toLocaleString(undefined, { maximumFractionDigits: 0 })
                 : 0}

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { preloadedQueryResult } from "convex/nextjs";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -13,8 +12,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, Clock, MapPin, Plus, Edit2, X } from "lucide-react";
+import {
+  Calendar,
+  Clock,
+  MapPin,
+  Plus,
+  Edit2,
+  X,
+  AlertCircle,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -75,20 +83,113 @@ type Appointment = {
   vehicles: Vehicle[];
 };
 
-interface AppointmentsClientProps {
-  appointmentsPreloaded: ReturnType<typeof preloadedQueryResult>;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface AppointmentsClientProps {}
 
-export default function AppointmentsClient({
-  appointmentsPreloaded,
-}: AppointmentsClientProps) {
-  const appointments = preloadedQueryResult(appointmentsPreloaded);
+export default function AppointmentsClient({}: AppointmentsClientProps) {
+  const appointmentsData = useQuery(api.appointments.getUserAppointments);
   const [isAppointmentOpen, setIsAppointmentOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] =
     useState<Appointment | null>(null);
 
   const updateStatus = useMutation(api.appointments.updateStatus);
+
+  // Handle loading state
+  if (appointmentsData === undefined) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Appointments</h2>
+          <p className="text-muted-foreground mt-1">
+            View and manage your service appointments
+          </p>
+        </div>
+
+        <Tabs defaultValue="upcoming" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+            <TabsTrigger value="past">Past</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="upcoming" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Skeleton className="h-6 w-32 mb-2" />
+                    <Skeleton className="h-4 w-48" />
+                  </div>
+                  <Skeleton className="h-9 w-32" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <Card key={i}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1">
+                            <Skeleton className="h-5 w-24 mb-1" />
+                            <Skeleton className="h-4 w-20" />
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <Skeleton className="h-5 w-16" />
+                            <Skeleton className="h-6 w-12" />
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-4 w-28" />
+                          <Skeleton className="h-4 w-40" />
+                        </div>
+                        <div className="flex gap-2">
+                          <Skeleton className="h-8 flex-1" />
+                          <Skeleton className="h-8 flex-1" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (appointmentsData === null) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Appointments</h2>
+          <p className="text-muted-foreground mt-1">
+            View and manage your service appointments
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Unable to load appointments
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              There was an error loading your appointments. Please try again
+              later.
+            </p>
+            <Button onClick={() => window.location.reload()}>Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const appointments = appointmentsData;
 
   const handleCancelAppointment = async (appointmentId: Id<"appointments">) => {
     try {

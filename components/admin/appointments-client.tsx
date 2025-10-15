@@ -1,6 +1,6 @@
 "use client";
 
-import { Preloaded, usePreloadedQuery, useMutation } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   Card,
@@ -10,24 +10,122 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock, MapPin, Phone, Mail, Plus } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Calendar,
+  Clock,
+  MapPin,
+  Phone,
+  Mail,
+  Plus,
+  AlertCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
 // import { AddAppointmentForm } from "@/components/forms"; // TODO: Fix form
 
-type Props = {
-  appointmentsPreloaded: Preloaded<typeof api.appointments.listWithDetails>;
-};
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type Props = {};
 
-export default function AppointmentsClient({ appointmentsPreloaded }: Props) {
-  const appointments = usePreloadedQuery(appointmentsPreloaded);
+export default function AppointmentsClient({}: Props) {
+  const appointmentsQuery = useQuery(api.appointments.listWithDetails, {});
   const updateStatus = useMutation(api.appointments.updateStatus);
   const deleteAppointment = useMutation(api.appointments.deleteAppointment);
 
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<Id<"appointments"> | null>(null);
   // const [showAddForm, setShowAddForm] = useState(false); // TODO: Re-enable when form is fixed
+
+  // Handle loading state
+  if (appointmentsQuery === undefined) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold">Appointments</h2>
+            <p className="text-muted-foreground mt-1">
+              Manage all customer appointments
+            </p>
+          </div>
+          <Skeleton className="h-9 w-32" />
+        </div>
+
+        <div className="flex gap-2 mb-6">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-20" />
+          ))}
+        </div>
+
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-32 mb-2" />
+            <Skeleton className="h-4 w-48" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        <Skeleton className="h-5 w-32 mb-1" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                      <Skeleton className="h-6 w-16" />
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                    <div className="flex gap-2">
+                      <Skeleton className="h-8 flex-1" />
+                      <Skeleton className="h-8 flex-1" />
+                      <Skeleton className="h-8 w-16" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (appointmentsQuery === null) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold">Appointments</h2>
+          <p className="text-muted-foreground mt-1">
+            Manage all customer appointments
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Unable to load appointments
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              There was an error loading the appointments. Please try again
+              later.
+            </p>
+            <Button onClick={() => window.location.reload()}>Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const appointments = appointmentsQuery;
 
   const filteredAppointments = statusFilter
     ? appointments.filter((apt) => apt.status === statusFilter)

@@ -1,6 +1,6 @@
 "use client";
 
-import { Preloaded, usePreloadedQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   Card,
@@ -10,17 +10,99 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit, Trash2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, Edit, Trash2, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { AddServiceForm } from "@/components/forms";
 
-type Props = {
-  servicesPreloaded: Preloaded<typeof api.services.listWithBookingStats>;
-};
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type Props = {};
 
-export default function ServicesClient({ servicesPreloaded }: Props) {
-  const services = usePreloadedQuery(servicesPreloaded);
+export default function ServicesClient({}: Props) {
+  const servicesQuery = useQuery(api.services.listWithBookingStats);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // Handle loading state
+  if (servicesQuery === undefined) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-bold">Services</h2>
+            <p className="text-muted-foreground mt-1">
+              Manage your service offerings
+            </p>
+          </div>
+          <Skeleton className="h-9 w-32" />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <Skeleton className="h-6 w-32 mb-2" />
+                    <Skeleton className="h-4 w-48" />
+                  </div>
+                  <Skeleton className="h-6 w-16" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-12" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-14" />
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <Skeleton className="h-8 flex-1" />
+                  <Skeleton className="h-8 w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (servicesQuery === null) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold">Services</h2>
+          <p className="text-muted-foreground mt-1">
+            Manage your service offerings
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Unable to load services
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              There was an error loading the services. Please try again later.
+            </p>
+            <Button onClick={() => window.location.reload()}>Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const services = servicesQuery;
 
   const getPopularityColor = (popularity: string) => {
     switch (popularity) {

@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
+import { useAuthActions } from "@convex-dev/auth/react";
 import {
   LayoutDashboard,
   Calendar,
   Car,
   User,
   Star,
+  FileText,
   LogOut,
 } from "lucide-react";
 import {
@@ -32,9 +34,9 @@ const menuItems = [
     href: "/dashboard",
   },
   {
-    title: "My Bookings",
+    title: "My Appointments",
     icon: Calendar,
-    href: "/dashboard/bookings",
+    href: "/dashboard/appointments",
   },
   {
     title: "My Vehicles",
@@ -47,6 +49,11 @@ const menuItems = [
     href: "/dashboard/reviews",
   },
   {
+    title: "My Invoices",
+    icon: FileText,
+    href: "/dashboard/invoices",
+  },
+  {
     title: "Profile",
     icon: User,
     href: "/dashboard/profile",
@@ -55,6 +62,14 @@ const menuItems = [
 
 export default function DashboardSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { signOut } = useAuthActions();
+
+  const handleSignOut = () => {
+    void signOut().then(() => {
+      router.push("/");
+    });
+  };
 
   return (
     <Sidebar>
@@ -102,7 +117,12 @@ export default function DashboardSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-4">
-        <Button variant="ghost" className="w-full justify-start" size="sm">
+        <Button
+          variant="ghost"
+          className="w-full justify-start"
+          size="sm"
+          onClick={handleSignOut}
+        >
           <LogOut className="w-4 h-4 mr-2" />
           Sign Out
         </Button>

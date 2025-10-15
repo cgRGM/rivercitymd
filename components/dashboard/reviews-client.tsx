@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { preloadedQueryResult } from "convex/nextjs";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -13,7 +12,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Star, Calendar, Plus } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Star, Calendar, Plus, AlertCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -84,10 +84,8 @@ type Review = {
   appointment: Appointment;
 };
 
-interface ReviewsClientProps {
-  reviewsPreloaded: ReturnType<typeof preloadedQueryResult>;
-  pendingPreloaded: ReturnType<typeof preloadedQueryResult>;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface ReviewsClientProps {}
 
 function StarRating({
   rating,
@@ -117,12 +115,9 @@ function StarRating({
   );
 }
 
-export default function ReviewsClient({
-  reviewsPreloaded,
-  pendingPreloaded,
-}: ReviewsClientProps) {
-  const reviews = preloadedQueryResult(reviewsPreloaded);
-  const pendingReviews = preloadedQueryResult(pendingPreloaded);
+export default function ReviewsClient({}: ReviewsClientProps) {
+  const reviewsQuery = useQuery(api.reviews.getUserReviewsWithDetails);
+  const pendingReviewsQuery = useQuery(api.reviews.getPendingReviews);
 
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] =
@@ -131,6 +126,109 @@ export default function ReviewsClient({
   const [reviewComment, setReviewComment] = useState("");
 
   const submitReview = useMutation(api.reviews.submit);
+
+  // Handle loading state
+  if (reviewsQuery === undefined || pendingReviewsQuery === undefined) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Reviews</h2>
+          <p className="text-muted-foreground mt-1">
+            View your service reviews and leave feedback
+          </p>
+        </div>
+
+        <div className="space-y-6">
+          {/* Pending Reviews Skeleton */}
+          <Card>
+            <CardHeader>
+              <Skeleton className="h-6 w-40 mb-2" />
+              <Skeleton className="h-4 w-64" />
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <Card key={i}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <Skeleton className="h-5 w-32 mb-1" />
+                          <Skeleton className="h-4 w-24" />
+                        </div>
+                        <Skeleton className="h-6 w-16" />
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <Skeleton className="h-20 w-full" />
+                      <div className="flex gap-2 mt-4">
+                        <Skeleton className="h-8 flex-1" />
+                        <Skeleton className="h-8 flex-1" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Past Reviews Skeleton */}
+          <Card>
+            <CardHeader>
+              <Skeleton className="h-6 w-32 mb-2" />
+              <Skeleton className="h-4 w-48" />
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex gap-4">
+                    <Skeleton className="w-12 h-12 rounded-full shrink-0" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-16" />
+                      </div>
+                      <Skeleton className="h-16 w-full mb-2" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (reviewsQuery === null || pendingReviewsQuery === null) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Reviews</h2>
+          <p className="text-muted-foreground mt-1">
+            View your service reviews and leave feedback
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Unable to load reviews
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              There was an error loading your reviews. Please try again later.
+            </p>
+            <Button onClick={() => window.location.reload()}>Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const reviews = reviewsQuery;
+  const pendingReviews = pendingReviewsQuery;
 
   const handleSubmitReview = async () => {
     if (!selectedAppointment) return;

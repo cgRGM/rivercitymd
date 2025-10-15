@@ -1,6 +1,6 @@
 "use client";
 
-import { Preloaded, usePreloadedQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   Card,
@@ -19,17 +19,19 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-type Props = {
-  statsPreloaded: Preloaded<typeof api.analytics.getMonthlyStats>;
-  appointmentsPreloaded: Preloaded<typeof api.appointments.getUpcoming>;
-};
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type Props = {};
 
-export default function DashboardClient({
-  statsPreloaded,
-  appointmentsPreloaded,
-}: Props) {
-  const stats = usePreloadedQuery(statsPreloaded);
-  const upcomingAppointments = usePreloadedQuery(appointmentsPreloaded);
+export default function DashboardClient({}: Props) {
+  const stats = useQuery(api.analytics.getMonthlyStats) || {
+    totalRevenue: 0,
+    revenueChange: "0",
+    bookingsCount: 0,
+    bookingsChange: "0",
+    activeCustomers: 0,
+    avgServiceTime: "0",
+  };
+  const upcomingAppointments = useQuery(api.appointments.getUpcoming) || [];
 
   const statsData = [
     {

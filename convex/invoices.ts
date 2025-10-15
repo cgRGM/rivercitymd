@@ -157,7 +157,6 @@ export const listWithDetails = query({
     const enrichedInvoices = await Promise.all(
       invoices.map(async (invoice) => {
         const user = await ctx.db.get(invoice.userId);
-        const appointment = await ctx.db.get(invoice.appointmentId);
 
         return {
           ...invoice,
@@ -170,6 +169,44 @@ export const listWithDetails = query({
     );
 
     return enrichedInvoices.sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+  },
+});
+
+// Get invoices for the current user
+export const getUserInvoices = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const invoices = await ctx.db
+      .query("invoices")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    // Enrich with appointment details
+    const enrichedInvoices = await Promise.all(
+      invoices.map(async (invoice) => {
+        const appointment = await ctx.db.get(invoice.appointmentId);
+        const services = appointment
+          ? await Promise.all(
+              appointment.serviceIds.map((id) => ctx.db.get(id)),
+            )
+          : [];
+
+        return {
+          ...invoice,
+          appointment: appointment
+            ? {
+                ...appointment,
+                services: services.filter((s) => s !== null),
+              }
+            : null,
+        };
+      }),
+    );
+
+    return enrichedInvoices.sort((a, b) => b._creationTime - a._creationTime);
   },
 });
 
