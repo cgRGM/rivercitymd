@@ -105,6 +105,31 @@ export const update = mutation({
   },
 });
 
+// Delete a service
+export const deleteService = mutation({
+  args: {
+    serviceId: v.id("services"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    // Check if service is being used in any appointments
+    const appointments = await ctx.db.query("appointments").collect();
+    const isUsed = appointments.some(
+      (apt) =>
+        apt.serviceIds.includes(args.serviceId) && apt.status !== "cancelled",
+    );
+
+    if (isUsed) {
+      throw new Error("Cannot delete service that is currently booked");
+    }
+
+    await ctx.db.delete(args.serviceId);
+    return { success: true };
+  },
+});
+
 // Get services with booking statistics and popularity
 export const listWithBookingStats = query({
   args: {},

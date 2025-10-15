@@ -41,7 +41,7 @@ function RedirectToSignIn() {
   const router = useRouter();
 
   useEffect(() => {
-    router.push("/admin/sign-in");
+    router.push("/sign-in");
   }, [router]);
 
   return (
