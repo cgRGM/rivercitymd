@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { api } from "./_generated/api";
 
 // Get all users (admin only)
 export const list = query({
@@ -489,5 +490,149 @@ export const listWithStats = query({
     return usersWithStats.sort((a, b) =>
       (b.name || "").localeCompare(a.name || ""),
     );
+  },
+});
+
+// Create user account with appointment (for marketing site signups)
+export const createUserWithAppointment = mutation({
+  args: {
+    name: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    password: v.string(),
+    address: v.object({
+      street: v.string(),
+      city: v.string(),
+      state: v.string(),
+      zip: v.string(),
+    }),
+    vehicles: v.array(
+      v.object({
+        year: v.number(),
+        make: v.string(),
+        model: v.string(),
+        color: v.optional(v.string()),
+        licensePlate: v.optional(v.string()),
+      }),
+    ),
+    serviceIds: v.array(v.id("services")),
+    scheduledDate: v.string(),
+    scheduledTime: v.string(),
+    locationNotes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Check if user already exists
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", args.email))
+      .first();
+
+    if (existingUser) {
+      throw new Error(
+        "An account with this email already exists. Please sign in instead.",
+      );
+    }
+
+    // Create the user account
+    const userId = await ctx.db.insert("users", {
+      name: args.name,
+      email: args.email,
+      phone: args.phone,
+      address: args.address,
+      role: "client",
+      timesServiced: 0,
+      totalSpent: 0,
+      status: "active",
+      cancellationCount: 0,
+    });
+
+    // Create vehicles
+    const vehicleIds: string[] = [];
+    for (const vehicle of args.vehicles) {
+      const vehicleId = await ctx.db.insert("vehicles", {
+        userId,
+        year: vehicle.year,
+        make: vehicle.make,
+        model: vehicle.model,
+        color: vehicle.color,
+        licensePlate: vehicle.licensePlate,
+      });
+      vehicleIds.push(vehicleId);
+    }
+
+    // Calculate appointment details
+    const services = await Promise.all(
+      args.serviceIds.map((id) => ctx.db.get(id)),
+    );
+    const validServices = services.filter((s) => s !== null);
+
+    const totalPrice =
+      validServices.reduce(
+        (sum, service) => sum + (service!.basePrice || 0),
+        0,
+      ) * vehicleIds.length;
+
+    const duration = validServices.reduce(
+      (sum, service) => sum + (service!.duration || 0),
+      0,
+    );
+
+    // Create appointment
+    const appointmentId = await ctx.db.insert("appointments", {
+      userId,
+      vehicleIds: vehicleIds as any,
+      serviceIds: args.serviceIds,
+      scheduledDate: args.scheduledDate,
+      scheduledTime: args.scheduledTime,
+      duration,
+      location: {
+        street: args.address.street,
+        city: args.address.city,
+        state: args.address.state,
+        zip: args.address.zip,
+        notes: args.locationNotes,
+      },
+      status: "pending",
+      totalPrice,
+      notes: "Created via marketing site booking",
+      createdBy: userId,
+    });
+
+    // Create invoice
+    const invoiceCount = (await ctx.db.query("invoices").collect()).length;
+    const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
+
+    const items = validServices.map((service) => ({
+      serviceId: service!._id,
+      serviceName: service!.name,
+      quantity: vehicleIds.length,
+      unitPrice: service!.basePrice,
+      totalPrice: service!.basePrice * vehicleIds.length,
+    }));
+
+    const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const tax = 0;
+    const total = subtotal + tax;
+
+    const appointmentDate = new Date(args.scheduledDate);
+    const dueDate = new Date(
+      appointmentDate.setDate(appointmentDate.getDate() + 30),
+    );
+    const dueDateString = dueDate.toISOString().split("T")[0];
+
+    await ctx.db.insert("invoices", {
+      appointmentId,
+      userId,
+      invoiceNumber,
+      items,
+      subtotal,
+      tax,
+      total,
+      status: "draft",
+      dueDate: dueDateString,
+      notes: `Invoice for appointment on ${args.scheduledDate}`,
+    });
+
+    return { userId, appointmentId };
   },
 });

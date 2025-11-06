@@ -7,6 +7,7 @@ export type CartItem = {
   name: string;
   price: number;
   type: "service" | "addon";
+  serviceId?: string;
 };
 
 type CartContextType = {
@@ -15,10 +16,12 @@ type CartContextType = {
     name: string;
     price: number;
     type: "service" | "addon";
+    serviceId?: string;
   }) => void;
   removeFromCart: (id: string) => void;
   clearCart: () => void;
   cartTotal: number;
+  getServiceIds: () => string[];
 };
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -30,12 +33,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     name: string;
     price: number;
     type: "service" | "addon";
+    serviceId?: string;
   }) => {
     const newItem: CartItem = {
       id: `${item.type}-${item.name}-${Date.now()}`,
       name: item.name,
       price: item.price,
       type: item.type,
+      serviceId: item.serviceId,
     };
     setCart([...cart, newItem]);
   };
@@ -50,9 +55,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const cartTotal = cart.reduce((sum, item) => sum + item.price, 0);
 
+  const getServiceIds = () => {
+    return cart
+      .filter((item) => item.type === "service" && item.serviceId)
+      .map((item) => item.serviceId!)
+      .filter((id, index, arr) => arr.indexOf(id) === index); // Remove duplicates
+  };
+
   return (
     <CartContext.Provider
-      value={{ cart, addToCart, removeFromCart, clearCart, cartTotal }}
+      value={{
+        cart,
+        addToCart,
+        removeFromCart,
+        clearCart,
+        cartTotal,
+        getServiceIds,
+      }}
     >
       {children}
     </CartContext.Provider>

@@ -78,8 +78,8 @@ export default function DashboardClient() {
             <p className="text-muted-foreground mb-6">
               Please sign in to access your dashboard.
             </p>
-            <Button onClick={() => (window.location.href = "/sign-in")}>
-              Sign In
+            <Button asChild>
+              <a href="/sign-in">Sign In</a>
             </Button>
           </CardContent>
         </Card>

@@ -33,7 +33,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import AppointmentModal from "@/components/home/appointment-modal";
+import { DashboardAppointmentForm } from "@/components/forms/dashboard/dashboard-appointment-form";
 import { toast } from "sonner";
 
 type Service = {
@@ -89,12 +89,12 @@ interface AppointmentsClientProps {}
 
 export default function AppointmentsClient({}: AppointmentsClientProps) {
   const { isAuthenticated } = useConvexAuth();
-  const appointmentsData = useQuery(api.appointments.getUserAppointments);
   const [isAppointmentOpen, setIsAppointmentOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] =
     useState<Appointment | null>(null);
 
+  const appointmentsData = useQuery(api.appointments.getUserAppointments);
   const updateStatus = useMutation(api.appointments.updateStatus);
 
   // Handle unauthenticated state
@@ -497,7 +497,7 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
         </TabsContent>
       </Tabs>
 
-      <AppointmentModal
+      <DashboardAppointmentForm
         open={isAppointmentOpen}
         onOpenChange={setIsAppointmentOpen}
       />

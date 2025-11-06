@@ -23,10 +23,13 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import AppointmentModal from "./appointment-modal";
 
 export default function Navbar() {
-  const { cart, removeFromCart, cartTotal } = useCart();
+  const { cart, removeFromCart, cartTotal, clearCart, getServiceIds } =
+    useCart();
   const [cartOpen, setCartOpen] = useState(false);
+  const [appointmentOpen, setAppointmentOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("home");
 
   useEffect(() => {
@@ -160,15 +163,16 @@ export default function Navbar() {
                               ${cartTotal.toFixed(2)}
                             </p>
                           </div>
-                          <Link href="#pricing">
-                            <Button
-                              className="w-full"
-                              size="lg"
-                              onClick={() => setCartOpen(false)}
-                            >
-                              Continue Shopping
-                            </Button>
-                          </Link>
+                          <Button
+                            className="w-full"
+                            size="lg"
+                            onClick={() => {
+                              setCartOpen(false);
+                              setAppointmentOpen(true);
+                            }}
+                          >
+                            Start Quote
+                          </Button>
                         </div>
                       </>
                     )}
@@ -244,15 +248,16 @@ export default function Navbar() {
                               ${cartTotal.toFixed(2)}
                             </p>
                           </div>
-                          <Link href="#pricing">
-                            <Button
-                              className="w-full"
-                              size="lg"
-                              onClick={() => setCartOpen(false)}
-                            >
-                              Continue Shopping
-                            </Button>
-                          </Link>
+                          <Button
+                            className="w-full"
+                            size="lg"
+                            onClick={() => {
+                              setCartOpen(false);
+                              setAppointmentOpen(true);
+                            }}
+                          >
+                            Start Quote
+                          </Button>
                         </div>
                       </>
                     )}
@@ -271,6 +276,13 @@ export default function Navbar() {
           </div>
         </div>
       </nav>
+
+      <AppointmentModal
+        open={appointmentOpen}
+        onOpenChange={setAppointmentOpen}
+        preselectedServices={getServiceIds()}
+        onSuccess={() => clearCart()}
+      />
 
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-lg border-t border-border pb-safe">
         <div className="grid grid-cols-5 h-16">

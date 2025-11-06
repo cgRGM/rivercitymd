@@ -23,7 +23,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
-// import { AddAppointmentForm } from "@/components/forms"; // TODO: Fix form
+import { AddAppointmentForm } from "@/components/forms";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
@@ -35,7 +35,7 @@ export default function AppointmentsClient({}: Props) {
 
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<Id<"appointments"> | null>(null);
-  // const [showAddForm, setShowAddForm] = useState(false); // TODO: Re-enable when form is fixed
+  const [showAddForm, setShowAddForm] = useState(false);
 
   // Handle loading state
   if (appointmentsQuery === undefined) {
@@ -195,11 +195,10 @@ export default function AppointmentsClient({}: Props) {
             Manage your appointments and schedule
           </p>
         </div>
-        {/* TODO: Re-enable when AddAppointmentForm is fixed */}
-        {/* <Button onClick={() => setShowAddForm(true)}>
+        <Button onClick={() => setShowAddForm(true)}>
           <Plus className="w-4 h-4 mr-2" />
           New Appointment
-        </Button> */}
+        </Button>
       </div>
 
       {/* Status Filters */}
@@ -425,8 +424,7 @@ export default function AppointmentsClient({}: Props) {
         </div>
       )}
 
-      {/* TODO: Fix AddAppointmentForm to match new schema */}
-      {/* <AddAppointmentForm open={showAddForm} onOpenChange={setShowAddForm} /> */}
+      <AddAppointmentForm open={showAddForm} onOpenChange={setShowAddForm} />
     </div>
   );
 }
