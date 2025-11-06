@@ -15,6 +15,7 @@ import { Plus, Edit, Trash2, AlertCircle, Check } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AddServiceForm } from "@/components/forms";
+import { AddAddonForm } from "@/components/admin/forms/add-addon-form";
 import { EditServiceForm } from "@/components/forms/admin/edit-service-form";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -25,7 +26,7 @@ export default function ServicesClient({}: Props) {
   const servicesQuery = useQuery(api.services.listWithBookingStats);
   const deleteService = useMutation(api.services.deleteService);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addOnMode, setAddOnMode] = useState(false);
+  const [showAddAddonForm, setShowAddAddonForm] = useState(false);
   const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -154,22 +155,11 @@ export default function ServicesClient({}: Props) {
           <p className="text-muted-foreground">Manage your service offerings</p>
         </div>
         <div className="flex gap-2">
-          <Button
-            onClick={() => {
-              setAddOnMode(false);
-              setShowAddForm(true);
-            }}
-          >
+          <Button onClick={() => setShowAddForm(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Create Service
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setAddOnMode(true);
-              setShowAddForm(true);
-            }}
-          >
+          <Button variant="outline" onClick={() => setShowAddAddonForm(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Create Add-on
           </Button>
@@ -330,10 +320,10 @@ export default function ServicesClient({}: Props) {
         ))}
       </div>
 
-      <AddServiceForm
-        open={showAddForm}
-        onOpenChange={setShowAddForm}
-        addOnMode={addOnMode}
+      <AddServiceForm open={showAddForm} onOpenChange={setShowAddForm} />
+      <AddAddonForm
+        open={showAddAddonForm}
+        onOpenChange={setShowAddAddonForm}
       />
       <EditServiceForm
         serviceId={editingId}

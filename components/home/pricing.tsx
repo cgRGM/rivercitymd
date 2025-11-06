@@ -257,12 +257,12 @@ export function PricingSection() {
             </motion.div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
               {addOns.map((addon, index) => {
-                const price =
-                  selectedSize === "small"
-                    ? addon.basePriceSmall
-                    : selectedSize === "medium"
-                      ? addon.basePriceMedium
-                      : addon.basePriceLarge;
+                // For add-ons, check if it's a single price or price range
+                const isPriceRange =
+                  addon.basePriceMedium && addon.basePriceMedium > 0;
+                const displayPrice = isPriceRange
+                  ? `$${addon.basePriceSmall?.toFixed(2)} - $${addon.basePriceMedium?.toFixed(2)}`
+                  : `$${addon.basePriceSmall?.toFixed(2) || "N/A"}`;
 
                 return (
                   <motion.div
@@ -283,7 +283,7 @@ export function PricingSection() {
                         </CardDescription>
                         <div className="mt-3">
                           <span className="text-2xl font-bold">
-                            ${price?.toFixed(2) || "N/A"}
+                            {displayPrice}
                           </span>
                         </div>
                       </CardHeader>
@@ -312,7 +312,7 @@ export function PricingSection() {
                           onClick={() =>
                             addToCart({
                               name: addon.name,
-                              price: price || 0,
+                              price: addon.basePriceSmall || 0,
                               type: "addon",
                               serviceId: addon._id,
                             })
