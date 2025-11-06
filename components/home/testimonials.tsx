@@ -107,7 +107,7 @@ export default function TestimonialsSection() {
             <div className="text-sm text-muted-foreground">Happy Customers</div>
           </div>
           <div className="text-center">
-            <div className="text-4xl font-bold text-accent mb-2">4.9★</div>
+            <div className="text-4xl font-bold text-accent mb-2">5.0★</div>
             <div className="text-sm text-muted-foreground">Average Rating</div>
           </div>
           <div className="text-center">
