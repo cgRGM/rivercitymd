@@ -2,6 +2,19 @@ import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
 import { query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import Stripe from "stripe";
+
+// Initialize Stripe with environment variable
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  throw new Error(
+    "STRIPE_SECRET_KEY environment variable is not set. Please set it in your Convex environment.",
+  );
+}
+
+const stripe = new Stripe(stripeSecretKey, {
+  apiVersion: "2025-10-29.clover",
+});
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
@@ -25,15 +38,35 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       const user = await ctx.db.get(userId);
       if (!user) return;
 
-      // Set default role to "client" if not set
-      if (!user.role) {
-        await ctx.db.patch(userId, {
-          role: "client",
-          timesServiced: 0,
-          totalSpent: 0,
-          status: "active",
+      // Create Stripe customer for new users
+      let stripeCustomerId: string | undefined;
+      try {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: user.name,
+          metadata: {
+            convexUserId: userId,
+          },
         });
+        stripeCustomerId = customer.id;
+      } catch (error) {
+        console.error("Failed to create Stripe customer:", error);
+        // Continue with user creation even if Stripe customer creation fails
       }
+
+      // Set default role and Stripe customer ID
+      const updateData: any = {
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      };
+
+      if (stripeCustomerId) {
+        updateData.stripeCustomerId = stripeCustomerId;
+      }
+
+      await ctx.db.patch(userId, updateData);
     },
   },
 });
