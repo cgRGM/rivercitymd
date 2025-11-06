@@ -95,7 +95,7 @@ export default function HeroSection() {
               </div>
 
               <div className="absolute -top-6 -right-6 bg-card p-6 rounded-2xl shadow-xl border border-border animate-fade-in">
-                <div className="text-3xl font-bold text-accent">4.9★</div>
+                <div className="text-3xl font-bold text-accent">5.0★</div>
                 <div className="text-sm text-muted-foreground">
                   Average Rating
                 </div>

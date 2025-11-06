@@ -28,6 +28,8 @@ const schema = defineSchema({
     status: v.optional(v.union(v.literal("active"), v.literal("inactive"))),
     cancellationCount: v.optional(v.number()),
     notes: v.optional(v.string()),
+    // Payment fields
+    stripeCustomerId: v.optional(v.string()),
   }).index("email", ["email"]),
 
   // Business Information
@@ -109,6 +111,17 @@ const schema = defineSchema({
     .index("by_date", ["scheduledDate"])
     .index("by_status", ["status"]),
 
+  // Payment Methods
+  paymentMethods: defineTable({
+    userId: v.id("users"),
+    stripePaymentMethodId: v.string(),
+    type: v.union(v.literal("card"), v.literal("bank_account")),
+    last4: v.string(),
+    brand: v.optional(v.string()), // For cards
+    isDefault: v.boolean(),
+    createdAt: v.string(),
+  }).index("by_user", ["userId"]),
+
   // Invoices
   invoices: defineTable({
     appointmentId: v.id("appointments"),
@@ -134,6 +147,8 @@ const schema = defineSchema({
     ),
     dueDate: v.string(),
     paidDate: v.optional(v.string()),
+    stripePaymentIntentId: v.optional(v.string()),
+    paymentMethodId: v.optional(v.id("paymentMethods")),
     notes: v.optional(v.string()),
   })
     .index("by_user", ["userId"])

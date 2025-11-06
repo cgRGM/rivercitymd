@@ -21,6 +21,7 @@ import type * as business from "../business.js";
 import type * as chat from "../chat.js";
 import type * as http from "../http.js";
 import type * as invoices from "../invoices.js";
+import type * as payments from "../payments.js";
 import type * as reviews from "../reviews.js";
 import type * as services from "../services.js";
 import type * as users from "../users.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   chat: typeof chat;
   http: typeof http;
   invoices: typeof invoices;
+  payments: typeof payments;
   reviews: typeof reviews;
   services: typeof services;
   users: typeof users;
