@@ -36,6 +36,9 @@ export const create = mutation({
     year: v.number(),
     make: v.string(),
     model: v.string(),
+    size: v.optional(
+      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+    ),
     color: v.optional(v.string()),
     licensePlate: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -55,6 +58,7 @@ export const create = mutation({
       year: args.year,
       make: args.make,
       model: args.model,
+      size: args.size,
       color: args.color,
       licensePlate: args.licensePlate,
       notes: args.notes,

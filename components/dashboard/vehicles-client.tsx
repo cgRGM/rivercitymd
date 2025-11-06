@@ -60,6 +60,7 @@ export default function VehiclesClient({}: VehiclesClientProps) {
     year: "",
     make: "",
     model: "",
+    size: "medium" as "small" | "medium" | "large",
     color: "",
     licensePlate: "",
     notes: "",
@@ -207,6 +208,7 @@ export default function VehiclesClient({}: VehiclesClientProps) {
         year: parseInt(formData.year),
         make: formData.make,
         model: formData.model,
+        size: formData.size,
         color: formData.color || undefined,
         licensePlate: formData.licensePlate || undefined,
         notes: formData.notes || undefined,
@@ -218,6 +220,7 @@ export default function VehiclesClient({}: VehiclesClientProps) {
         year: "",
         make: "",
         model: "",
+        size: "medium",
         color: "",
         licensePlate: "",
         notes: "",
@@ -294,6 +297,24 @@ export default function VehiclesClient({}: VehiclesClientProps) {
                     setFormData((prev) => ({ ...prev, model: e.target.value }))
                   }
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="size">Vehicle Size</Label>
+                <select
+                  id="size"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  value={formData.size}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      size: e.target.value as "small" | "medium" | "large",
+                    }))
+                  }
+                >
+                  <option value="small">Small / Compact</option>
+                  <option value="medium">Mid-Size SUV</option>
+                  <option value="large">Truck / Large</option>
+                </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="color">Color</Label>

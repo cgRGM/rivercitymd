@@ -55,6 +55,9 @@ const schema = defineSchema({
     year: v.number(),
     make: v.string(),
     model: v.string(),
+    size: v.optional(
+      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+    ),
     color: v.optional(v.string()),
     licensePlate: v.optional(v.string()),
     notes: v.optional(v.string()),
