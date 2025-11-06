@@ -12,15 +12,10 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 interface PaymentFormProps {
   invoiceId: Id<"invoices">;
-  onSuccess?: () => void;
   onCancel?: () => void;
 }
 
-export default function PaymentForm({
-  invoiceId,
-  onSuccess,
-  onCancel,
-}: PaymentFormProps) {
+export default function PaymentForm({ invoiceId, onCancel }: PaymentFormProps) {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const invoice = useQuery(api.invoices.getById, { invoiceId });
@@ -40,7 +35,7 @@ export default function PaymentForm({
       });
 
       window.location.href = url;
-    } catch (error) {
+    } catch {
       toast.error("Failed to create checkout session");
       setIsProcessing(false);
     }
