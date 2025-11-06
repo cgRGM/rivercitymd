@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -42,7 +43,17 @@ type Vehicle = {
 interface VehiclesClientProps {}
 
 export default function VehiclesClient({}: VehiclesClientProps) {
+  const { isAuthenticated } = useConvexAuth();
+
+  // Always call hooks at the top level - never conditionally
   const vehiclesQuery = useQuery(api.vehicles.getMyVehicles);
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const userAppointments =
+    useQuery(
+      api.appointments.getByUser,
+      currentUser?._id ? { userId: currentUser._id } : "skip",
+    ) || [];
+
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -56,16 +67,38 @@ export default function VehiclesClient({}: VehiclesClientProps) {
 
   const createVehicle = useMutation(api.vehicles.create);
   const deleteVehicle = useMutation(api.vehicles.deleteVehicle);
-  const currentUser = useQuery(api.users.getCurrentUser);
-  // Get appointment stats for each vehicle
-  const userAppointments =
-    useQuery(
-      api.appointments.getByUser,
-      currentUser?._id ? { userId: currentUser._id } : "skip",
-    ) || [];
+
+  // Handle unauthenticated state
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Vehicles</h2>
+          <p className="text-muted-foreground mt-1">
+            Manage your vehicle information and service history
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Authentication Required
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              Please sign in to manage your vehicles.
+            </p>
+            <Button onClick={() => (window.location.href = "/sign-in")}>
+              Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Handle loading state
-  if (vehiclesQuery === undefined) {
+  if (vehiclesQuery === undefined || currentUser === undefined) {
     return (
       <div className="space-y-8 animate-fade-in">
         <div className="flex items-center justify-between">
@@ -109,7 +142,7 @@ export default function VehiclesClient({}: VehiclesClientProps) {
   }
 
   // Handle error state
-  if (vehiclesQuery === null) {
+  if (vehiclesQuery === null || currentUser === null) {
     return (
       <div className="space-y-8 animate-fade-in">
         <div>

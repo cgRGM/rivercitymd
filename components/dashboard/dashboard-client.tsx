@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -51,10 +52,40 @@ type RawAppointment = {
 };
 
 export default function DashboardClient() {
+  const { isAuthenticated } = useConvexAuth();
   const upcomingAppointmentsQuery = useQuery(api.appointments.getUpcoming);
   const currentUserQuery = useQuery(api.users.getCurrentUser);
   const userVehiclesQuery = useQuery(api.vehicles.getMyVehicles);
   const userAppointmentsQuery = useQuery(api.appointments.getUserAppointments);
+
+  // Handle unauthenticated state
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">Dashboard</h2>
+          <p className="text-muted-foreground mt-1">
+            Access your dashboard and manage your appointments
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Authentication Required
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              Please sign in to access your dashboard.
+            </p>
+            <Button onClick={() => (window.location.href = "/sign-in")}>
+              Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Handle loading state
   if (

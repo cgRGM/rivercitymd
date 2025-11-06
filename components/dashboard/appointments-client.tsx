@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -87,6 +88,7 @@ type Appointment = {
 interface AppointmentsClientProps {}
 
 export default function AppointmentsClient({}: AppointmentsClientProps) {
+  const { isAuthenticated } = useConvexAuth();
   const appointmentsData = useQuery(api.appointments.getUserAppointments);
   const [isAppointmentOpen, setIsAppointmentOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
@@ -94,6 +96,35 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
     useState<Appointment | null>(null);
 
   const updateStatus = useMutation(api.appointments.updateStatus);
+
+  // Handle unauthenticated state
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Appointments</h2>
+          <p className="text-muted-foreground mt-1">
+            View and manage your service appointments
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Authentication Required
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              Please sign in to view your appointments.
+            </p>
+            <Button onClick={() => (window.location.href = "/sign-in")}>
+              Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Handle loading state
   if (appointmentsData === undefined) {

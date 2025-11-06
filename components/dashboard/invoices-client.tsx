@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import Image from "next/image";
@@ -212,8 +213,38 @@ function InvoiceModal({
 }
 
 export default function InvoicesClient() {
+  const { isAuthenticated } = useConvexAuth();
   const invoicesQuery = useQuery(api.invoices.getUserInvoices);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+
+  // Handle unauthenticated state
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Invoices</h2>
+          <p className="text-muted-foreground mt-1">
+            View and manage your service invoices
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Authentication Required
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              Please sign in to view your invoices.
+            </p>
+            <Button onClick={() => (window.location.href = "/sign-in")}>
+              Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Handle loading state
   if (invoicesQuery === undefined) {
