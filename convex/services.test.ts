@@ -40,7 +40,9 @@ describe("services", () => {
     const serviceId = await asAdmin.mutation(api.services.create, {
       name: "Interior Clean",
       description: "Basic interior cleaning",
-      basePrice: 40,
+      basePriceSmall: 35,
+      basePriceMedium: 40,
+      basePriceLarge: 45,
       duration: 60,
       categoryId,
     });
@@ -50,7 +52,9 @@ describe("services", () => {
       serviceId,
       name: "Premium Interior Detail",
       description: "Complete interior detailing service",
-      basePrice: 75,
+      basePriceSmall: 70,
+      basePriceMedium: 75,
+      basePriceLarge: 80,
       duration: 90,
       categoryId,
       isActive: true,
@@ -91,7 +95,9 @@ describe("services", () => {
     const serviceId = await asAdmin.mutation(api.services.create, {
       name: "Test Service",
       description: "Service for testing",
-      basePrice: 10,
+      basePriceSmall: 8,
+      basePriceMedium: 10,
+      basePriceLarge: 12,
       duration: 15,
       categoryId,
     });
@@ -153,7 +159,9 @@ describe("services", () => {
     const serviceId = await asAdmin.mutation(api.services.create, {
       name: "EV Detail",
       description: "Specialized electric vehicle detailing",
-      basePrice: 100,
+      basePriceSmall: 90,
+      basePriceMedium: 100,
+      basePriceLarge: 110,
       duration: 120,
       categoryId,
     });

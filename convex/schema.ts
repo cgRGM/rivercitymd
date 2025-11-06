@@ -78,6 +78,10 @@ const schema = defineSchema({
     categoryId: v.id("serviceCategories"),
     includedServiceIds: v.optional(v.array(v.id("services"))),
     isActive: v.boolean(),
+    // NEW FIELDS:
+    features: v.optional(v.array(v.string())), // Service features list
+    icon: v.optional(v.string()), // Emoji or icon identifier
+    stripeProductId: v.optional(v.string()), // Stripe product ID
   }).index("by_category", ["categoryId"]),
 
   // Appointments/Bookings

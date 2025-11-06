@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -40,7 +40,7 @@ import { X, Plus } from "lucide-react";
 const formSchema = z.object({
   name: z.string().min(1, "Service name is required"),
   description: z.string().min(1, "Description is required"),
-  categoryId: z.string().optional(),
+  categoryId: z.string().min(1, "Please select a category"),
   duration: z.number().min(1, "Duration must be at least 1 minute"),
   basePriceSmall: z.number().min(0, "Price must be non-negative"),
   basePriceMedium: z.number().min(0, "Price must be non-negative"),
@@ -48,42 +48,40 @@ const formSchema = z.object({
   features: z.array(z.string()).optional(),
   icon: z.string().optional(),
   includedServiceIds: z.array(z.string()).optional(),
+  isActive: z.boolean(),
 });
 
 type FormData = z.infer<typeof formSchema>;
 
-interface AddServiceFormProps {
+interface EditServiceFormProps {
+  serviceId: Id<"services"> | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  addOnMode?: boolean;
 }
 
-export function AddServiceForm({
+export function EditServiceForm({
+  serviceId,
   open,
   onOpenChange,
-  addOnMode = false,
-}: AddServiceFormProps) {
+}: EditServiceFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
   const categories = useQuery(api.services.listCategories);
   const allServices = useQuery(api.services.list);
-  const createService = useMutation(api.services.create);
-  const createStripeProduct = useMutation(api.services.createStripeProduct);
-
-  // Auto-select category based on mode
-  const defaultCategoryId = categories?.find((cat) =>
-    addOnMode
-      ? cat.name.toLowerCase().includes("add")
-      : cat.name.toLowerCase().includes("standard"),
-  )?._id;
+  const service = useQuery(
+    api.services.getById,
+    serviceId ? { serviceId } : "skip",
+  );
+  const updateService = useMutation(api.services.update);
+  const updateStripeProduct = useMutation(api.services.updateStripeProduct);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
       description: "",
-      categoryId: defaultCategoryId,
+      categoryId: "",
       duration: 60,
       basePriceSmall: 0,
       basePriceMedium: 0,
@@ -91,8 +89,62 @@ export function AddServiceForm({
       features: [],
       icon: "",
       includedServiceIds: [],
+      isActive: true,
     },
   });
+
+  // Update form when service data loads
+  React.useEffect(() => {
+    if (service) {
+      form.reset({
+        name: service.name,
+        description: service.description,
+        categoryId: service.categoryId,
+        duration: service.duration,
+        basePriceSmall: service.basePriceSmall || 0,
+        basePriceMedium: service.basePriceMedium || 0,
+        basePriceLarge: service.basePriceLarge || 0,
+        features: service.features || [],
+        icon: service.icon || "",
+        includedServiceIds: service.includedServiceIds?.map((id) => id) || [],
+        isActive: service.isActive,
+      });
+    }
+  }, [service, form]);
+
+  const onSubmit = async (data: FormData) => {
+    if (!serviceId) return;
+
+    setIsLoading(true);
+    try {
+      await updateService({
+        serviceId,
+        name: data.name,
+        description: data.description,
+        basePriceSmall: data.basePriceSmall,
+        basePriceMedium: data.basePriceMedium,
+        basePriceLarge: data.basePriceLarge,
+        duration: data.duration,
+        categoryId: data.categoryId as Id<"serviceCategories">,
+        includedServiceIds: data.includedServiceIds as Id<"services">[],
+        features: data.features,
+        icon: data.icon,
+        isActive: data.isActive,
+      });
+
+      // Update Stripe product if it exists
+      if (service?.stripeProductId) {
+        await updateStripeProduct({ serviceId });
+      }
+
+      toast.success("Service updated successfully");
+      onOpenChange(false);
+    } catch {
+      toast.error("Failed to update service");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const addFeature = () => {
     if (newFeature.trim()) {
@@ -110,54 +162,13 @@ export function AddServiceForm({
     );
   };
 
-  const onSubmit = async (data: FormData) => {
-    setIsLoading(true);
-    try {
-      const categoryId = data.categoryId || defaultCategoryId;
-      if (!categoryId) {
-        toast.error(
-          "No appropriate category found. Please ensure Standard and Add-on categories exist.",
-        );
-        return;
-      }
-
-      const serviceId = await createService({
-        name: data.name,
-        description: data.description,
-        basePriceSmall: data.basePriceSmall,
-        basePriceMedium: data.basePriceMedium,
-        basePriceLarge: data.basePriceLarge,
-        duration: data.duration,
-        categoryId: categoryId as Id<"serviceCategories">,
-        includedServiceIds: data.includedServiceIds as Id<"services">[],
-        features: data.features,
-        icon: data.icon,
-      });
-
-      // Create Stripe product
-      await createStripeProduct({ serviceId });
-
-      toast.success(`${addOnMode ? "Add-on" : "Service"} created successfully`);
-      form.reset({
-        ...form.getValues(),
-        categoryId: defaultCategoryId,
-      });
-      onOpenChange(false);
-    } catch {
-      toast.error(`Failed to create ${addOnMode ? "add-on" : "service"}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New {addOnMode ? "Add-on" : "Service"}</DialogTitle>
+          <DialogTitle>Edit Service</DialogTitle>
           <DialogDescription>
-            Create a new{" "}
-            {addOnMode ? "add-on" : "service offering with size-based pricing"}
+            Update service details and pricing
           </DialogDescription>
         </DialogHeader>
 
@@ -196,7 +207,21 @@ export function AddServiceForm({
                 )}
               />
 
-              {!addOnMode && (
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="icon"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Icon (Emoji)</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="🚗" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="categoryId"
@@ -224,7 +249,7 @@ export function AddServiceForm({
                     </FormItem>
                   )}
                 />
-              )}
+              </div>
 
               <FormField
                 control={form.control}
@@ -241,20 +266,6 @@ export function AddServiceForm({
                         }
                         value={field.value || ""}
                       />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="icon"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Icon (Emoji)</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="🚗" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -367,7 +378,7 @@ export function AddServiceForm({
               </div>
             </div>
 
-            {/* Included Services (Optional) */}
+            {/* Included Services */}
             <FormField
               control={form.control}
               name="includedServiceIds"
@@ -375,9 +386,9 @@ export function AddServiceForm({
                 <FormItem>
                   <FormLabel>Included Services (Optional)</FormLabel>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {allServices?.map((service) => (
+                    {allServices?.map((svc) => (
                       <FormField
-                        key={service._id}
+                        key={svc._id}
                         control={form.control}
                         name="includedServiceIds"
                         render={({ field }) => (
@@ -385,16 +396,14 @@ export function AddServiceForm({
                             <FormControl>
                               <input
                                 type="checkbox"
-                                checked={field.value?.includes(service._id)}
+                                checked={field.value?.includes(svc._id)}
                                 onChange={(checked) => {
                                   const current = field.value || [];
                                   if (checked.target.checked) {
-                                    field.onChange([...current, service._id]);
+                                    field.onChange([...current, svc._id]);
                                   } else {
                                     field.onChange(
-                                      current.filter(
-                                        (id) => id !== service._id,
-                                      ),
+                                      current.filter((id) => id !== svc._id),
                                     );
                                   }
                                 }}
@@ -402,7 +411,7 @@ export function AddServiceForm({
                               />
                             </FormControl>
                             <FormLabel className="text-sm font-normal">
-                              {service.name}
+                              {svc.name}
                             </FormLabel>
                           </FormItem>
                         )}
@@ -423,9 +432,7 @@ export function AddServiceForm({
                 Cancel
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading
-                  ? "Creating..."
-                  : `Create ${addOnMode ? "Add-on" : "Service"}`}
+                {isLoading ? "Updating..." : "Update Service"}
               </Button>
             </div>
           </form>

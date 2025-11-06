@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,126 +16,88 @@ import AppointmentModal from "@/components/home/appointment-modal";
 import { useCart } from "@/components/cart-provider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "motion/react";
-
-const mainServices = [
-  {
-    name: "Quick Clean",
-    icon: "🚿",
-    price: { small: 129.99, medium: 109.99, large: 119.99 },
-    duration: "1.5 HR",
-    description: "Perfect for regular maintenance",
-    features: [
-      "Interior Vacuum",
-      "Interior Wipe Down",
-      "Exterior Wash & Dry",
-      "Glass Clean",
-      "Wheels Wash & Dress",
-      "Quick Wax",
-    ],
-  },
-  {
-    name: "Interior Detail",
-    icon: "🚗",
-    price: { small: 174.99, medium: 124.99, large: 149.99 },
-    duration: "2 HR",
-    description: "Deep interior cleaning",
-    features: [
-      "Deep Vacuum",
-      "Interior Detail",
-      "Carpet Cleaning",
-      "Glass Clean",
-      "Interior Wipe Down",
-      "Door Jambs Clean",
-    ],
-  },
-  {
-    name: "Wash, Clay, Seal",
-    icon: "⭐",
-    price: { small: 174.99, medium: 124.99, large: 149.99 },
-    duration: "1.5-2 HR",
-    description: "Premium exterior treatment",
-    features: [
-      "Detailed Hand Wash",
-      "Bug Splatter Clean",
-      "Wheels Wash & Dress",
-      "Clay Bar Service",
-      "Micro Contaminants Removed",
-      "4-6 Month Ceramic Coating",
-    ],
-    popular: true,
-  },
-  {
-    name: "Full Detail",
-    icon: "👑",
-    price: { small: 249.99, medium: 199.99, large: 224.99 },
-    duration: "2.5-3 HR",
-    description: "Complete transformation",
-    features: [
-      "Exterior Wash",
-      "Hand Wash & Dry",
-      "Wheels Wash & Dress",
-      "Interior Detailing",
-      "Deep Vacuum",
-      "Quick Wax",
-    ],
-  },
-];
-
-const addOns = [
-  {
-    name: "1-Step Paint Correction",
-    price: { min: 300, max: 500 },
-    icon: "✨",
-    description: "Single stage paint enhancement",
-    features: [
-      "Paint Enhancement / Buff",
-      "Isopropyl Alcohol Wipe Down",
-      "Removes 60-80% Scratches & Swirls",
-    ],
-  },
-  {
-    name: "Wax",
-    price: 125,
-    icon: "🛡️",
-    description: "Premium protection layer",
-    features: [
-      "UV-Ray Protection",
-      "Pollutant Protection",
-      "Contaminant Protection",
-      "Hydrophobic Layer",
-    ],
-  },
-  {
-    name: "Trim Coating",
-    price: 75,
-    icon: "🎨",
-    description: "Protect exterior trim",
-    features: [
-      "UV-Ray Protection",
-      "Scratch & Swirl Resistance",
-      "Hydrophobic Properties",
-      "Chemical/Stain Resistant",
-    ],
-  },
-  {
-    name: "Headlight Restoration",
-    price: 75,
-    icon: "💡",
-    description: "Restore clarity and visibility",
-    features: [
-      "Dramatically Improves Visibility",
-      "Restores Clarity to Foggy Lenses",
-      "Boosts Resale Value",
-    ],
-  },
-];
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function PricingSection() {
+  // Fetch services from database
+  const servicesQuery = useQuery(api.services.listWithCategories);
+
+  // Transform services data for display
+  const mainServices =
+    servicesQuery?.filter(
+      (service) =>
+        service.categoryName === "Standard" ||
+        service.categoryName === "standard",
+    ) || [];
+
+  const addOns =
+    servicesQuery?.filter(
+      (service) =>
+        service.categoryName === "Add-on" ||
+        service.categoryName === "Addon" ||
+        service.categoryName === "add-on" ||
+        service.categoryName === "addon",
+    ) || [];
   const [selectedSize, setSelectedSize] = useState<
     "small" | "medium" | "large"
   >("medium");
   const [bookingOpen, setBookingOpen] = useState(false);
   const { addToCart } = useCart();
+
+  // Handle loading state
+  if (servicesQuery === undefined) {
+    return (
+      <section
+        id="pricing"
+        className="py-24 bg-gradient-to-b from-background to-secondary/20"
+      >
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <Skeleton className="h-12 w-96 mx-auto mb-4" />
+            <Skeleton className="h-6 w-80 mx-auto mb-8" />
+            <Skeleton className="h-12 w-64 mx-auto" />
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i}>
+                <CardHeader className="text-center pb-4">
+                  <Skeleton className="h-8 w-8 mx-auto mb-2" />
+                  <Skeleton className="h-6 w-32 mx-auto mb-2" />
+                  <Skeleton className="h-4 w-48 mx-auto mb-4" />
+                  <Skeleton className="h-8 w-24 mx-auto" />
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 mb-4">
+                    {Array.from({ length: 4 }).map((_, j) => (
+                      <Skeleton key={j} className="h-4 w-full" />
+                    ))}
+                  </div>
+                  <Skeleton className="h-10 w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Handle error state
+  if (servicesQuery === null) {
+    return (
+      <section
+        id="pricing"
+        className="py-24 bg-gradient-to-b from-background to-secondary/20"
+      >
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto">
+            <h2 className="text-4xl font-bold mb-4">Unable to load services</h2>
+            <p className="text-muted-foreground">Please try again later.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
@@ -199,71 +163,82 @@ export function PricingSection() {
               Main Services
             </motion.h3>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
-              {mainServices.map((service, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true, margin: "-50px" }}
-                  transition={{ duration: 0.4, delay: index * 0.1 }}
-                >
-                  <Card
-                    className={`relative hover:shadow-xl transition-all h-full ${
-                      service.popular
-                        ? "border-accent shadow-lg ring-2 ring-accent/20"
-                        : ""
-                    }`}
+              {mainServices.map((service, index) => {
+                const price =
+                  selectedSize === "small"
+                    ? service.basePriceSmall
+                    : selectedSize === "medium"
+                      ? service.basePriceMedium
+                      : service.basePriceLarge;
+
+                return (
+                  <motion.div
+                    key={service._id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    whileInView={{ opacity: 1, scale: 1 }}
+                    viewport={{ once: true, margin: "-50px" }}
+                    transition={{ duration: 0.4, delay: index * 0.1 }}
                   >
-                    {service.popular && (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-accent text-accent-foreground text-xs font-medium rounded-full">
-                        Most Popular
-                      </div>
-                    )}
-                    <CardHeader className="text-center pb-4">
-                      <div className="text-4xl mb-2">{service.icon}</div>
-                      <CardTitle className="text-xl">{service.name}</CardTitle>
-                      <CardDescription className="text-xs">
-                        {service.description}
-                      </CardDescription>
-                      <div className="mt-4">
-                        <span className="text-3xl font-bold">
-                          ${service.price[selectedSize]}
-                        </span>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {service.duration}
-                        </p>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <ul className="space-y-2">
-                        {service.features.map((feature, i) => (
-                          <li
-                            key={i}
-                            className="flex items-start gap-2 text-sm"
-                          >
-                            <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
-                            <span>{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      <Button
-                        className="w-full"
-                        variant={service.popular ? "default" : "outline"}
-                        onClick={() =>
-                          addToCart({
-                            name: service.name,
-                            price: service.price[selectedSize],
-                            type: "service",
-                          })
-                        }
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add to Cart
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
+                    <Card className="relative hover:shadow-xl transition-all h-full">
+                      <CardHeader className="text-center pb-4">
+                        {service.icon && (
+                          <div className="text-4xl mb-2">{service.icon}</div>
+                        )}
+                        <CardTitle className="text-xl">
+                          {service.name}
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          {service.description}
+                        </CardDescription>
+                        <div className="mt-4">
+                          <span className="text-3xl font-bold">
+                            ${price?.toFixed(2) || "N/A"}
+                          </span>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {Math.floor(service.duration / 60)}h{" "}
+                            {service.duration % 60}m
+                          </p>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {service.features && service.features.length > 0 && (
+                          <ul className="space-y-2">
+                            {service.features.slice(0, 4).map((feature, i) => (
+                              <li
+                                key={i}
+                                className="flex items-start gap-2 text-sm"
+                              >
+                                <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
+                                <span>{feature}</span>
+                              </li>
+                            ))}
+                            {service.features.length > 4 && (
+                              <li className="text-muted-foreground text-sm">
+                                +{service.features.length - 4} more features
+                              </li>
+                            )}
+                          </ul>
+                        )}
+                        <Button
+                          className="w-full"
+                          variant="outline"
+                          onClick={() =>
+                            addToCart({
+                              name: service.name,
+                              price: price || 0,
+                              type: "service",
+                              serviceId: service._id,
+                            })
+                          }
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add to Cart
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
 
@@ -281,66 +256,76 @@ export function PricingSection() {
               </p>
             </motion.div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
-              {addOns.map((addon, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-50px" }}
-                  transition={{ duration: 0.4, delay: index * 0.1 }}
-                >
-                  <Card className="hover:shadow-lg transition-shadow h-full">
-                    <CardHeader className="text-center pb-4">
-                      <div className="text-3xl mb-2">{addon.icon}</div>
-                      <CardTitle className="text-lg">{addon.name}</CardTitle>
-                      <CardDescription className="text-xs">
-                        {addon.description}
-                      </CardDescription>
-                      <div className="mt-3">
-                        {typeof addon.price === "number" ? (
-                          <span className="text-2xl font-bold">
-                            ${addon.price}
-                          </span>
-                        ) : (
-                          <span className="text-2xl font-bold">
-                            ${addon.price.min}-${addon.price.max}
-                          </span>
+              {addOns.map((addon, index) => {
+                const price =
+                  selectedSize === "small"
+                    ? addon.basePriceSmall
+                    : selectedSize === "medium"
+                      ? addon.basePriceMedium
+                      : addon.basePriceLarge;
+
+                return (
+                  <motion.div
+                    key={addon._id}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-50px" }}
+                    transition={{ duration: 0.4, delay: index * 0.1 }}
+                  >
+                    <Card className="hover:shadow-lg transition-shadow h-full">
+                      <CardHeader className="text-center pb-4">
+                        {addon.icon && (
+                          <div className="text-3xl mb-2">{addon.icon}</div>
                         )}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <ul className="space-y-2">
-                        {addon.features.map((feature, i) => (
-                          <li
-                            key={i}
-                            className="flex items-start gap-2 text-sm"
-                          >
-                            <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
-                            <span>{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      <Button
-                        className="w-full bg-transparent"
-                        variant="outline"
-                        onClick={() =>
-                          addToCart({
-                            name: addon.name,
-                            price:
-                              typeof addon.price === "number"
-                                ? addon.price
-                                : addon.price.min,
-                            type: "addon",
-                          })
-                        }
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add to Cart
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
+                        <CardTitle className="text-lg">{addon.name}</CardTitle>
+                        <CardDescription className="text-xs">
+                          {addon.description}
+                        </CardDescription>
+                        <div className="mt-3">
+                          <span className="text-2xl font-bold">
+                            ${price?.toFixed(2) || "N/A"}
+                          </span>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {addon.features && addon.features.length > 0 && (
+                          <ul className="space-y-2">
+                            {addon.features.slice(0, 3).map((feature, i) => (
+                              <li
+                                key={i}
+                                className="flex items-start gap-2 text-sm"
+                              >
+                                <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
+                                <span>{feature}</span>
+                              </li>
+                            ))}
+                            {addon.features.length > 3 && (
+                              <li className="text-muted-foreground text-sm">
+                                +{addon.features.length - 3} more features
+                              </li>
+                            )}
+                          </ul>
+                        )}
+                        <Button
+                          className="w-full bg-transparent"
+                          variant="outline"
+                          onClick={() =>
+                            addToCart({
+                              name: addon.name,
+                              price: price || 0,
+                              type: "addon",
+                              serviceId: addon._id,
+                            })
+                          }
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add to Cart
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
         </div>
