@@ -55,56 +55,6 @@ export const deleteInvoice = mutation({
   },
 });
 
-// Generate invoice from appointment
-export const generateFromAppointment = mutation({
-  args: {
-    appointmentId: v.id("appointments"),
-    dueDate: v.string(),
-    tax: v.optional(v.number()),
-    notes: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const appointment = await ctx.db.get(args.appointmentId);
-    if (!appointment) throw new Error("Appointment not found");
-
-    const services = await Promise.all(
-      appointment.serviceIds.map((id) => ctx.db.get(id)),
-    );
-    const validServices = services.filter((s) => s !== null);
-
-    const invoiceCount = (await ctx.db.query("invoices").collect()).length;
-    const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
-
-    const items = validServices.map((service) => ({
-      serviceId: service!._id,
-      serviceName: service!.name,
-      quantity: 1,
-      unitPrice: service!.basePrice,
-      totalPrice: service!.basePrice,
-    }));
-
-    const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-    const tax = args.tax || 0;
-    const total = subtotal + tax;
-
-    return await ctx.db.insert("invoices", {
-      appointmentId: args.appointmentId,
-      userId: appointment.userId,
-      invoiceNumber,
-      items,
-      subtotal,
-      tax,
-      total,
-      status: "draft",
-      dueDate: args.dueDate,
-      notes: args.notes,
-    });
-  },
-});
-
 // Update invoice status
 export const updateStatus = mutation({
   args: {

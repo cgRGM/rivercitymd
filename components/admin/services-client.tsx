@@ -126,7 +126,6 @@ export default function ServicesClient({}: Props) {
     );
   }
 
-  const services = servicesQuery;
   const categories = categoriesQuery;
 
   const handleDeleteService = async (serviceId: Id<"services">) => {
@@ -161,7 +160,7 @@ export default function ServicesClient({}: Props) {
           acc[category.name] = categoryServices;
           return acc;
         },
-        {} as Record<string, any[]>,
+        {} as Record<string, NonNullable<typeof servicesQuery>>,
       )
     : {
         "Standard Services": [],

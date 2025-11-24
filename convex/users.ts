@@ -511,6 +511,9 @@ export const createUserWithAppointment = mutation({
         year: v.number(),
         make: v.string(),
         model: v.string(),
+        size: v.optional(
+          v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+        ),
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
       }),
@@ -554,6 +557,7 @@ export const createUserWithAppointment = mutation({
         year: vehicle.year,
         make: vehicle.make,
         model: vehicle.model,
+        size: vehicle.size,
         color: vehicle.color,
         licensePlate: vehicle.licensePlate,
       });
@@ -566,11 +570,29 @@ export const createUserWithAppointment = mutation({
     );
     const validServices = services.filter((s) => s !== null);
 
+    // Calculate total price using size-based pricing
     const totalPrice =
-      validServices.reduce(
-        (sum, service) => sum + (service!.basePrice || 0),
-        0,
-      ) * vehicleIds.length;
+      validServices.reduce((sum, service) => {
+        // Get the price based on the first vehicle's size (assuming all vehicles are the same type)
+        const vehicleSize = args.vehicles[0]?.size || "medium";
+        let price = service!.basePriceMedium || service!.basePrice || 0; // fallback to medium or basePrice
+
+        if (vehicleSize === "small") {
+          price =
+            service!.basePriceSmall ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        } else if (vehicleSize === "large") {
+          price =
+            service!.basePriceLarge ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        }
+
+        return sum + price;
+      }, 0) * vehicleIds.length;
 
     const duration = validServices.reduce(
       (sum, service) => sum + (service!.duration || 0),

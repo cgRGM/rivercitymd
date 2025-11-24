@@ -97,11 +97,34 @@ export const create = mutation({
       throw new Error("One or more services not found");
     }
 
+    // Get vehicle sizes to calculate proper pricing
+    const vehicles = await Promise.all(
+      args.vehicleIds.map((id) => ctx.db.get(id)),
+    );
+    const validVehicles = vehicles.filter((v) => v !== null);
+
     const totalPrice =
-      validServices.reduce(
-        (sum, service) => sum + (service!.basePrice || 0),
-        0,
-      ) * args.vehicleIds.length;
+      validServices.reduce((sum, service) => {
+        // Use the first vehicle's size for pricing (assuming uniform pricing)
+        const vehicleSize = validVehicles[0]?.size || "medium";
+        let price = service!.basePriceMedium || service!.basePrice || 0;
+
+        if (vehicleSize === "small") {
+          price =
+            service!.basePriceSmall ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        } else if (vehicleSize === "large") {
+          price =
+            service!.basePriceLarge ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        }
+
+        return sum + price;
+      }, 0) * args.vehicleIds.length;
     const duration = validServices.reduce(
       (sum, service) => sum + (service!.duration || 0),
       0,
@@ -138,13 +161,32 @@ export const create = mutation({
     const invoiceCount = (await ctx.db.query("invoices").collect()).length;
     const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
-    const items = validServices.map((service) => ({
-      serviceId: service!._id,
-      serviceName: service!.name,
-      quantity: args.vehicleIds.length,
-      unitPrice: service!.basePrice,
-      totalPrice: service!.basePrice * args.vehicleIds.length,
-    }));
+    const items = validServices.map((service) => {
+      const vehicleSize = validVehicles[0]?.size || "medium";
+      let unitPrice = service!.basePriceMedium || service!.basePrice || 0;
+
+      if (vehicleSize === "small") {
+        unitPrice =
+          service!.basePriceSmall ||
+          service!.basePriceMedium ||
+          service!.basePrice ||
+          0;
+      } else if (vehicleSize === "large") {
+        unitPrice =
+          service!.basePriceLarge ||
+          service!.basePriceMedium ||
+          service!.basePrice ||
+          0;
+      }
+
+      return {
+        serviceId: service!._id,
+        serviceName: service!.name,
+        quantity: args.vehicleIds.length,
+        unitPrice,
+        totalPrice: unitPrice * args.vehicleIds.length,
+      };
+    });
 
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const tax = 0;
@@ -203,11 +245,33 @@ export const update = mutation({
       throw new Error("One or more services not found");
     }
 
+    // Get vehicle sizes to calculate proper pricing
+    const vehicles = await Promise.all(
+      updates.vehicleIds.map((id) => ctx.db.get(id)),
+    );
+    const validVehicles = vehicles.filter((v) => v !== null);
+
     const totalPrice =
-      validServices.reduce(
-        (sum, service) => sum + (service!.basePrice || 0),
-        0,
-      ) * updates.vehicleIds.length;
+      validServices.reduce((sum, service) => {
+        const vehicleSize = validVehicles[0]?.size || "medium";
+        let price = service!.basePriceMedium || service!.basePrice || 0;
+
+        if (vehicleSize === "small") {
+          price =
+            service!.basePriceSmall ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        } else if (vehicleSize === "large") {
+          price =
+            service!.basePriceLarge ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        }
+
+        return sum + price;
+      }, 0) * updates.vehicleIds.length;
     const duration = validServices.reduce(
       (sum, service) => sum + (service!.duration || 0),
       0,
@@ -237,13 +301,32 @@ export const update = mutation({
       .unique();
 
     if (invoice) {
-      const items = validServices.map((service) => ({
-        serviceId: service!._id,
-        serviceName: service!.name,
-        quantity: updates.vehicleIds.length,
-        unitPrice: service!.basePrice,
-        totalPrice: service!.basePrice * updates.vehicleIds.length,
-      }));
+      const items = validServices.map((service) => {
+        const vehicleSize = validVehicles[0]?.size || "medium";
+        let unitPrice = service!.basePriceMedium || service!.basePrice || 0;
+
+        if (vehicleSize === "small") {
+          unitPrice =
+            service!.basePriceSmall ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        } else if (vehicleSize === "large") {
+          unitPrice =
+            service!.basePriceLarge ||
+            service!.basePriceMedium ||
+            service!.basePrice ||
+            0;
+        }
+
+        return {
+          serviceId: service!._id,
+          serviceName: service!.name,
+          quantity: updates.vehicleIds.length,
+          unitPrice,
+          totalPrice: unitPrice * updates.vehicleIds.length,
+        };
+      });
 
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
       const total = subtotal + invoice.tax;

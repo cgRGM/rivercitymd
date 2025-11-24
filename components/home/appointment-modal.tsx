@@ -66,6 +66,7 @@ const step3Schema = z.object({
         model: z.string().min(1, "Model is required"),
         color: z.string().optional(),
         licensePlate: z.string().optional(),
+        size: z.enum(["small", "medium", "large"]).optional(),
       }),
     )
     .min(1, "Please add at least one vehicle"),
@@ -152,11 +153,28 @@ export default function AppointmentModal({
   });
 
   const addVehicle = () => {
+    const vehicleType = step3Form.getValues("vehicleType");
+    const size = getVehicleSize(vehicleType);
     const currentVehicles = step3Form.getValues("vehicles") || [];
     step3Form.setValue("vehicles", [
       ...currentVehicles,
-      { year: "", make: "", model: "", color: "", licensePlate: "" },
+      { year: "", make: "", model: "", color: "", licensePlate: "", size },
     ]);
+  };
+
+  const getVehicleSize = (
+    vehicleType: "car" | "truck" | "suv" | undefined,
+  ): "small" | "medium" | "large" => {
+    switch (vehicleType) {
+      case "car":
+        return "small";
+      case "truck":
+        return "large";
+      case "suv":
+        return "medium";
+      default:
+        return "medium"; // default fallback
+    }
   };
 
   const removeVehicle = (index: number) => {
@@ -214,6 +232,12 @@ export default function AppointmentModal({
     const isValid = await step5Form.trigger();
     if (!isValid) return;
 
+    // Validate that all required data is present
+    if (!step2Data?.phone) {
+      toast.error("Please go back and enter your phone number.");
+      return;
+    }
+
     setIsLoading(true);
     try {
       const finalData = {
@@ -251,9 +275,20 @@ export default function AppointmentModal({
       onSuccess?.();
       router.push("/dashboard");
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to create account",
-      );
+      // Provide more user-friendly error messages
+      let errorMessage = "Failed to create account";
+      if (error instanceof Error) {
+        if (error.message.includes("phone")) {
+          errorMessage = "Please enter a valid phone number";
+        } else if (error.message.includes("email")) {
+          errorMessage = "Please enter a valid email address";
+        } else if (error.message.includes("already exists")) {
+          errorMessage = "An account with this email already exists";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -475,7 +510,25 @@ export default function AppointmentModal({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Vehicle Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // Update size for all existing vehicles
+                        const size = getVehicleSize(
+                          value as "car" | "truck" | "suv",
+                        );
+                        const currentVehicles =
+                          step3Form.getValues("vehicles") || [];
+                        step3Form.setValue(
+                          "vehicles",
+                          currentVehicles.map((vehicle) => ({
+                            ...vehicle,
+                            size,
+                          })),
+                        );
+                      }}
+                      value={field.value}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select vehicle type" />
@@ -608,40 +661,65 @@ export default function AppointmentModal({
               <div className="space-y-4">
                 <h3 className="text-sm font-medium">Select Services</h3>
                 <div className="grid gap-3">
-                  {services?.map((service) => (
-                    <FormField
-                      key={service._id}
-                      control={step4Form.control}
-                      name="serviceIds"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center space-x-3">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value?.includes(service._id)}
-                              onCheckedChange={(checked) => {
-                                const current = field.value || [];
-                                if (checked) {
-                                  field.onChange([...current, service._id]);
-                                } else {
-                                  field.onChange(
-                                    current.filter((id) => id !== service._id),
-                                  );
-                                }
-                              }}
-                            />
-                          </FormControl>
-                          <div className="flex-1">
-                            <FormLabel className="text-sm font-normal cursor-pointer">
-                              <div className="font-medium">{service.name}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {service.description} • ${service.basePrice}
+                  {services
+                    ?.filter((service) => service.isActive)
+                    .map((service) => {
+                      // Get pricing based on the first vehicle's size
+                      const vehicleType = step3Data.vehicleType;
+                      const vehicleSize =
+                        vehicleType === "car"
+                          ? "small"
+                          : vehicleType === "suv"
+                            ? "medium"
+                            : "large";
+
+                      const price =
+                        vehicleSize === "small"
+                          ? service.basePriceSmall
+                          : vehicleSize === "medium"
+                            ? service.basePriceMedium
+                            : service.basePriceLarge;
+
+                      return (
+                        <FormField
+                          key={service._id}
+                          control={step4Form.control}
+                          name="serviceIds"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center space-x-3">
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value?.includes(service._id)}
+                                  onCheckedChange={(checked) => {
+                                    const current = field.value || [];
+                                    if (checked) {
+                                      field.onChange([...current, service._id]);
+                                    } else {
+                                      field.onChange(
+                                        current.filter(
+                                          (id) => id !== service._id,
+                                        ),
+                                      );
+                                    }
+                                  }}
+                                />
+                              </FormControl>
+                              <div className="flex-1">
+                                <FormLabel className="text-sm font-normal cursor-pointer">
+                                  <div className="font-medium">
+                                    {service.name}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {service.description} • $
+                                    {price?.toFixed(2) || "N/A"}
+                                  </div>
+                                </FormLabel>
                               </div>
-                            </FormLabel>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-                  ))}
+                            </FormItem>
+                          )}
+                        />
+                      );
+                    })}
                 </div>
                 <FormMessage />
               </div>

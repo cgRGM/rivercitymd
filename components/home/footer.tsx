@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Facebook, Instagram, Twitter } from "lucide-react";
+import { Facebook, Instagram } from "lucide-react";
 
 export function Footer() {
   const quickLinks = [
@@ -21,9 +21,16 @@ export function Footer() {
   const contactInfo = ["(501) 454-7140", "Little Rock, AR", "Mon-Sat: 7am-8pm"];
 
   const socialLinks = [
-    { href: "#", icon: Facebook, label: "Facebook" },
-    { href: "#", icon: Instagram, label: "Instagram" },
-    { href: "#", icon: Twitter, label: "Twitter" },
+    {
+      href: "https://www.facebook.com/profile.php?id=61577766790127",
+      icon: Facebook,
+      label: "Facebook",
+    },
+    {
+      href: "https://www.instagram.com/rivercitymobiledetails?igsh=MTliMml3YnpmNnlndw==",
+      icon: Instagram,
+      label: "Instagram",
+    },
   ];
 
   const legalLinks = [
@@ -38,7 +45,7 @@ export function Footer() {
           {/* Brand */}
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="relative w-10 h-10">
+              <div className="relative w-14 h-14">
                 <Image
                   src="/BoldRiverCityMobileDetailingLogo.png"
                   alt="River City Mobile Detail"
@@ -46,7 +53,6 @@ export function Footer() {
                   className="object-contain"
                 />
               </div>
-              <span className="font-bold text-lg">River City MD</span>
             </div>
             <p className="text-sm text-primary-foreground/80">
               Professional mobile car detailing services in Central Arkansas.
