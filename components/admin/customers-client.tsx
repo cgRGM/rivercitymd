@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Plus, Mail, Phone, MapPin, AlertCircle } from "lucide-react";
 import { useState } from "react";
-// import { AddCustomerForm } from "@/components/forms"; // TODO: Fix form
+import { AddCustomerForm } from "@/components/forms";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
@@ -16,7 +16,7 @@ type Props = {};
 export default function CustomersClient({}: Props) {
   const customersQuery = useQuery(api.users.listWithStats);
   const [searchQuery, setSearchQuery] = useState("");
-  // const [showAddForm, setShowAddForm] = useState(false); // TODO: Re-enable when form is fixed
+  const [showAddForm, setShowAddForm] = useState(false);
 
   // Handle loading state
   if (customersQuery === undefined) {
@@ -132,11 +132,10 @@ export default function CustomersClient({}: Props) {
             Manage your customer relationships
           </p>
         </div>
-        {/* TODO: Re-enable when AddCustomerForm is fixed */}
-        {/* <Button onClick={() => setShowAddForm(true)}>
+        <Button onClick={() => setShowAddForm(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Add Customer
-        </Button> */}
+        </Button>
       </div>
 
       {/* Search */}
@@ -254,8 +253,7 @@ export default function CustomersClient({}: Props) {
         </div>
       )}
 
-      {/* TODO: Fix AddCustomerForm to match new schema */}
-      {/* <AddCustomerForm open={showAddForm} onOpenChange={setShowAddForm} /> */}
+      <AddCustomerForm open={showAddForm} onOpenChange={setShowAddForm} />
     </div>
   );
 }

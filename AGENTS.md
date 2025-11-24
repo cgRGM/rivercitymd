@@ -1,11 +1,14 @@
 # Agent Guidelines for River City Mobile Detailing
 
+River City Mobile Detailing is a Next.js web app for managing a mobile car detailing business with customer dashboards, admin portals, and Stripe payments.
+
 ## Build/Lint/Test Commands
 
 - **Build**: `npm run build` (Next.js production build)
 - **Dev**: `npm run dev` (runs frontend and backend in parallel)
 - **Lint**: `npm run lint` (Next.js ESLint)
 - **Test**: `npm run test` (vitest), `npm run test:once` (single run), `npm run test:coverage` (with coverage)
+- **Single Test**: `npx vitest run <test-file>` (run specific test file)
 
 ## Code Style Guidelines
 

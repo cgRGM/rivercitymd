@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
@@ -56,34 +56,38 @@ interface AddServiceFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   addOnMode?: boolean;
+  defaultCategoryId?: string;
 }
 
 export function AddServiceForm({
   open,
   onOpenChange,
   addOnMode = false,
+  defaultCategoryId,
 }: AddServiceFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
   const categories = useQuery(api.services.listCategories);
   const allServices = useQuery(api.services.list);
-  const createService = useMutation(api.services.create);
-  const createStripeProduct = useMutation(api.services.createStripeProduct);
+  const createServiceWithStripe = useAction(
+    api.services.createServiceWithStripe,
+  );
 
-  // Auto-select category based on mode
-  const defaultCategoryId = categories?.find((cat) =>
+  // Use provided default category or auto-select based on mode
+  const autoSelectedCategoryId = categories?.find((cat) =>
     addOnMode
       ? cat.name.toLowerCase().includes("add")
       : cat.name.toLowerCase().includes("standard"),
   )?._id;
+  const finalDefaultCategoryId = defaultCategoryId || autoSelectedCategoryId;
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
       description: "",
-      categoryId: defaultCategoryId,
+      categoryId: finalDefaultCategoryId,
       duration: 60,
       basePriceSmall: 0,
       basePriceMedium: 0,
@@ -121,7 +125,7 @@ export function AddServiceForm({
         return;
       }
 
-      const serviceId = await createService({
+      await createServiceWithStripe({
         name: data.name,
         description: data.description,
         basePriceSmall: data.basePriceSmall,
@@ -134,13 +138,10 @@ export function AddServiceForm({
         icon: data.icon,
       });
 
-      // Create Stripe product
-      await createStripeProduct({ serviceId });
-
       toast.success(`${addOnMode ? "Add-on" : "Service"} created successfully`);
       form.reset({
         ...form.getValues(),
-        categoryId: defaultCategoryId,
+        categoryId: finalDefaultCategoryId,
       });
       onOpenChange(false);
     } catch {
@@ -196,35 +197,30 @@ export function AddServiceForm({
                 )}
               />
 
-              {!addOnMode && (
-                <FormField
-                  control={form.control}
-                  name="categoryId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Category</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a category" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {categories?.map((category) => (
-                            <SelectItem key={category._id} value={category._id}>
-                              {category.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
+              <FormField
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {categories?.map((category) => (
+                          <SelectItem key={category._id} value={category._id}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

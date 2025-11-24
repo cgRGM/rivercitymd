@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
@@ -67,14 +67,20 @@ type FormData = z.infer<typeof formSchema>;
 interface AddAddonFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  defaultCategoryId?: string;
 }
 
-export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
+export function AddAddonForm({
+  open,
+  onOpenChange,
+  defaultCategoryId,
+}: AddAddonFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
-  const createService = useMutation(api.services.create);
-  const createStripeProduct = useMutation(api.services.createStripeProduct);
+  const createServiceWithStripe = useAction(
+    api.services.createServiceWithStripe,
+  );
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -109,8 +115,9 @@ export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
     try {
-      // For now, we'll hardcode the category ID. In a real app, you'd query for it.
-      const addonCategoryId = "add-on-category-id"; // This should be replaced with actual category lookup
+      // Use provided default category or fallback to add-on category
+      const addonCategoryId =
+        defaultCategoryId || "mn7av50tfv8pz9e3vrc11skdbd7vydmc"; // Add-on Services category
 
       let basePriceSmall, basePriceMedium, basePriceLarge;
 
@@ -121,7 +128,7 @@ export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
         basePriceMedium = data.priceMax;
       }
 
-      const serviceId = await createService({
+      await createServiceWithStripe({
         name: data.name,
         description: data.description,
         basePriceSmall,
@@ -133,9 +140,6 @@ export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
         features: data.features,
         icon: data.icon,
       });
-
-      // Create Stripe product
-      await createStripeProduct({ serviceId });
 
       toast.success("Add-on created successfully");
       form.reset();

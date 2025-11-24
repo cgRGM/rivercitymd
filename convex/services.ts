@@ -1,7 +1,14 @@
-import { query, mutation } from "./_generated/server";
+import {
+  query,
+  mutation,
+  action,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
+import { internal, api } from "./_generated/api";
 import Stripe from "stripe";
 
 // Initialize Stripe with environment variable
@@ -13,7 +20,7 @@ if (!stripeSecretKey) {
 }
 
 const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2025-10-29.clover",
+  apiVersion: "2024-06-20" as any,
 });
 
 // === Categories ===
@@ -174,9 +181,6 @@ export const deleteService = mutation({
 export const listWithBookingStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
     const services = await ctx.db.query("services").collect();
     const categories = await ctx.db.query("serviceCategories").collect();
     const categoryMap = new Map(categories.map((c) => [c._id, c.name]));
@@ -210,37 +214,6 @@ export const listWithBookingStats = query({
 });
 
 // === Stripe Product Management ===
-
-// Create Stripe product for service
-export const createStripeProduct = mutation({
-  args: {
-    serviceId: v.id("services"),
-  },
-  handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const service = await ctx.db.get(args.serviceId);
-    if (!service) throw new Error("Service not found");
-
-    // Create Stripe product
-    const product = await stripe.products.create({
-      name: service.name,
-      description: service.description,
-      metadata: {
-        serviceId: args.serviceId,
-        categoryId: service.categoryId,
-      },
-    });
-
-    // Update service with Stripe product ID
-    await ctx.db.patch(args.serviceId, {
-      stripeProductId: product.id,
-    });
-
-    return product.id;
-  },
-});
 
 // Update Stripe product when service changes
 export const updateStripeProduct = mutation({
@@ -277,5 +250,120 @@ export const getById = query({
     if (!userId) throw new Error("Not authenticated");
 
     return await ctx.db.get(args.serviceId);
+  },
+});
+
+// Create service with Stripe integration
+export const createServiceWithStripe = action({
+  args: {
+    name: v.string(),
+    description: v.string(),
+    basePriceSmall: v.optional(v.number()),
+    basePriceMedium: v.optional(v.number()),
+    basePriceLarge: v.optional(v.number()),
+    duration: v.number(),
+    categoryId: v.id("serviceCategories"),
+    includedServiceIds: v.optional(v.array(v.id("services"))),
+    features: v.optional(v.array(v.string())),
+    icon: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<Id<"services">> => {
+    // Create the service
+    const serviceId: Id<"services"> = await ctx.runMutation(
+      api.services.create,
+      args,
+    );
+
+    // Get the service data
+    const service = await ctx.runQuery(api.services.getById, {
+      serviceId,
+    });
+
+    if (!service) throw new Error("Service not found");
+
+    // Create Stripe product
+    const product = await stripe.products.create({
+      name: service.name,
+      description: service.description,
+      metadata: {
+        serviceId: serviceId,
+        categoryId: service.categoryId,
+      },
+    });
+
+    // Create prices for each vehicle size
+    const prices = [];
+    if (service.basePriceSmall && service.basePriceSmall > 0) {
+      const price = await stripe.prices.create({
+        product: product.id,
+        unit_amount: Math.round(service.basePriceSmall * 100), // Convert to cents
+        currency: "usd",
+        metadata: {
+          serviceId: serviceId,
+          vehicleSize: "small",
+        },
+      });
+      prices.push(price);
+    }
+
+    if (service.basePriceMedium && service.basePriceMedium > 0) {
+      const price = await stripe.prices.create({
+        product: product.id,
+        unit_amount: Math.round(service.basePriceMedium * 100), // Convert to cents
+        currency: "usd",
+        metadata: {
+          serviceId: serviceId,
+          vehicleSize: "medium",
+        },
+      });
+      prices.push(price);
+    }
+
+    if (service.basePriceLarge && service.basePriceLarge > 0) {
+      const price = await stripe.prices.create({
+        product: product.id,
+        unit_amount: Math.round(service.basePriceLarge * 100), // Convert to cents
+        currency: "usd",
+        metadata: {
+          serviceId: serviceId,
+          vehicleSize: "large",
+        },
+      });
+      prices.push(price);
+    }
+
+    // Update service with Stripe product ID and price IDs
+    await ctx.runMutation(internal.services.updateStripeIds, {
+      serviceId,
+      stripeProductId: product.id,
+      stripePriceIds: prices.map((p) => p.id),
+    });
+
+    return serviceId;
+  },
+});
+
+// Get service by ID (internal)
+export const getServiceById = internalQuery({
+  args: {
+    serviceId: v.id("services"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.serviceId);
+  },
+});
+
+// Update Stripe IDs (internal)
+export const updateStripeIds = internalMutation({
+  args: {
+    serviceId: v.id("services"),
+    stripeProductId: v.string(),
+    stripePriceIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.serviceId, {
+      stripeProductId: args.stripeProductId,
+      stripePriceIds: args.stripePriceIds,
+    });
   },
 });

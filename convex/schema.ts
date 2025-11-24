@@ -85,6 +85,7 @@ const schema = defineSchema({
     features: v.optional(v.array(v.string())), // Service features list
     icon: v.optional(v.string()), // Emoji or icon identifier
     stripeProductId: v.optional(v.string()), // Stripe product ID
+    stripePriceIds: v.optional(v.array(v.string())), // Stripe price IDs for different sizes
   }).index("by_category", ["categoryId"]),
 
   // Appointments/Bookings

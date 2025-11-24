@@ -12,6 +12,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Edit, Trash2, AlertCircle, Check } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AddServiceForm } from "@/components/forms";
@@ -22,9 +29,18 @@ import type { Id } from "@/convex/_generated/dataModel";
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
 
+// Hardcoded category IDs for easy reference
+const CATEGORY_IDS = {
+  STANDARD: "mn7bmjfryfs87q7xzjja2b96hn7vyqnb",
+  ADD_ON: "mn7av50tfv8pz9e3vrc11skdbd7vydmc",
+  SUBSCRIPTION: "mn73n62t43q4khjvj4g76jp8wx7vzgpm",
+} as const;
+
 export default function ServicesClient({}: Props) {
   const servicesQuery = useQuery(api.services.listWithBookingStats);
+  const categoriesQuery = useQuery(api.services.listCategories);
   const deleteService = useMutation(api.services.deleteService);
+  const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAddAddonForm, setShowAddAddonForm] = useState(false);
   const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
@@ -111,6 +127,7 @@ export default function ServicesClient({}: Props) {
   }
 
   const services = servicesQuery;
+  const categories = categoriesQuery;
 
   const handleDeleteService = async (serviceId: Id<"services">) => {
     if (
@@ -134,6 +151,23 @@ export default function ServicesClient({}: Props) {
     }
   };
 
+  // Group services by category, ensuring all categories are shown
+  const servicesByCategory = categories
+    ? categories.reduce(
+        (acc, category) => {
+          const categoryServices = (servicesQuery || []).filter(
+            (service) => service.categoryId === category._id,
+          );
+          acc[category.name] = categoryServices;
+          return acc;
+        },
+        {} as Record<string, any[]>,
+      )
+    : {
+        "Standard Services": [],
+        "Add-on Services": [],
+        "Subscription Plans": [],
+      }; // Fallback for debugging
   const getPopularityColor = (popularity: string) => {
     switch (popularity) {
       case "Very High":
@@ -154,176 +188,264 @@ export default function ServicesClient({}: Props) {
           <h2 className="text-3xl font-bold">Services</h2>
           <p className="text-muted-foreground">Manage your service offerings</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => setShowAddForm(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Create Service
-          </Button>
-          <Button variant="outline" onClick={() => setShowAddAddonForm(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Create Add-on
-          </Button>
-        </div>
+        <Button onClick={() => setShowServiceTypeDialog(true)}>
+          <Plus className="w-4 h-4 mr-2" />
+          Create a Service
+        </Button>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {services.map((service, index) => (
-          <Card
-            key={service._id}
-            className="animate-fade-in-up hover:shadow-lg transition-all"
-            style={{ animationDelay: `${index * 50}ms` }}
-          >
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
-                    {service.icon && (
-                      <div className="text-2xl">{service.icon}</div>
-                    )}
-                    <div className="flex-1">
-                      <CardTitle className="text-xl">{service.name}</CardTitle>
-                      <CardDescription className="mt-1">
-                        {service.description}
-                      </CardDescription>
-                      <div className="mt-2 text-sm text-muted-foreground">
-                        {service.categoryName}
-                      </div>
-                    </div>
-                  </div>
+      <div className="space-y-8">
+        {categories &&
+          servicesByCategory &&
+          Object.entries(servicesByCategory).map(
+            ([categoryName, categoryServices]) => (
+              <div key={categoryName} className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-2xl font-semibold">{categoryName}</h3>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setEditingId(service._id)}
-                  >
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDeleteService(service._id)}
-                    disabled={deletingId === service._id}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Features */}
-              {service.features && service.features.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-sm text-muted-foreground">Features:</div>
-                  <ul className="text-sm space-y-1">
-                    {service.features.slice(0, 3).map((feature, i) => (
-                      <li key={i} className="flex items-center gap-2">
-                        <Check className="w-3 h-3 text-accent" />
-                        {feature}
-                      </li>
-                    ))}
-                    {service.features.length > 3 && (
-                      <li className="text-muted-foreground">
-                        +{service.features.length - 3} more features
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              )}
 
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    Small
-                  </div>
-                  <div className="font-semibold">
-                    $
-                    {service.basePriceSmall?.toFixed(2) ||
-                      service.basePrice?.toFixed(2) ||
-                      "N/A"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    Medium
-                  </div>
-                  <div className="font-semibold">
-                    $
-                    {service.basePriceMedium?.toFixed(2) ||
-                      service.basePrice?.toFixed(2) ||
-                      "N/A"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    Large
-                  </div>
-                  <div className="font-semibold">
-                    $
-                    {service.basePriceLarge?.toFixed(2) ||
-                      service.basePrice?.toFixed(2) ||
-                      "N/A"}
-                  </div>
-                </div>
-              </div>
+                <div className="grid md:grid-cols-2 gap-6">
+                  {categoryServices?.map((service, index) => (
+                    <Card
+                      key={service._id}
+                      className="animate-fade-in-up hover:shadow-lg transition-all"
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3">
+                              {service.icon && (
+                                <div className="text-2xl">{service.icon}</div>
+                              )}
+                              <div className="flex-1">
+                                <CardTitle className="text-xl">
+                                  {service.name}
+                                </CardTitle>
+                                <CardDescription className="mt-1">
+                                  {service.description}
+                                </CardDescription>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setEditingId(service._id)}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteService(service._id)}
+                              disabled={deletingId === service._id}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Features */}
+                        {service.features && service.features.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-sm text-muted-foreground">
+                              Features:
+                            </div>
+                            <ul className="text-sm space-y-1">
+                              {service.features
+                                .slice(0, 3)
+                                .map((feature: string, i: number) => (
+                                  <li
+                                    key={i}
+                                    className="flex items-center gap-2"
+                                  >
+                                    <Check className="w-3 h-3 text-accent" />
+                                    {feature}
+                                  </li>
+                                ))}
+                              {service.features.length > 3 && (
+                                <li className="text-muted-foreground">
+                                  +{service.features.length - 3} more features
+                                </li>
+                              )}
+                            </ul>
+                          </div>
+                        )}
 
-              <div className="flex items-center justify-between pt-4 border-t border-border">
-                <div>
-                  <div className="text-sm text-muted-foreground">Duration</div>
-                  <div className="font-medium">
-                    {Math.floor(service.duration / 60)}h {service.duration % 60}
-                    m
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">Bookings</div>
-                  <div className="font-medium">
-                    {service.bookings} this month
-                  </div>
-                </div>
-              </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">
+                              Small
+                            </div>
+                            <div className="font-semibold">
+                              $
+                              {service.basePriceSmall?.toFixed(2) ||
+                                service.basePrice?.toFixed(2) ||
+                                "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">
+                              Medium
+                            </div>
+                            <div className="font-semibold">
+                              $
+                              {service.basePriceMedium?.toFixed(2) ||
+                                service.basePrice?.toFixed(2) ||
+                                "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">
+                              Large
+                            </div>
+                            <div className="font-semibold">
+                              $
+                              {service.basePriceLarge?.toFixed(2) ||
+                                service.basePrice?.toFixed(2) ||
+                                "N/A"}
+                            </div>
+                          </div>
+                        </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  Popularity:
-                </span>
-                <span
-                  className={`px-2 py-1 rounded-full text-xs font-medium ${getPopularityColor(service.popularity)}`}
-                >
-                  {service.popularity}
-                </span>
-              </div>
+                        <div className="flex items-center justify-between pt-4 border-t border-border">
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Duration
+                            </div>
+                            <div className="font-medium">
+                              {Math.floor(service.duration / 60)}h{" "}
+                              {service.duration % 60}m
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Bookings
+                            </div>
+                            <div className="font-medium">
+                              {service.bookings} this month
+                            </div>
+                          </div>
+                        </div>
 
-              <div className="flex gap-2 pt-4 border-t border-border">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setEditingId(service._id)}
-                >
-                  <Edit className="w-3 h-3 mr-1" />
-                  Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleDeleteService(service._id)}
-                  disabled={deletingId === service._id}
-                >
-                  <Trash2 className="w-3 h-3 mr-1" />
-                  {deletingId === service._id ? "Deleting..." : "Delete"}
-                </Button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">
+                            Popularity:
+                          </span>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${getPopularityColor(service.popularity)}`}
+                          >
+                            {service.popularity}
+                          </span>
+                        </div>
+
+                        <div className="flex gap-2 pt-4 border-t border-border">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => setEditingId(service._id)}
+                          >
+                            <Edit className="w-3 h-3 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleDeleteService(service._id)}
+                            disabled={deletingId === service._id}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            {deletingId === service._id
+                              ? "Deleting..."
+                              : "Delete"}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            ),
+          )}
       </div>
 
-      <AddServiceForm open={showAddForm} onOpenChange={setShowAddForm} />
+      {/* Service Type Selection Dialog */}
+      <Dialog
+        open={showServiceTypeDialog}
+        onOpenChange={setShowServiceTypeDialog}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Service</DialogTitle>
+            <DialogDescription>
+              Choose the type of service you want to create
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <Button
+              variant="outline"
+              className="justify-start h-auto p-4"
+              onClick={() => {
+                setShowServiceTypeDialog(false);
+                setShowAddForm(true);
+              }}
+            >
+              <div className="text-left">
+                <div className="font-semibold">Standard Service</div>
+                <div className="text-sm text-muted-foreground">
+                  Main services with size-based pricing
+                </div>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="justify-start h-auto p-4"
+              onClick={() => {
+                setShowServiceTypeDialog(false);
+                setShowAddAddonForm(true);
+              }}
+            >
+              <div className="text-left">
+                <div className="font-semibold">Add-on Service</div>
+                <div className="text-sm text-muted-foreground">
+                  Additional services with flat pricing
+                </div>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="justify-start h-auto p-4"
+              onClick={() => {
+                setShowServiceTypeDialog(false);
+                // TODO: Implement subscription form
+                toast.info("Subscription services coming soon!");
+              }}
+            >
+              <div className="text-left">
+                <div className="font-semibold">Subscription Plan</div>
+                <div className="text-sm text-muted-foreground">
+                  Recurring services with subscription pricing
+                </div>
+              </div>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AddServiceForm
+        open={showAddForm}
+        onOpenChange={setShowAddForm}
+        defaultCategoryId={CATEGORY_IDS.STANDARD}
+      />
       <AddAddonForm
         open={showAddAddonForm}
         onOpenChange={setShowAddAddonForm}
+        defaultCategoryId={CATEGORY_IDS.ADD_ON}
       />
       <EditServiceForm
         serviceId={editingId}
