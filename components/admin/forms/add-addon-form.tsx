@@ -78,9 +78,7 @@ export function AddAddonForm({
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
-  const createServiceWithStripe = useAction(
-    api.services.createServiceWithStripe,
-  );
+  const createService = useMutation(api.services.create);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -128,7 +126,7 @@ export function AddAddonForm({
         basePriceMedium = data.priceMax;
       }
 
-      await createServiceWithStripe({
+      await createService({
         name: data.name,
         description: data.description,
         basePriceSmall,

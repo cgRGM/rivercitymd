@@ -66,7 +66,11 @@ const schema = defineSchema({
   // Service Categories
   serviceCategories: defineTable({
     name: v.string(),
-    type: v.union(v.literal("standard"), v.literal("subscription")),
+    type: v.union(
+      v.literal("standard"),
+      v.literal("subscription"),
+      v.literal("addon"),
+    ),
   }),
 
   // Services and Subscriptions

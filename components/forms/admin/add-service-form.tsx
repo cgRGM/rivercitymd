@@ -70,9 +70,7 @@ export function AddServiceForm({
 
   const categories = useQuery(api.services.listCategories);
   const allServices = useQuery(api.services.list);
-  const createServiceWithStripe = useAction(
-    api.services.createServiceWithStripe,
-  );
+  const createService = useMutation(api.services.create);
 
   // Use provided default category or auto-select based on mode
   const autoSelectedCategoryId = categories?.find((cat) =>
@@ -125,7 +123,7 @@ export function AddServiceForm({
         return;
       }
 
-      await createServiceWithStripe({
+      await createService({
         name: data.name,
         description: data.description,
         basePriceSmall: data.basePriceSmall,
