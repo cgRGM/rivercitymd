@@ -61,21 +61,38 @@ export default function SignUpPage() {
     } catch (err) {
       console.error("Sign up error:", err);
 
-      // Handle specific error messages
+      // Handle specific error messages gracefully
       let errorMessage = "Failed to create account";
 
       if (err instanceof Error) {
-        if (
-          err.message.includes("already exists") ||
-          err.message.includes("duplicate")
+        const message = err.message.toLowerCase();
+
+        if (message.includes("invalid") && message.includes("secret")) {
+          errorMessage =
+            "Authentication service is temporarily unavailable. Please try again later.";
+        } else if (
+          message.includes("already exists") ||
+          message.includes("duplicate")
         ) {
           errorMessage =
             "An account with this email already exists. Try signing in instead.";
-        } else if (err.message.includes("Cannot read properties of null")) {
+        } else if (message.includes("cannot read properties of null")) {
           errorMessage =
             "Account creation error. This email may already be registered. Try signing in or use a different email.";
+        } else if (message.includes("network") || message.includes("fetch")) {
+          errorMessage =
+            "Network error. Please check your connection and try again.";
+        } else if (message.includes("password") && message.includes("weak")) {
+          errorMessage =
+            "Password is too weak. Please choose a stronger password.";
+        } else if (message.includes("email") && message.includes("invalid")) {
+          errorMessage = "Please enter a valid email address.";
+        } else if (message.includes("required")) {
+          errorMessage = "Please fill in all required fields.";
         } else {
-          errorMessage = err.message;
+          // For any other server errors, show a generic message
+          errorMessage =
+            "Unable to create account at this time. Please try again later.";
         }
       }
 

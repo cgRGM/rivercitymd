@@ -21,6 +21,23 @@ River City Mobile Detailing is a Next.js web app for managing a mobile car detai
 - Functional components with hooks, `"use client"` directive, `useQuery` for Convex data, controlled components with React Hook Form
 - `cn()` utility for className merging, shadcn/ui "new-york" style, Tailwind with CSS variables, Lucide icons, responsive mobile-first design
 
+## Authentication Patterns
+
+- Use `@convex-dev/auth/react` hooks (`useAuthActions`) for client-side auth
+- Handle auth errors gracefully - never show raw server errors to users
+- Map server errors to user-friendly messages (e.g., "InvalidSecret" → "Authentication service unavailable")
+- Validate auth state before making protected API calls
+- Use role-based access control with `getUserRole` query
+- Implement proper loading states during auth operations
+
+## Error Handling
+
+- Catch and handle auth errors specifically (InvalidSecret, network errors, invalid credentials)
+- Provide fallback UI for auth system failures
+- Log errors for debugging but show user-friendly messages
+- Use try/catch blocks around all async auth operations
+- Validate environment variables on startup
+
 ## Cursor Rules
 
 Follow `.cursor/rules/convex_rules.mdc` for Convex development (new function syntax, validators, schema design, auth patterns)

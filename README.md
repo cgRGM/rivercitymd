@@ -137,6 +137,27 @@ The app uses Convex Auth with role-based access control:
 - **Clients**: Can book appointments, manage vehicles, view invoices
 - **Admins**: Full access to business management, customer data, analytics
 
+### Authentication Setup
+
+#### Environment Variables
+
+Add these to your Convex environment:
+
+- `CONVEX_SITE_URL`: Your Convex deployment URL (e.g., `https://your-project.convex.cloud`)
+- `JWT_SECRET`: Random 32-character string for JWT signing (generate with `openssl rand -hex 32`)
+
+#### Convex Auth Configuration
+
+The app uses @convex-dev/auth with password-based authentication. Auth configuration is in `convex/auth.config.ts` and `convex/auth.ts`.
+
+#### Troubleshooting Auth Issues
+
+- **"InvalidSecret" errors**: Ensure `JWT_SECRET` is set in your Convex environment
+- **Auth initialization failures**: Check `CONVEX_SITE_URL` is correct and accessible
+- **Sign-in failures**: Verify user accounts exist and passwords are correct
+- **Network errors**: Check your internet connection and Convex service status
+- **Account creation issues**: Ensure email addresses are valid and not already registered
+
 ## Payment Processing
 
 Integrated with Stripe for secure payment processing:

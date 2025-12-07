@@ -76,7 +76,43 @@ export default function SignInPage() {
       // Just refresh to trigger middleware check
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to sign in");
+      console.error("Sign in error:", err);
+
+      // Handle specific error messages gracefully
+      let errorMessage = "Failed to sign in";
+
+      if (err instanceof Error) {
+        const message = err.message.toLowerCase();
+
+        if (message.includes("invalid") && message.includes("secret")) {
+          errorMessage =
+            "Authentication service is temporarily unavailable. Please try again later.";
+        } else if (message.includes("network") || message.includes("fetch")) {
+          errorMessage =
+            "Network error. Please check your connection and try again.";
+        } else if (
+          message.includes("unauthorized") ||
+          message.includes("invalid credentials")
+        ) {
+          errorMessage =
+            "Invalid email or password. Please check your credentials and try again.";
+        } else if (message.includes("too many")) {
+          errorMessage =
+            "Too many failed attempts. Please wait a few minutes before trying again.";
+        } else if (
+          message.includes("account") &&
+          message.includes("disabled")
+        ) {
+          errorMessage =
+            "Your account has been disabled. Please contact support.";
+        } else {
+          // For any other server errors, show a generic message
+          errorMessage =
+            "Unable to sign in at this time. Please try again later.";
+        }
+      }
+
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }

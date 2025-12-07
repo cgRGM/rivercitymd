@@ -4,6 +4,21 @@ import { query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import Stripe from "stripe";
 
+// Validate required environment variables
+const convexSiteUrl = process.env.CONVEX_SITE_URL;
+if (!convexSiteUrl) {
+  throw new Error(
+    "CONVEX_SITE_URL environment variable is not set. Please set it in your Convex environment.",
+  );
+}
+
+const jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret) {
+  throw new Error(
+    "JWT_SECRET environment variable is not set. Please generate a random 32-character string and set it in your Convex environment.",
+  );
+}
+
 // Initialize Stripe with environment variable
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 if (!stripeSecretKey) {
