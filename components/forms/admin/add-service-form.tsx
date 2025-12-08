@@ -56,6 +56,7 @@ interface AddServiceFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   addOnMode?: boolean;
+  subscriptionMode?: boolean;
   defaultCategoryId?: string;
 }
 
@@ -63,6 +64,7 @@ export function AddServiceForm({
   open,
   onOpenChange,
   addOnMode = false,
+  subscriptionMode = false,
   defaultCategoryId,
 }: AddServiceFormProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -73,11 +75,15 @@ export function AddServiceForm({
   const createService = useMutation(api.services.create);
 
   // Use provided default category or auto-select based on mode
-  const autoSelectedCategoryId = categories?.find((cat) =>
-    addOnMode
-      ? cat.name.toLowerCase().includes("add")
-      : cat.name.toLowerCase().includes("standard"),
-  )?._id;
+  const autoSelectedCategoryId = categories?.find((cat) => {
+    if (subscriptionMode) {
+      return cat.name.toLowerCase().includes("subscription");
+    } else if (addOnMode) {
+      return cat.name.toLowerCase().includes("add");
+    } else {
+      return cat.name.toLowerCase().includes("standard");
+    }
+  })?._id;
   const finalDefaultCategoryId = defaultCategoryId || autoSelectedCategoryId;
 
   const form = useForm<FormData>({
@@ -136,14 +142,18 @@ export function AddServiceForm({
         icon: data.icon,
       });
 
-      toast.success(`${addOnMode ? "Add-on" : "Service"} created successfully`);
+      toast.success(
+        `${subscriptionMode ? "Subscription" : addOnMode ? "Add-on" : "Service"} created successfully`,
+      );
       form.reset({
         ...form.getValues(),
         categoryId: finalDefaultCategoryId,
       });
       onOpenChange(false);
     } catch {
-      toast.error(`Failed to create ${addOnMode ? "add-on" : "service"}`);
+      toast.error(
+        `Failed to create ${subscriptionMode ? "subscription" : addOnMode ? "add-on" : "service"}`,
+      );
     } finally {
       setIsLoading(false);
     }
@@ -153,10 +163,21 @@ export function AddServiceForm({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New {addOnMode ? "Add-on" : "Service"}</DialogTitle>
+          <DialogTitle>
+            Add New{" "}
+            {subscriptionMode
+              ? "Subscription"
+              : addOnMode
+                ? "Add-on"
+                : "Service"}
+          </DialogTitle>
           <DialogDescription>
             Create a new{" "}
-            {addOnMode ? "add-on" : "service offering with size-based pricing"}
+            {subscriptionMode
+              ? "subscription service with recurring billing"
+              : addOnMode
+                ? "add-on service"
+                : "service offering with size-based pricing"}
           </DialogDescription>
         </DialogHeader>
 
@@ -419,7 +440,7 @@ export function AddServiceForm({
               <Button type="submit" disabled={isLoading}>
                 {isLoading
                   ? "Creating..."
-                  : `Create ${addOnMode ? "Add-on" : "Service"}`}
+                  : `Create ${subscriptionMode ? "Subscription" : addOnMode ? "Add-on" : "Service"}`}
               </Button>
             </div>
           </form>

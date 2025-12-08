@@ -43,6 +43,7 @@ export default function ServicesClient({}: Props) {
   const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAddAddonForm, setShowAddAddonForm] = useState(false);
+  const [showAddSubscriptionForm, setShowAddSubscriptionForm] = useState(false);
   const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -421,8 +422,7 @@ export default function ServicesClient({}: Props) {
               className="justify-start h-auto p-4"
               onClick={() => {
                 setShowServiceTypeDialog(false);
-                // TODO: Implement subscription form
-                toast.info("Subscription services coming soon!");
+                setShowAddSubscriptionForm(true);
               }}
             >
               <div className="text-left">
@@ -445,6 +445,12 @@ export default function ServicesClient({}: Props) {
         open={showAddAddonForm}
         onOpenChange={setShowAddAddonForm}
         defaultCategoryId={CATEGORY_IDS.ADD_ON}
+      />
+      <AddServiceForm
+        open={showAddSubscriptionForm}
+        onOpenChange={setShowAddSubscriptionForm}
+        subscriptionMode={true}
+        defaultCategoryId={CATEGORY_IDS.SUBSCRIPTION}
       />
       <EditServiceForm
         serviceId={editingId}
