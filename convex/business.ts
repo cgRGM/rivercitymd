@@ -100,7 +100,7 @@ export const sendInvoiceEmail = action({
     `;
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <billing@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
+      from: `${business.name} <billing@notifications.rivercitymd.com>`,
       to: client.email,
       subject: `Invoice ${invoice.invoiceNumber} from ${business.name}`,
       html,

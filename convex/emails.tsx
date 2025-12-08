@@ -1,6 +1,25 @@
 // IMPORTANT: this is a Convex Node Action
 "use node";
 
+/*
+Email Setup Instructions:
+1. Create a Resend account at https://resend.com
+2. Add domain: notifications.rivercitymd.com
+3. Verify DNS records (SPF, DKIM, DMARC)
+4. Create webhook pointing to: https://your-convex-url.convex.site/resend-webhook
+5. Set environment variables in Vercel/Convex:
+   - RESEND_API_KEY=your_resend_api_key
+   - RESEND_WEBHOOK_SECRET=your_webhook_secret
+   - CONVEX_SITE_URL=https://your-app-url
+
+Email Functions:
+- sendWelcomeEmail: Sent when users complete onboarding
+- sendAppointmentConfirmationEmail: Sent when appointments are created
+- sendInvoiceEmail: Sent when invoices are created/sent
+
+All emails use professional templates with business branding.
+*/
+
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { render } from "@react-email/render";
@@ -20,11 +39,10 @@ import { Resend } from "@convex-dev/resend";
 import { api } from "./_generated/api";
 
 // Initialize Resend component
-// Use test mode for development, production mode when env vars are set
-const isProduction =
-  process.env.RESEND_API_KEY && process.env.NODE_ENV === "production";
+// Production mode when RESEND_API_KEY is available
+const hasApiKey = !!process.env.RESEND_API_KEY;
 export const resend: Resend = new Resend(components.resend, {
-  testMode: !isProduction, // Test mode for dev, production mode when API key is available
+  testMode: !hasApiKey, // Test mode when no API key, production mode when API key is set
 });
 
 // Welcome Email Template Component
@@ -167,7 +185,7 @@ export const sendWelcomeEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <welcome@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
+      from: `${business.name} <welcome@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `Welcome to ${business.name}!`,
       html,
@@ -385,7 +403,7 @@ export const sendAppointmentConfirmationEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <appointments@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
+      from: `${business.name} <appointments@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `Appointment Confirmed - ${appointment.scheduledDate}`,
       html,
@@ -553,38 +571,11 @@ export const sendInvoiceEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <billing@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
+      from: `${business.name} <billing@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `Invoice ${invoice.invoiceNumber} from ${business.name}`,
       html,
     });
-  },
-});
-
-// Test Functions for Development
-export const sendTestWelcomeEmail = internalAction({
-  args: {
-    email: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) throw new Error("Business info not set");
-
-    const html = await render(
-      WelcomeEmail({
-        userName: "Test User",
-        businessName: business.name,
-      }),
-    );
-
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <test@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
-      to: args.email,
-      subject: `Test: Welcome to ${business.name}!`,
-      html,
-    });
-
-    return { success: true, message: "Test welcome email sent" };
   },
 });
 
