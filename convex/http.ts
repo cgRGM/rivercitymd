@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { api } from "./_generated/api";
+import { resend } from "./emails";
 
 const http = httpRouter();
 
@@ -30,6 +31,15 @@ http.route({
       console.error("Webhook error:", error);
       return new Response("Webhook error", { status: 400 });
     }
+  }),
+});
+
+// Resend webhook endpoint for email status tracking
+http.route({
+  path: "/resend-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    return await resend.handleResendEventWebhook(ctx, req);
   }),
 });
 
