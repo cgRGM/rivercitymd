@@ -39,6 +39,9 @@ export default function SettingsPage() {
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // Handle case where no business exists yet (first-time setup)
+  const isFirstTimeSetup = business === null;
+
   const form = useForm<BusinessFormData>({
     resolver: zodResolver(businessSchema),
     defaultValues: {
@@ -67,97 +70,37 @@ export default function SettingsPage() {
     setIsLoading(true);
     try {
       await updateBusiness({
+        id: business?._id, // Only pass id if updating existing record
         name: data.name,
         owner: data.owner,
         address: data.address,
         cityStateZip: data.cityStateZip,
         country: data.country,
       });
-      toast.success("Business information updated successfully");
+      toast.success(
+        isFirstTimeSetup
+          ? "Business information created successfully"
+          : "Business information updated successfully",
+      );
     } catch {
-      toast.error("Failed to update business information");
+      toast.error(
+        isFirstTimeSetup
+          ? "Failed to create business information"
+          : "Failed to update business information",
+      );
     } finally {
       setIsLoading(false);
     }
   };
-
-  // Handle loading state
-  if (business === undefined) {
-    return (
-      <div className="space-y-6 animate-fade-in max-w-4xl">
-        <div>
-          <h2 className="text-3xl font-bold">Settings</h2>
-          <p className="text-muted-foreground">
-            Manage your business settings and preferences
-          </p>
-        </div>
-
-        {/* Business Information Skeleton */}
-        <Card className="animate-fade-in-up">
-          <CardHeader>
-            <Skeleton className="h-6 w-40 mb-2" />
-            <Skeleton className="h-4 w-48" />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-20" />
-              <Skeleton className="h-9 w-full" />
-            </div>
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-20 w-full" />
-            </div>
-            <Skeleton className="h-9 w-32" />
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Handle error state
-  if (business === null) {
-    return (
-      <div className="space-y-6 animate-fade-in max-w-4xl">
-        <div>
-          <h2 className="text-3xl font-bold">Settings</h2>
-          <p className="text-muted-foreground">
-            Manage your business settings and preferences
-          </p>
-        </div>
-
-        <Card className="text-center py-12">
-          <CardContent>
-            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">
-              Unable to load settings
-            </h3>
-            <p className="text-muted-foreground mb-6">
-              There was an error loading the business settings. Please try again
-              later.
-            </p>
-            <Button onClick={() => window.location.reload()}>Try Again</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 animate-fade-in max-w-4xl">
       <div>
         <h2 className="text-3xl font-bold">Settings</h2>
         <p className="text-muted-foreground">
-          Manage your business settings and preferences
+          {isFirstTimeSetup
+            ? "Set up your business information"
+            : "Manage your business settings and preferences"}
         </p>
       </div>
 
@@ -165,7 +108,11 @@ export default function SettingsPage() {
       <Card className="animate-fade-in-up">
         <CardHeader>
           <CardTitle>Business Information</CardTitle>
-          <CardDescription>Update your business details</CardDescription>
+          <CardDescription>
+            {isFirstTimeSetup
+              ? "Enter your business details to get started"
+              : "Update your business details"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -239,7 +186,11 @@ export default function SettingsPage() {
               </div>
             </div>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Saving..." : "Save Changes"}
+              {isLoading
+                ? "Saving..."
+                : isFirstTimeSetup
+                  ? "Create Business"
+                  : "Save Changes"}
             </Button>
           </form>
         </CardContent>
