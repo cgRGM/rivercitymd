@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import AddressInput from "@/components/ui/address-input";
 
 // Step schemas
 const step1Schema = z.object({
@@ -110,8 +111,30 @@ export default function AppointmentModal({
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Form states
-  const [step1Data, setStep1Data] = useState<Partial<Step1Data>>({});
+  // Form states - initialize with saved address data if available
+  const [step1Data, setStep1Data] = useState<Partial<Step1Data>>(() => {
+    // Load saved address from localStorage
+    if (typeof window !== "undefined") {
+      const savedAddress = localStorage.getItem("selectedAddress");
+      if (savedAddress) {
+        try {
+          const address = JSON.parse(savedAddress);
+          if (address.addressComponents) {
+            const components = address.addressComponents;
+            return {
+              street: components.street || address.formattedAddress || "",
+              city: components.city || components.locality || "",
+              state: components.state || components.region || "",
+              zip: components.postalCode || "",
+            };
+          }
+        } catch (error) {
+          console.warn("Error parsing saved address:", error);
+        }
+      }
+    }
+    return {};
+  });
   const [step2Data, setStep2Data] = useState<Partial<Step2Data>>({});
   const [step3Data, setStep3Data] = useState<Partial<Step3Data>>({
     vehicles: [{ year: "", make: "", model: "", color: "", licensePlate: "" }],
@@ -127,35 +150,58 @@ export default function AppointmentModal({
   );
 
   // Get available time slots for selected date
-  const availableSlots = useQuery(api.availability.getAvailableTimeSlots, {
-    date: step1Data?.scheduledDate || "",
+  const availableSlotsQuery = useQuery(api.availability.getAvailableTimeSlots, {
+    date: step1Data?.scheduledDate || "1970-01-01", // Default date when none selected
     serviceDuration: 90, // Default 90 minutes (most common service duration)
   });
+  const availableSlots = step1Data?.scheduledDate ? availableSlotsQuery : null;
 
   // Step forms
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
-    defaultValues: step1Data,
+    defaultValues: {
+      scheduledDate: step1Data.scheduledDate || "",
+      scheduledTime: step1Data.scheduledTime || "",
+      street: step1Data.street || "",
+      city: step1Data.city || "",
+      state: step1Data.state || "",
+      zip: step1Data.zip || "",
+      locationNotes: step1Data.locationNotes || "",
+    },
   });
 
   const step2Form = useForm<Step2Data>({
     resolver: zodResolver(step2Schema),
-    defaultValues: step2Data,
+    defaultValues: {
+      name: step2Data.name || "",
+      phone: step2Data.phone || "",
+    },
   });
 
   const step3Form = useForm<Step3Data>({
     resolver: zodResolver(step3Schema),
-    defaultValues: step3Data,
+    defaultValues: {
+      vehicleType: step3Data.vehicleType || undefined,
+      vehicles: step3Data.vehicles || [
+        { year: "", make: "", model: "", color: "", licensePlate: "" },
+      ],
+    },
   });
 
   const step4Form = useForm<Step4Data>({
     resolver: zodResolver(step4Schema),
-    defaultValues: step4Data,
+    defaultValues: {
+      serviceIds: step4Data.serviceIds || [],
+    },
   });
 
   const step5Form = useForm<Step5Data>({
     resolver: zodResolver(step5Schema),
-    defaultValues: step5Data,
+    defaultValues: {
+      email: step5Data.email || "",
+      password: step5Data.password || "",
+      confirmPassword: step5Data.confirmPassword || "",
+    },
   });
 
   const addVehicle = () => {
@@ -234,6 +280,16 @@ export default function AppointmentModal({
     }
   };
 
+  // Check if business is set up
+  const business = useQuery(api.business.get);
+  const isBusinessSetup = business && business.name && business.address;
+
+  // Check if services are available
+  const hasServices = services && services.length > 0;
+
+  // Determine if we should use availability checking
+  const useAvailabilityChecking = isBusinessSetup && hasServices;
+
   const onSubmit = async () => {
     const isValid = await step5Form.trigger();
     if (!isValid) return;
@@ -241,6 +297,14 @@ export default function AppointmentModal({
     // Validate that all required data is present
     if (!step2Data?.phone) {
       toast.error("Please go back and enter your phone number.");
+      return;
+    }
+
+    // Check if services are available
+    if (!hasServices) {
+      toast.error(
+        "No services are available at this time. Please contact us directly.",
+      );
       return;
     }
 
@@ -311,6 +375,10 @@ export default function AppointmentModal({
     });
     setStep4Data({ serviceIds: preselectedServices });
     setStep5Data({});
+    // Clear saved address from localStorage
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("selectedAddress");
+    }
     step1Form.reset();
     step2Form.reset();
     step3Form.reset();
@@ -324,6 +392,61 @@ export default function AppointmentModal({
       resetModal();
     }
   };
+
+  // Show loading state while data is being fetched
+  if (business === undefined || services === undefined) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">
+              Schedule Your Detailing
+            </DialogTitle>
+            <DialogDescription>Loading available services...</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // Show error state if no services are available
+  if (services === null || !hasServices) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-center">
+              No Services Available
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              Our services are being configured.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-center py-6">
+            <p className="text-muted-foreground mb-4">
+              No detailing services are available for booking at this time.
+              Please contact us directly.
+            </p>
+            <div className="space-y-2">
+              <p className="font-medium">Call us at:</p>
+              <a
+                href="tel:501-454-7140"
+                className="text-accent hover:underline font-medium"
+              >
+                (501) 454-7140
+              </a>
+            </div>
+          </div>
+          <div className="flex justify-center">
+            <Button onClick={() => onOpenChange(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -385,36 +508,60 @@ export default function AppointmentModal({
                   name="scheduledTime"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Available Time Slots</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a time slot" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {availableSlots
-                            ?.filter((slot) => slot.available)
-                            .map((slot) => (
-                              <SelectItem key={slot.time} value={slot.time}>
-                                {slot.displayTime}
-                              </SelectItem>
-                            ))}
-                          {(!availableSlots || availableSlots.length === 0) && (
-                            <SelectItem value="" disabled>
-                              No available slots for this date
-                            </SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>
+                        {useAvailabilityChecking
+                          ? "Available Time Slots"
+                          : "Preferred Time"}
+                      </FormLabel>
+                      {useAvailabilityChecking ? (
+                        // Show available time slots when business is set up
+                        availableSlots && availableSlots.length > 0 ? (
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a time slot" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {availableSlots
+                                .filter((slot) => slot.available)
+                                .map((slot) => (
+                                  <SelectItem key={slot.time} value={slot.time}>
+                                    {slot.displayTime}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="text-sm text-muted-foreground p-3 border rounded-md bg-muted/50">
+                            No available time slots for this date. Please select
+                            a different date or contact us directly.
+                          </div>
+                        )
+                      ) : (
+                        // Show free-form time input when business isn't set up
+                        <Input
+                          type="time"
+                          {...field}
+                          placeholder="Select preferred time"
+                        />
+                      )}
                       <FormMessage />
-                      {availableSlots && availableSlots.length > 0 && (
+                      {useAvailabilityChecking &&
+                        availableSlots &&
+                        availableSlots.length > 0 && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Showing available time slots for{" "}
+                            {step1Data?.scheduledDate}
+                          </p>
+                        )}
+                      {!useAvailabilityChecking && (
                         <p className="text-sm text-muted-foreground mt-1">
-                          Showing available time slots for{" "}
-                          {step1Data?.scheduledDate}
+                          We&apos;ll contact you to confirm availability and
+                          schedule your appointment
                         </p>
                       )}
                     </FormItem>
@@ -424,12 +571,62 @@ export default function AppointmentModal({
 
               <div className="space-y-4">
                 <h3 className="text-sm font-medium">Service Location</h3>
+                <AddressInput
+                  onAddressSelect={(address) => {
+                    // Store the full address data in localStorage for persistence
+                    localStorage.setItem(
+                      "selectedAddress",
+                      JSON.stringify(address),
+                    );
+
+                    // Update form fields with parsed address components
+                    if (address.addressComponents) {
+                      const components = address.addressComponents;
+                      step1Form.setValue(
+                        "street",
+                        components.street || address.formattedAddress || "",
+                        {
+                          shouldValidate: true,
+                          shouldDirty: true,
+                        },
+                      );
+                      step1Form.setValue(
+                        "city",
+                        components.city || components.locality || "",
+                        {
+                          shouldValidate: true,
+                          shouldDirty: true,
+                        },
+                      );
+                      step1Form.setValue(
+                        "state",
+                        components.state || components.region || "",
+                        {
+                          shouldValidate: true,
+                          shouldDirty: true,
+                        },
+                      );
+                      step1Form.setValue("zip", components.postalCode || "", {
+                        shouldValidate: true,
+                        shouldDirty: true,
+                      });
+                    } else if (address.formattedAddress) {
+                      // Fallback: put everything in street field
+                      step1Form.setValue("street", address.formattedAddress, {
+                        shouldValidate: true,
+                        shouldDirty: true,
+                      });
+                    }
+                  }}
+                  label="Service Address"
+                  placeholder="Search for your service address"
+                />
+                {/* Hidden form fields for validation */}
                 <FormField
                   control={step1Form.control}
                   name="street"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Street Address</FormLabel>
+                    <FormItem className="hidden">
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -437,42 +634,37 @@ export default function AppointmentModal({
                     </FormItem>
                   )}
                 />
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={step1Form.control}
-                    name="city"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>City</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={step1Form.control}
-                    name="state"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>State</FormLabel>
-                        <FormControl>
-                          <Input {...field} maxLength={2} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <FormField
+                  control={step1Form.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem className="hidden">
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={step1Form.control}
+                  name="state"
+                  render={({ field }) => (
+                    <FormItem className="hidden">
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={step1Form.control}
                   name="zip"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>ZIP Code</FormLabel>
+                    <FormItem className="hidden">
                       <FormControl>
-                        <Input {...field} maxLength={5} />
+                        <Input {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
