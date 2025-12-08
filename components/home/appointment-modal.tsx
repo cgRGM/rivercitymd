@@ -126,6 +126,12 @@ export default function AppointmentModal({
     api.users.createUserWithAppointment,
   );
 
+  // Get available time slots for selected date
+  const availableSlots = useQuery(api.availability.getAvailableTimeSlots, {
+    date: step1Data?.scheduledDate || "",
+    serviceDuration: 60, // Default 1 hour, will be updated based on selected services
+  });
+
   // Step forms
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
@@ -379,11 +385,38 @@ export default function AppointmentModal({
                   name="scheduledTime"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Preferred Time</FormLabel>
-                      <FormControl>
-                        <Input type="time" {...field} />
-                      </FormControl>
+                      <FormLabel>Available Time Slots</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a time slot" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {availableSlots
+                            ?.filter((slot) => slot.available)
+                            .map((slot) => (
+                              <SelectItem key={slot.time} value={slot.time}>
+                                {slot.displayTime}
+                              </SelectItem>
+                            ))}
+                          {(!availableSlots || availableSlots.length === 0) && (
+                            <SelectItem value="" disabled>
+                              No available slots for this date
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
+                      {availableSlots && availableSlots.length > 0 && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Showing available time slots for{" "}
+                          {step1Data?.scheduledDate}
+                        </p>
+                      )}
                     </FormItem>
                   )}
                 />

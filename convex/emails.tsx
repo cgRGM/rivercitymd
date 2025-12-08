@@ -6,8 +6,8 @@ Email Setup Instructions:
 1. Create a Resend account at https://resend.com
 2. Add domain: notifications.rivercitymd.com
 3. Verify DNS records (SPF, DKIM, DMARC)
-4. Create webhook pointing to: https://your-convex-url.convex.site/resend-webhook
-5. Set environment variables in Vercel/Convex:
+4. Configure webhook: https://your-convex-url.convex.site/resend-webhook
+5. Set environment variables in Vercel:
    - RESEND_API_KEY=your_resend_api_key
    - RESEND_WEBHOOK_SECRET=your_webhook_secret
    - CONVEX_SITE_URL=https://your-app-url
@@ -16,6 +16,7 @@ Email Functions:
 - sendWelcomeEmail: Sent when users complete onboarding
 - sendAppointmentConfirmationEmail: Sent when appointments are created
 - sendInvoiceEmail: Sent when invoices are created/sent
+- sendAdminAppointmentNotification: Sent to admin for appointment changes
 
 All emails use professional templates with business branding.
 */
@@ -39,7 +40,7 @@ import { Resend } from "@convex-dev/resend";
 import { api } from "./_generated/api";
 
 // Initialize Resend component
-// Production mode when RESEND_API_KEY is available
+// Use test mode for development, production mode when env vars are set
 const hasApiKey = !!process.env.RESEND_API_KEY;
 export const resend: Resend = new Resend(components.resend, {
   testMode: !hasApiKey, // Test mode when no API key, production mode when API key is set
@@ -169,9 +170,7 @@ export const sendWelcomeEmail = internalAction({
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.runQuery(api.users.getById, {
-      userId: args.userId,
-    });
+    const user = await ctx.runQuery(api.users.getById, { userId: args.userId });
     if (!user || !user.email) return;
 
     const business = await ctx.runQuery(api.business.get);
@@ -526,8 +525,8 @@ function InvoiceEmail(props: InvoiceEmailProps) {
             <Text
               style={{ color: "#999", fontSize: "12px", lineHeight: "1.4" }}
             >
-              Questions about this invoice? Contact us at billing@
-              {businessName.toLowerCase().replace(/\s+/g, "")}.com
+              Questions about this invoice? Contact us at
+              billing@notifications.rivercitymd.com
             </Text>
             <Text
               style={{ color: "#999", fontSize: "12px", marginTop: "10px" }}
@@ -579,63 +578,81 @@ export const sendInvoiceEmail = internalAction({
   },
 });
 
-export const sendTestAppointmentEmail = internalAction({
+// Send Admin Notification for New Appointment
+export const sendAdminAppointmentNotification = internalAction({
   args: {
-    email: v.string(),
+    appointmentId: v.id("appointments"),
+    action: v.union(
+      v.literal("created"),
+      v.literal("updated"),
+      v.literal("cancelled"),
+    ),
   },
   handler: async (ctx, args) => {
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) throw new Error("Business info not set");
+    const appointment = await ctx.runQuery(api.appointments.getById, {
+      appointmentId: args.appointmentId,
+    });
+    if (!appointment) return;
 
-    const html = await render(
-      AppointmentConfirmationEmail({
-        customerName: "Test Customer",
-        businessName: business.name,
-        appointmentDate: "2024-12-15",
-        appointmentTime: "10:00 AM",
-        services: ["Full Detail Service", "Interior Cleaning"],
-        location: "123 Test Street, Test City, TS 12345",
-        totalPrice: 150,
-        appointmentId: "test-appointment-123",
-      }),
+    const user = await ctx.runQuery(api.users.getById, {
+      userId: appointment.userId,
+    });
+    if (!user) return;
+
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    // Get services
+    const services = await Promise.all(
+      appointment.serviceIds.map((id: any) =>
+        ctx.runQuery(api.services.getById, { serviceId: id }),
+      ),
     );
+    const serviceNames = services
+      .filter((s: any) => s !== null)
+      .map((s: any) => s.name);
+
+    const actionText =
+      args.action === "created"
+        ? "New Appointment Booked"
+        : args.action === "updated"
+          ? "Appointment Updated"
+          : "Appointment Cancelled";
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">${actionText}</h2>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0;">
+          <h3 style="color: #333; margin-top: 0;">Appointment Details</h3>
+          <p style="margin: 5px 0;"><strong>Customer:</strong> ${user.name || "N/A"} (${user.email || "N/A"})</p>
+          <p style="margin: 5px 0;"><strong>Phone:</strong> ${user.phone || "N/A"}</p>
+          <p style="margin: 5px 0;"><strong>Date:</strong> ${appointment.scheduledDate}</p>
+          <p style="margin: 5px 0;"><strong>Time:</strong> ${appointment.scheduledTime}</p>
+          <p style="margin: 5px 0;"><strong>Duration:</strong> ${appointment.duration} minutes</p>
+          <p style="margin: 5px 0;"><strong>Total Price:</strong> $${appointment.totalPrice.toFixed(2)}</p>
+          <p style="margin: 5px 0;"><strong>Services:</strong> ${serviceNames.join(", ")}</p>
+          <p style="margin: 5px 0;"><strong>Location:</strong> ${appointment.location.street}, ${appointment.location.city}, ${appointment.location.state} ${appointment.location.zip}</p>
+          <p style="margin: 5px 0;"><strong>Status:</strong> ${appointment.status}</p>
+          ${appointment.notes ? `<p style="margin: 5px 0;"><strong>Notes:</strong> ${appointment.notes}</p>` : ""}
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.CONVEX_SITE_URL}/admin/appointments"
+             style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+            View in Admin Dashboard
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">
+          This is an automated notification from ${business.name}.
+        </p>
+      </div>
+    `;
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <test@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
-      to: args.email,
-      subject: `Test: Appointment Confirmed - 2024-12-15`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
+      to: "dustin@rivercitymd.com",
+      subject: `${actionText} - ${appointment.scheduledDate} ${appointment.scheduledTime}`,
       html,
     });
-
-    return { success: true, message: "Test appointment email sent" };
-  },
-});
-
-export const sendTestInvoiceEmail = internalAction({
-  args: {
-    email: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) throw new Error("Business info not set");
-
-    const html = await render(
-      InvoiceEmail({
-        customerName: "Test Customer",
-        businessName: business.name,
-        invoiceNumber: "TEST-001",
-        dueDate: "2024-12-30",
-        total: 150,
-      }),
-    );
-
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <test@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
-      to: args.email,
-      subject: `Test: Invoice TEST-001 from ${business.name}`,
-      html,
-    });
-
-    return { success: true, message: "Test invoice email sent" };
   },
 });

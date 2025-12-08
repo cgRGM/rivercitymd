@@ -16,12 +16,14 @@ export const getBusinessHours = query({
 // Set business hours
 export const setBusinessHours = mutation({
   args: {
-    schedule: v.array(v.object({
-      dayOfWeek: v.number(),
-      startTime: v.string(),
-      endTime: v.string(),
-      isActive: v.boolean(),
-    })),
+    schedule: v.array(
+      v.object({
+        dayOfWeek: v.number(),
+        startTime: v.string(),
+        endTime: v.string(),
+        isActive: v.boolean(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -29,13 +31,11 @@ export const setBusinessHours = mutation({
 
     // Clear existing schedule
     const existing = await ctx.db.query("availability").collect();
-    await Promise.all(existing.map(item => ctx.db.delete(item._id)));
+    await Promise.all(existing.map((item) => ctx.db.delete(item._id)));
 
     // Add new schedule
     await Promise.all(
-      args.schedule.map(day =>
-        ctx.db.insert("availability", day)
-      )
+      args.schedule.map((day) => ctx.db.insert("availability", day)),
     );
 
     return true;
@@ -54,9 +54,8 @@ export const getBlockedTimes = query({
 
     const blocks = await ctx.db.query("timeBlocks").collect();
 
-    return blocks.filter(block =>
-      block.date >= args.startDate &&
-      block.date <= args.endDate
+    return blocks.filter(
+      (block) => block.date >= args.startDate && block.date <= args.endDate,
     );
   },
 });
@@ -68,7 +67,11 @@ export const addTimeBlock = mutation({
     startTime: v.string(),
     endTime: v.string(),
     reason: v.string(),
-    type: v.union(v.literal("time_off"), v.literal("maintenance"), v.literal("other")),
+    type: v.union(
+      v.literal("time_off"),
+      v.literal("maintenance"),
+      v.literal("other"),
+    ),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -85,6 +88,87 @@ export const addTimeBlock = mutation({
   },
 });
 
+// Helper function for availability checking
+async function checkSlotAvailability(
+  ctx: any,
+  date: string,
+  startTime: string,
+  duration: number,
+) {
+  // Get day of week (0 = Sunday)
+  const dayOfWeek = new Date(date).getDay();
+
+  // Check business hours
+  const businessHours = await ctx.db
+    .query("availability")
+    .filter((q) =>
+      q.and(
+        q.eq(q.field("dayOfWeek"), dayOfWeek),
+        q.eq(q.field("isActive"), true),
+      ),
+    )
+    .first();
+
+  if (!businessHours) {
+    return { available: false, reason: "Business closed on this day" };
+  }
+
+  // Check if requested time is within business hours
+  const requestedStart = startTime;
+  const requestedEndMinutes =
+    parseInt(startTime.split(":")[0]) * 60 +
+    parseInt(startTime.split(":")[1]) +
+    duration;
+  const requestedEnd = `${Math.floor(requestedEndMinutes / 60)
+    .toString()
+    .padStart(
+      2,
+      "0",
+    )}:${(requestedEndMinutes % 60).toString().padStart(2, "0")}`;
+
+  if (
+    requestedStart < businessHours.startTime ||
+    requestedEnd > businessHours.endTime
+  ) {
+    return { available: false, reason: "Outside business hours" };
+  }
+
+  // Check for time blocks
+  const timeBlocks = await ctx.db
+    .query("timeBlocks")
+    .withIndex("by_date", (q) => q.eq("date", date))
+    .collect();
+
+  for (const block of timeBlocks) {
+    if (requestedStart < block.endTime && requestedEnd > block.startTime) {
+      return { available: false, reason: `Time blocked: ${block.reason}` };
+    }
+  }
+
+  // Check for existing appointments
+  const appointments = await ctx.db
+    .query("appointments")
+    .withIndex("by_date", (q) => q.eq("scheduledDate", date))
+    .filter((q) => q.neq(q.field("status"), "cancelled"))
+    .collect();
+
+  for (const apt of appointments) {
+    const aptEndMinutes =
+      parseInt(apt.scheduledTime.split(":")[0]) * 60 +
+      parseInt(apt.scheduledTime.split(":")[1]) +
+      apt.duration;
+    const aptEnd = `${Math.floor(aptEndMinutes / 60)
+      .toString()
+      .padStart(2, "0")}:${(aptEndMinutes % 60).toString().padStart(2, "0")}`;
+
+    if (requestedStart < aptEnd && requestedEnd > apt.scheduledTime) {
+      return { available: false, reason: "Time slot already booked" };
+    }
+  }
+
+  return { available: true, reason: null };
+}
+
 // Check availability for booking
 export const checkAvailability = query({
   args: {
@@ -93,67 +177,87 @@ export const checkAvailability = query({
     duration: v.number(), // in minutes
   },
   handler: async (ctx, args) => {
+    return await checkSlotAvailability(
+      ctx,
+      args.date,
+      args.startTime,
+      args.duration,
+    );
+  },
+});
+
+// Get available time slots for a specific date
+export const getAvailableTimeSlots = query({
+  args: {
+    date: v.string(),
+    serviceDuration: v.number(), // in minutes
+  },
+  handler: async (ctx, args) => {
     // Get day of week (0 = Sunday)
     const dayOfWeek = new Date(args.date).getDay();
 
-    // Check business hours
+    // Get business hours for this day
     const businessHours = await ctx.db
       .query("availability")
       .filter((q) =>
         q.and(
           q.eq(q.field("dayOfWeek"), dayOfWeek),
-          q.eq(q.field("isActive"), true)
-        )
+          q.eq(q.field("isActive"), true),
+        ),
       )
       .first();
 
     if (!businessHours) {
-      return { available: false, reason: "Business closed on this day" };
+      return []; // No business hours for this day
     }
 
-    // Check if requested time is within business hours
-    const requestedStart = args.startTime;
-    const requestedEndMinutes = parseInt(args.startTime.split(':')[0]) * 60 +
-                               parseInt(args.startTime.split(':')[1]) +
-                               args.duration;
-    const requestedEnd = `${Math.floor(requestedEndMinutes / 60).toString().padStart(2, '0')}:${(requestedEndMinutes % 60).toString().padStart(2, '0')}`;
+    // Generate time slots in 15-minute intervals
+    const slots = [];
+    const startMinutes = timeToMinutes(businessHours.startTime);
+    const endMinutes = timeToMinutes(businessHours.endTime);
 
-    if (requestedStart < businessHours.startTime || requestedEnd > businessHours.endTime) {
-      return { available: false, reason: "Outside business hours" };
+    for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
+      const timeString = minutesToTime(minutes);
+      const slotEndMinutes = minutes + args.serviceDuration;
+      const slotEndTime = minutesToTime(slotEndMinutes);
+
+      // Check if this slot is available
+      const availability = await checkSlotAvailability(
+        ctx,
+        args.date,
+        timeString,
+        args.serviceDuration,
+      );
+
+      slots.push({
+        time: timeString,
+        displayTime: formatDisplayTime(timeString),
+        available: availability.available,
+        reason: availability.reason,
+      });
     }
 
-    // Check for time blocks
-    const timeBlocks = await ctx.db
-      .query("timeBlocks")
-      .withIndex("by_date", (q) => q.eq("date", args.date))
-      .collect();
-
-    for (const block of timeBlocks) {
-      if (requestedStart < block.endTime && requestedEnd > block.startTime) {
-        return { available: false, reason: `Time blocked: ${block.reason}` };
-      }
-    }
-
-    // Check for existing appointments
-    const appointments = await ctx.db
-      .query("appointments")
-      .withIndex("by_date", (q) => q.eq("scheduledDate", args.date))
-      .filter((q) =>
-        q.neq(q.field("status"), "cancelled")
-      )
-      .collect();
-
-    for (const apt of appointments) {
-      const aptEndMinutes = parseInt(apt.scheduledTime.split(':')[0]) * 60 +
-                           parseInt(apt.scheduledTime.split(':')[1]) +
-                           apt.duration;
-      const aptEnd = `${Math.floor(aptEndMinutes / 60).toString().padStart(2, '0')}:${(aptEndMinutes % 60).toString().padStart(2, '0')}`;
-
-      if (requestedStart < aptEnd && requestedEnd > apt.scheduledTime) {
-        return { available: false, reason: "Time slot already booked" };
-      }
-    }
-
-    return { available: true, reason: null };
+    return slots;
   },
 });
+
+// Helper function to convert HH:MM to minutes
+function timeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+// Helper function to convert minutes to HH:MM
+function minutesToTime(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`;
+}
+
+// Helper function to format time for display
+function formatDisplayTime(time: string): string {
+  const [hours, minutes] = time.split(":").map(Number);
+  const period = hours >= 12 ? "PM" : "AM";
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${minutes.toString().padStart(2, "0")} ${period}`;
+}
