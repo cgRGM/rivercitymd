@@ -20,8 +20,11 @@ import { Resend } from "@convex-dev/resend";
 import { api } from "./_generated/api";
 
 // Initialize Resend component
+// Use test mode for development, production mode when env vars are set
+const isProduction =
+  process.env.RESEND_API_KEY && process.env.NODE_ENV === "production";
 export const resend: Resend = new Resend(components.resend, {
-  testMode: false, // Set to false for production
+  testMode: !isProduction, // Test mode for dev, production mode when API key is available
 });
 
 // Welcome Email Template Component
@@ -555,5 +558,93 @@ export const sendInvoiceEmail = internalAction({
       subject: `Invoice ${invoice.invoiceNumber} from ${business.name}`,
       html,
     });
+  },
+});
+
+// Test Functions for Development
+export const sendTestWelcomeEmail = internalAction({
+  args: {
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) throw new Error("Business info not set");
+
+    const html = await render(
+      WelcomeEmail({
+        userName: "Test User",
+        businessName: business.name,
+      }),
+    );
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <test@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
+      to: args.email,
+      subject: `Test: Welcome to ${business.name}!`,
+      html,
+    });
+
+    return { success: true, message: "Test welcome email sent" };
+  },
+});
+
+export const sendTestAppointmentEmail = internalAction({
+  args: {
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) throw new Error("Business info not set");
+
+    const html = await render(
+      AppointmentConfirmationEmail({
+        customerName: "Test Customer",
+        businessName: business.name,
+        appointmentDate: "2024-12-15",
+        appointmentTime: "10:00 AM",
+        services: ["Full Detail Service", "Interior Cleaning"],
+        location: "123 Test Street, Test City, TS 12345",
+        totalPrice: 150,
+        appointmentId: "test-appointment-123",
+      }),
+    );
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <test@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
+      to: args.email,
+      subject: `Test: Appointment Confirmed - 2024-12-15`,
+      html,
+    });
+
+    return { success: true, message: "Test appointment email sent" };
+  },
+});
+
+export const sendTestInvoiceEmail = internalAction({
+  args: {
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) throw new Error("Business info not set");
+
+    const html = await render(
+      InvoiceEmail({
+        customerName: "Test Customer",
+        businessName: business.name,
+        invoiceNumber: "TEST-001",
+        dueDate: "2024-12-30",
+        total: 150,
+      }),
+    );
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <test@${business.name.toLowerCase().replace(/\s+/g, "")}.com>`,
+      to: args.email,
+      subject: `Test: Invoice TEST-001 from ${business.name}`,
+      html,
+    });
+
+    return { success: true, message: "Test invoice email sent" };
   },
 });
