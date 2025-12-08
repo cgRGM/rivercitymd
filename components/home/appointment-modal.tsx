@@ -129,7 +129,7 @@ export default function AppointmentModal({
   // Get available time slots for selected date
   const availableSlots = useQuery(api.availability.getAvailableTimeSlots, {
     date: step1Data?.scheduledDate || "",
-    serviceDuration: 60, // Default 1 hour, will be updated based on selected services
+    serviceDuration: 90, // Default 90 minutes (most common service duration)
   });
 
   // Step forms

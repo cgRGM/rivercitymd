@@ -190,7 +190,7 @@ export const checkAvailability = query({
 export const getAvailableTimeSlots = query({
   args: {
     date: v.string(),
-    serviceDuration: v.number(), // in minutes
+    serviceDuration: v.number(), // in minutes (for display, we block 2 hours)
   },
   handler: async (ctx, args) => {
     // Get day of week (0 = Sunday)
@@ -212,21 +212,23 @@ export const getAvailableTimeSlots = query({
     }
 
     // Generate time slots in 15-minute intervals
+    // Use 120 minutes (2 hours) for blocking to account for 90-min services + buffer
+    const blockDuration = 120; // 2 hours in minutes
     const slots = [];
     const startMinutes = timeToMinutes(businessHours.startTime);
     const endMinutes = timeToMinutes(businessHours.endTime);
 
     for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
       const timeString = minutesToTime(minutes);
-      const slotEndMinutes = minutes + args.serviceDuration;
+      const slotEndMinutes = minutes + blockDuration;
       const slotEndTime = minutesToTime(slotEndMinutes);
 
-      // Check if this slot is available
+      // Check if this slot is available (using 2-hour block)
       const availability = await checkSlotAvailability(
         ctx,
         args.date,
         timeString,
-        args.serviceDuration,
+        blockDuration,
       );
 
       slots.push({
