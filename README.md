@@ -144,7 +144,7 @@ The app uses Convex Auth with role-based access control:
 Add these to your Convex environment:
 
 - `CONVEX_SITE_URL`: Your Convex deployment URL (e.g., `https://your-project.convex.cloud`)
-- `JWT_SECRET`: Random 32-character string for JWT signing (generate with `openssl rand -hex 32`)
+- `STRIPE_SECRET_KEY`: Your Stripe secret key for payment processing
 
 #### Convex Auth Configuration
 
@@ -152,11 +152,11 @@ The app uses @convex-dev/auth with password-based authentication. Auth configura
 
 #### Troubleshooting Auth Issues
 
-- **"InvalidSecret" errors**: Ensure `JWT_SECRET` is set in your Convex environment
 - **Auth initialization failures**: Check `CONVEX_SITE_URL` is correct and accessible
 - **Sign-in failures**: Verify user accounts exist and passwords are correct
 - **Network errors**: Check your internet connection and Convex service status
 - **Account creation issues**: Ensure email addresses are valid and not already registered
+- **Server errors**: Check Convex dashboard for deployment issues or environment variable problems
 
 ## Payment Processing
 

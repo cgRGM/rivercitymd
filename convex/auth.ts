@@ -12,13 +12,6 @@ if (!convexSiteUrl) {
   );
 }
 
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret) {
-  throw new Error(
-    "JWT_SECRET environment variable is not set. Please generate a random 32-character string and set it in your Convex environment.",
-  );
-}
-
 // Initialize Stripe with environment variable
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 if (!stripeSecretKey) {
