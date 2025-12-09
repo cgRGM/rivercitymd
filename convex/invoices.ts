@@ -1,4 +1,9 @@
-import { query, mutation } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalQuery,
+  internalMutation,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
@@ -36,6 +41,60 @@ export const getById = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
     return await ctx.db.get(args.invoiceId);
+  },
+});
+
+// Get invoice by Stripe invoice ID (for webhooks)
+export const getByStripeId = query({
+  args: { stripeInvoiceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("invoices")
+      .filter((q) => q.eq("stripeInvoiceId", args.stripeInvoiceId))
+      .first();
+  },
+});
+
+// Get invoice count
+export const getCount = query({
+  args: {},
+  handler: async (ctx) => {
+    const invoices = await ctx.db.query("invoices").collect();
+    return { count: invoices.length };
+  },
+});
+
+// Create invoice
+export const create = mutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    userId: v.id("users"),
+    invoiceNumber: v.string(),
+    items: v.array(
+      v.object({
+        serviceId: v.id("services"),
+        serviceName: v.string(),
+        quantity: v.number(),
+        unitPrice: v.number(),
+        totalPrice: v.number(),
+      }),
+    ),
+    subtotal: v.number(),
+    tax: v.number(),
+    total: v.number(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("sent"),
+      v.literal("paid"),
+      v.literal("overdue"),
+    ),
+    dueDate: v.string(),
+    stripeInvoiceId: v.optional(v.string()),
+    stripeInvoiceUrl: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("invoices", args);
   },
 });
 

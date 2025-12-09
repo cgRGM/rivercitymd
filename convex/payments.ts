@@ -262,6 +262,92 @@ export const handleWebhook = action({
 
     // Handle the event
     switch (event.type) {
+      // Invoice lifecycle events (primary for our invoice-based flow)
+      case "invoice.created": {
+        const invoice = event.data.object;
+        console.log(`Invoice created: ${invoice.id}`);
+        // Invoice was created - we already have it in our DB
+        break;
+      }
+
+      case "invoice.finalized": {
+        const invoice = event.data.object;
+        console.log(`Invoice finalized: ${invoice.id}`);
+        // Invoice is now open and ready for payment
+        // Could update status if needed
+        break;
+      }
+
+      case "invoice.sent": {
+        const invoice = event.data.object;
+        console.log(`Invoice sent: ${invoice.id}`);
+        // Invoice was emailed to customer
+        break;
+      }
+
+      case "invoice.paid": {
+        const invoice = event.data.object;
+        console.log(`Invoice paid: ${invoice.id}`);
+
+        // Find our invoice by Stripe invoice ID
+        const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
+          stripeInvoiceId: invoice.id,
+        });
+
+        if (ourInvoice) {
+          await ctx.runMutation(api.invoices.updateStatus, {
+            invoiceId: ourInvoice._id,
+            status: "paid",
+            paidDate: new Date().toISOString().split("T")[0],
+          });
+          // User stats are automatically updated in appointment creation
+        }
+        break;
+      }
+
+      case "invoice.payment_failed": {
+        const invoice = event.data.object;
+        console.log(`Invoice payment failed: ${invoice.id}`);
+
+        // Find our invoice by Stripe invoice ID
+        const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
+          stripeInvoiceId: invoice.id,
+        });
+
+        if (ourInvoice) {
+          // Could add a payment_failed status or log the failure
+          console.log(`Payment failed for our invoice ${ourInvoice._id}`);
+        }
+        break;
+      }
+
+      case "invoice.voided": {
+        const invoice = event.data.object;
+        console.log(`Invoice voided: ${invoice.id}`);
+
+        // Find our invoice by Stripe invoice ID
+        const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
+          stripeInvoiceId: invoice.id,
+        });
+
+        if (ourInvoice) {
+          // Mark as voided/overdue
+          await ctx.runMutation(api.invoices.updateStatus, {
+            invoiceId: ourInvoice._id,
+            status: "overdue",
+          });
+        }
+        break;
+      }
+
+      case "invoice.updated": {
+        const invoice = event.data.object;
+        console.log(`Invoice updated: ${invoice.id}`);
+        // Could sync amount or status changes if needed
+        break;
+      }
+
+      // Payment intent events (for checkout sessions or direct payments)
       case "checkout.session.completed": {
         const session = event.data.object;
         const invoiceId = session.metadata?.invoiceId;
@@ -295,9 +381,26 @@ export const handleWebhook = action({
         const invoiceId = paymentIntent.metadata?.invoiceId;
 
         if (invoiceId) {
-          // Could update invoice status to indicate payment failure
           console.log(`Payment failed for invoice ${invoiceId}`);
         }
+        break;
+      }
+
+      case "payment_intent.canceled": {
+        const paymentIntent = event.data.object;
+        const invoiceId = paymentIntent.metadata?.invoiceId;
+
+        if (invoiceId) {
+          console.log(`Payment canceled for invoice ${invoiceId}`);
+        }
+        break;
+      }
+
+      // Customer events
+      case "customer.created": {
+        const customer = event.data.object;
+        console.log(`Customer created: ${customer.id}`);
+        // Could sync customer data if needed
         break;
       }
 

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
@@ -57,6 +57,7 @@ export function DashboardAppointmentForm({
   const userVehicles = useQuery(api.vehicles.getMyVehicles);
   const services = useQuery(api.services.list);
   const createAppointment = useMutation(api.appointments.create);
+  const createStripeInvoice = useAction(api.appointments.createStripeInvoice);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -85,11 +86,12 @@ export function DashboardAppointmentForm({
   }, [currentUser, form]);
 
   const onSubmit = async (data: FormData) => {
-    if (!currentUser) return;
+    if (!currentUser || !userVehicles || !services) return;
 
     setIsLoading(true);
     try {
-      await createAppointment({
+      // Create the appointment first
+      const appointmentId = await createAppointment({
         userId: currentUser._id,
         vehicleIds: data.vehicleIds as Id<"vehicles">[],
         serviceIds: data.serviceIds as Id<"services">[],
@@ -101,6 +103,52 @@ export function DashboardAppointmentForm({
         zip: data.zip,
         locationNotes: data.locationNotes,
         notes: data.notes,
+      });
+
+      // Get the selected services and vehicles data
+      const selectedServices = services.filter((service) =>
+        data.serviceIds.includes(service._id),
+      );
+      const selectedVehicles = userVehicles.filter((vehicle) =>
+        data.vehicleIds.includes(vehicle._id),
+      );
+
+      // Calculate total price
+      const vehicleSize = selectedVehicles[0]?.size || "medium";
+      const totalPrice =
+        selectedServices.reduce((sum, service) => {
+          let price = service.basePriceMedium || service.basePrice || 0;
+          if (vehicleSize === "small") {
+            price =
+              service.basePriceSmall ||
+              service.basePriceMedium ||
+              service.basePrice ||
+              0;
+          } else if (vehicleSize === "large") {
+            price =
+              service.basePriceLarge ||
+              service.basePriceMedium ||
+              service.basePrice ||
+              0;
+          }
+          return sum + price;
+        }, 0) * selectedVehicles.length;
+
+      // Create Stripe invoice
+      await createStripeInvoice({
+        appointmentId,
+        userId: currentUser._id,
+        services: selectedServices.map((s) => ({
+          _id: s._id,
+          stripePriceIds: s.stripePriceIds || [],
+          basePriceSmall: s.basePriceSmall,
+          basePriceMedium: s.basePriceMedium,
+          basePriceLarge: s.basePriceLarge,
+          name: s.name,
+        })),
+        vehicles: selectedVehicles.map((v) => ({ size: v.size })),
+        totalPrice,
+        scheduledDate: data.scheduledDate,
       });
 
       toast.success("Appointment scheduled successfully!");
