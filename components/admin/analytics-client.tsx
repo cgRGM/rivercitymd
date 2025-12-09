@@ -146,33 +146,43 @@ export default function AnalyticsClient({}: Props) {
               </div>
             ) : (
               <div className="space-y-4">
-                {analytics.topServices.map((service, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="font-medium">{service.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {service.bookings} bookings
+                {analytics.topServices.map(
+                  (
+                    service: {
+                      name: string;
+                      bookings: number;
+                      trend: string;
+                      change: string;
+                    },
+                    index: number,
+                  ) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">{service.name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {service.bookings} bookings
+                        </div>
+                      </div>
+                      <div
+                        className={`flex items-center gap-1 text-sm ${
+                          service.trend === "up"
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-red-600 dark:text-red-400"
+                        }`}
+                      >
+                        {service.trend === "up" ? (
+                          <TrendingUp className="w-4 h-4" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4" />
+                        )}
+                        {service.change}
                       </div>
                     </div>
-                    <div
-                      className={`flex items-center gap-1 text-sm ${
-                        service.trend === "up"
-                          ? "text-green-600 dark:text-green-400"
-                          : "text-red-600 dark:text-red-400"
-                      }`}
-                    >
-                      {service.trend === "up" ? (
-                        <TrendingUp className="w-4 h-4" />
-                      ) : (
-                        <TrendingDown className="w-4 h-4" />
-                      )}
-                      {service.change}
-                    </div>
-                  </div>
-                ))}
+                  ),
+                )}
               </div>
             )}
           </CardContent>
@@ -261,7 +271,11 @@ export default function AnalyticsClient({}: Props) {
             <div className="text-2xl font-bold">
               $
               {analytics.monthlyData
-                .reduce((sum, month) => sum + month.revenue, 0)
+                .reduce(
+                  (sum: number, month: { revenue: number }) =>
+                    sum + month.revenue,
+                  0,
+                )
                 .toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
@@ -273,7 +287,8 @@ export default function AnalyticsClient({}: Props) {
           <CardContent className="pt-6">
             <div className="text-2xl font-bold">
               {analytics.monthlyData.reduce(
-                (sum, month) => sum + month.bookings,
+                (sum: number, month: { bookings: number }) =>
+                  sum + month.bookings,
                 0,
               )}
             </div>
@@ -289,7 +304,8 @@ export default function AnalyticsClient({}: Props) {
               {analytics.monthlyData.length > 0
                 ? (
                     analytics.monthlyData.reduce(
-                      (sum, month) => sum + month.revenue,
+                      (sum: number, month: { revenue: number }) =>
+                        sum + month.revenue,
                       0,
                     ) / analytics.monthlyData.length
                   ).toLocaleString(undefined, { maximumFractionDigits: 0 })

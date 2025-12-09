@@ -57,7 +57,9 @@ export default function SettingsPage() {
     if (businessHours && businessHours.length > 0) {
       // Use existing hours data
       return days.map((day, index) => {
-        const existing = businessHours.find((h) => h.dayOfWeek === index);
+        const existing = businessHours?.find(
+          (h: { dayOfWeek: number }) => h.dayOfWeek === index,
+        );
         return {
           day,
           dayOfWeek: index,

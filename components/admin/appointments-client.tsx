@@ -128,7 +128,9 @@ export default function AppointmentsClient({}: Props) {
   const appointments = appointmentsQuery;
 
   const filteredAppointments = statusFilter
-    ? appointments.filter((apt) => apt.status === statusFilter)
+    ? appointments.filter(
+        (apt: { status: string }) => apt.status === statusFilter,
+      )
     : appointments;
 
   const handleStatusUpdate = async (
@@ -215,7 +217,13 @@ export default function AppointmentsClient({}: Props) {
           size="sm"
           onClick={() => setStatusFilter("pending")}
         >
-          Pending ({appointments.filter((a) => a.status === "pending").length})
+          Pending (
+          {
+            appointments.filter(
+              (a: { status: string }) => a.status === "pending",
+            ).length
+          }
+          )
         </Button>
         <Button
           variant={statusFilter === "confirmed" ? "default" : "outline"}
@@ -223,7 +231,12 @@ export default function AppointmentsClient({}: Props) {
           onClick={() => setStatusFilter("confirmed")}
         >
           Confirmed (
-          {appointments.filter((a) => a.status === "confirmed").length})
+          {
+            appointments.filter(
+              (a: { status: string }) => a.status === "confirmed",
+            ).length
+          }
+          )
         </Button>
         <Button
           variant={statusFilter === "in_progress" ? "default" : "outline"}
@@ -231,7 +244,12 @@ export default function AppointmentsClient({}: Props) {
           onClick={() => setStatusFilter("in_progress")}
         >
           In Progress (
-          {appointments.filter((a) => a.status === "in_progress").length})
+          {
+            appointments.filter(
+              (a: { status: string }) => a.status === "in_progress",
+            ).length
+          }
+          )
         </Button>
         <Button
           variant={statusFilter === "completed" ? "default" : "outline"}
@@ -239,7 +257,12 @@ export default function AppointmentsClient({}: Props) {
           onClick={() => setStatusFilter("completed")}
         >
           Completed (
-          {appointments.filter((a) => a.status === "completed").length})
+          {
+            appointments.filter(
+              (a: { status: string }) => a.status === "completed",
+            ).length
+          }
+          )
         </Button>
       </div>
 
@@ -261,7 +284,8 @@ export default function AppointmentsClient({}: Props) {
         </Card>
       ) : (
         <div className="space-y-4">
-          {filteredAppointments.map((appointment, index) => {
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {filteredAppointments.map((appointment: any, index: number) => {
             const user = appointment.user;
             const services = appointment.services;
             const vehicles = appointment.vehicles;
@@ -281,12 +305,20 @@ export default function AppointmentsClient({}: Props) {
                       </CardTitle>
                       <CardDescription className="mt-1">
                         {services.length > 0
-                          ? services.map((s) => s.name).join(", ")
+                          ? services
+                              .map((s: { name: string }) => s.name)
+                              .join(", ")
                           : "No services"}{" "}
                         •{" "}
                         {vehicles.length > 0
                           ? vehicles
-                              .map((v) => `${v.year} ${v.make} ${v.model}`)
+                              .map(
+                                (v: {
+                                  year: number;
+                                  make: string;
+                                  model: string;
+                                }) => `${v.year} ${v.make} ${v.model}`,
+                              )
                               .join(", ")
                           : "No vehicles"}
                       </CardDescription>

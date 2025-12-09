@@ -401,7 +401,8 @@ export default function PaymentsClient({}: Props) {
                 <p>No invoices found</p>
               </div>
             ) : (
-              invoices.map((invoice) => (
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              invoices.map((invoice: any) => (
                 <div
                   key={invoice._id}
                   className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"

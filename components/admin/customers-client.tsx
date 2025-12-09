@@ -97,7 +97,8 @@ export default function CustomersClient({}: Props) {
 
   const customers = customersQuery;
 
-  const filteredCustomers = customers.filter((customer) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filteredCustomers = customers.filter((customer: any) => {
     const query = searchQuery.toLowerCase();
     const fullName = (customer.name || "").toLowerCase();
     return (
@@ -174,7 +175,8 @@ export default function CustomersClient({}: Props) {
         </Card>
       ) : (
         <div className="grid md:grid-cols-2 gap-4">
-          {filteredCustomers.map((customer, index) => (
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {filteredCustomers.map((customer: any, index: number) => (
             <Card
               key={customer._id}
               className="animate-fade-in-up hover:shadow-lg transition-all cursor-pointer"

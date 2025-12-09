@@ -111,7 +111,8 @@ export default function DashboardClient({}: Props) {
             </div>
           ) : (
             <div className="space-y-4">
-              {upcomingAppointments.slice(0, 4).map((appointment) => {
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {upcomingAppointments.slice(0, 4).map((appointment: any) => {
                 const date = new Date(appointment.scheduledDate);
                 const formattedDate = date.toLocaleDateString("en-US", {
                   month: "short",
