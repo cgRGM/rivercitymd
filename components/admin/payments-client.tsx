@@ -1,11 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Download,
   DollarSign,
@@ -16,9 +24,154 @@ import {
   Send,
   Check,
 } from "lucide-react";
-import { useState } from "react";
 import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
+
+interface InvoiceItem {
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+interface Invoice {
+  _creationTime: number;
+  invoiceNumber: string;
+  customer: string;
+  customerEmail: string;
+  dueDate: string;
+  items: InvoiceItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  stripeInvoiceUrl?: string;
+  notes?: string;
+}
+
+function InvoicePreview({ invoice }: { invoice: Invoice }) {
+  const business = useQuery(api.business.get);
+
+  if (!business) return null;
+
+  return (
+    <div
+      className="border border-gray-200 p-8 max-w-4xl mx-auto bg-white"
+      id="invoice-preview"
+    >
+      <div className="flex justify-between items-start mb-8">
+        <div className="text-sm">
+          <h3 className="font-bold text-lg">{business.name}</h3>
+          <p>{business.owner}</p>
+          <p>{business.address}</p>
+          <p>{business.cityStateZip}</p>
+          <p>{business.country}</p>
+        </div>
+        <div className="text-right">
+          <h2 className="text-4xl font-bold uppercase text-gray-300">
+            Invoice
+          </h2>
+        </div>
+      </div>
+
+      <div className="flex justify-between mb-8 text-sm">
+        <div>
+          <p className="font-bold text-gray-500 mb-1">BILL TO</p>
+          <p className="font-bold">{invoice.customer}</p>
+          <p>{invoice.customerEmail}</p>
+        </div>
+        <div className="text-right">
+          <p>
+            <span className="font-bold text-gray-500">Invoice #</span>{" "}
+            {invoice.invoiceNumber}
+          </p>
+          <p>
+            <span className="font-bold text-gray-500">Date:</span>{" "}
+            {new Date(invoice._creationTime).toLocaleDateString()}
+          </p>
+          <p>
+            <span className="font-bold text-gray-500">Due Date:</span>{" "}
+            {invoice.dueDate}
+          </p>
+        </div>
+      </div>
+
+      <table className="w-full mb-8 text-sm">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="p-2 text-left font-bold text-gray-600">
+              Item Description
+            </th>
+            <th className="p-2 text-center font-bold text-gray-600">Qty</th>
+            <th className="p-2 text-right font-bold text-gray-600">Price</th>
+            <th className="p-2 text-right font-bold text-gray-600">Amount</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {invoice.items.map((item, index) => (
+            <tr key={index}>
+              <td className="p-2">{item.serviceName}</td>
+              <td className="p-2 text-center">{item.quantity}</td>
+              <td className="p-2 text-right">${item.unitPrice.toFixed(2)}</td>
+              <td className="p-2 text-right">${item.totalPrice.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="flex justify-end text-sm mb-8">
+        <div className="w-1/3 space-y-2">
+          <div className="flex justify-between">
+            <span className="text-gray-600">Subtotal</span>
+            <span>${invoice.subtotal.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Sales Tax</span>
+            <span>${invoice.tax.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between font-bold text-lg border-t pt-2">
+            <span>Total</span>
+            <span>${invoice.total.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="text-xs text-gray-500">
+        <div className="mb-4">
+          <h4 className="font-bold mb-1">Notes</h4>
+          <p>{invoice.notes || "Thank you for your business!"}</p>
+        </div>
+        <div>
+          <h4 className="font-bold mb-1">Terms & Conditions</h4>
+          <p>
+            Payment is due within 30 days. Late payments are subject to a fee.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceModal({
+  invoice,
+  onClose,
+}: {
+  invoice: Invoice;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Invoice Details</DialogTitle>
+          <DialogDescription>
+            Invoice #{invoice.invoiceNumber}
+          </DialogDescription>
+        </DialogHeader>
+        <InvoicePreview invoice={invoice} />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
@@ -29,6 +182,7 @@ export default function PaymentsClient({}: Props) {
   const updateInvoiceStatus = useMutation(api.invoices.updateStatus);
 
   const [updatingId, setUpdatingId] = useState<Id<"invoices"> | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   // Handle loading state
   if (invoicesQuery === undefined || statsQuery === undefined) {
@@ -319,7 +473,22 @@ export default function PaymentsClient({}: Props) {
                           Mark Paid
                         </Button>
                       )}
-                      <Button size="sm" variant="ghost">
+                      {invoice.stripeInvoiceUrl && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            window.open(invoice.stripeInvoiceUrl, "_blank")
+                          }
+                        >
+                          <CreditCard className="w-3 h-3" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setSelectedInvoice(invoice)}
+                      >
                         <Eye className="w-3 h-3" />
                       </Button>
                     </div>
@@ -330,6 +499,13 @@ export default function PaymentsClient({}: Props) {
           </div>
         </CardContent>
       </Card>
+
+      {selectedInvoice && (
+        <InvoiceModal
+          invoice={selectedInvoice}
+          onClose={() => setSelectedInvoice(null)}
+        />
+      )}
     </div>
   );
 }

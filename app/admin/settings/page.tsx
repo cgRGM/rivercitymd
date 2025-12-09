@@ -35,9 +35,48 @@ type BusinessFormData = z.infer<typeof businessSchema>;
 
 export default function SettingsPage() {
   const business = useQuery(api.business.get);
+  const businessHours = useQuery(api.availability.getBusinessHours);
   const updateBusiness = useMutation(api.business.update);
+  const setBusinessHours = useMutation(api.availability.setBusinessHours);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isHoursLoading, setIsHoursLoading] = useState(false);
+
+  // Business hours state - initialize with default values or loaded data
+  const [hoursForm, setHoursForm] = useState(() => {
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+
+    if (businessHours && businessHours.length > 0) {
+      // Use existing hours data
+      return days.map((day, index) => {
+        const existing = businessHours.find((h) => h.dayOfWeek === index);
+        return {
+          day,
+          dayOfWeek: index,
+          startTime: existing?.startTime || "09:00",
+          endTime: existing?.endTime || "17:00",
+          isActive: existing?.isActive ?? index > 0, // Sunday closed by default
+        };
+      });
+    } else {
+      // Default hours
+      return days.map((day, index) => ({
+        day,
+        dayOfWeek: index,
+        startTime: "09:00",
+        endTime: "17:00",
+        isActive: index > 0, // Sunday closed by default
+      }));
+    }
+  });
 
   // Handle case where no business exists yet (first-time setup)
   const isFirstTimeSetup = business === null;
@@ -90,6 +129,25 @@ export default function SettingsPage() {
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveHours = async () => {
+    setIsHoursLoading(true);
+    try {
+      await setBusinessHours({
+        schedule: hoursForm.map((hour) => ({
+          dayOfWeek: hour.dayOfWeek,
+          startTime: hour.startTime,
+          endTime: hour.endTime,
+          isActive: hour.isActive,
+        })),
+      });
+      toast.success("Business hours updated successfully");
+    } catch {
+      toast.error("Failed to update business hours");
+    } finally {
+      setIsHoursLoading(false);
     }
   };
 
@@ -200,24 +258,63 @@ export default function SettingsPage() {
       <Card className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
         <CardHeader>
           <CardTitle>Operating Hours</CardTitle>
-          <CardDescription>Set your business hours</CardDescription>
+          <CardDescription>
+            Set your business hours for appointment availability
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {[
-            { day: "Monday", hours: "7:00 AM - 8:00 PM" },
-            { day: "Tuesday", hours: "7:00 AM - 8:00 PM" },
-            { day: "Wednesday", hours: "7:00 AM - 8:00 PM" },
-            { day: "Thursday", hours: "7:00 AM - 8:00 PM" },
-            { day: "Friday", hours: "7:00 AM - 8:00 PM" },
-            { day: "Saturday", hours: "7:00 AM - 8:00 PM" },
-            { day: "Sunday", hours: "Closed" },
-          ].map((schedule, index) => (
-            <div key={index} className="flex items-center justify-between">
-              <span className="font-medium w-32">{schedule.day}</span>
-              <Input className="max-w-xs" defaultValue={schedule.hours} />
+          {hoursForm.map((schedule, index) => (
+            <div
+              key={schedule.dayOfWeek}
+              className="flex items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-4 min-w-0 flex-1">
+                <span className="font-medium w-20">{schedule.day}</span>
+                <Switch
+                  checked={schedule.isActive}
+                  onCheckedChange={(checked) =>
+                    setHoursForm((prev) =>
+                      prev.map((h, i) =>
+                        i === index ? { ...h, isActive: checked } : h,
+                      ),
+                    )
+                  }
+                />
+              </div>
+              {schedule.isActive && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="time"
+                    className="w-32"
+                    value={schedule.startTime}
+                    onChange={(e) =>
+                      setHoursForm((prev) =>
+                        prev.map((h, i) =>
+                          i === index ? { ...h, startTime: e.target.value } : h,
+                        ),
+                      )
+                    }
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <Input
+                    type="time"
+                    className="w-32"
+                    value={schedule.endTime}
+                    onChange={(e) =>
+                      setHoursForm((prev) =>
+                        prev.map((h, i) =>
+                          i === index ? { ...h, endTime: e.target.value } : h,
+                        ),
+                      )
+                    }
+                  />
+                </div>
+              )}
             </div>
           ))}
-          <Button>Update Hours</Button>
+          <Button onClick={handleSaveHours} disabled={isHoursLoading}>
+            {isHoursLoading ? "Saving..." : "Update Hours"}
+          </Button>
         </CardContent>
       </Card>
 

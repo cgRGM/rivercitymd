@@ -149,13 +149,6 @@ export default function AppointmentModal({
     api.users.createUserWithAppointment,
   );
 
-  // Get available time slots for selected date
-  const availableSlotsQuery = useQuery(api.availability.getAvailableTimeSlots, {
-    date: step1Data?.scheduledDate || "1970-01-01", // Default date when none selected
-    serviceDuration: 90, // Default 90 minutes (most common service duration)
-  });
-  const availableSlots = step1Data?.scheduledDate ? availableSlotsQuery : null;
-
   // Step forms
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
@@ -280,15 +273,8 @@ export default function AppointmentModal({
     }
   };
 
-  // Check if business is set up
-  const business = useQuery(api.business.get);
-  const isBusinessSetup = business && business.name && business.address;
-
   // Check if services are available
   const hasServices = services && services.length > 0;
-
-  // Determine if we should use availability checking
-  const useAvailabilityChecking = isBusinessSetup && hasServices;
 
   const onSubmit = async () => {
     const isValid = await step5Form.trigger();
@@ -394,7 +380,7 @@ export default function AppointmentModal({
   };
 
   // Show loading state while data is being fetched
-  if (business === undefined || services === undefined) {
+  if (services === undefined) {
     return (
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -508,62 +494,17 @@ export default function AppointmentModal({
                   name="scheduledTime"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>
-                        {useAvailabilityChecking
-                          ? "Available Time Slots"
-                          : "Preferred Time"}
-                      </FormLabel>
-                      {useAvailabilityChecking ? (
-                        // Show available time slots when business is set up
-                        availableSlots && availableSlots.length > 0 ? (
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a time slot" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {availableSlots
-                                .filter((slot) => slot.available)
-                                .map((slot) => (
-                                  <SelectItem key={slot.time} value={slot.time}>
-                                    {slot.displayTime}
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <div className="text-sm text-muted-foreground p-3 border rounded-md bg-muted/50">
-                            No available time slots for this date. Please select
-                            a different date or contact us directly.
-                          </div>
-                        )
-                      ) : (
-                        // Show free-form time input when business isn't set up
-                        <Input
-                          type="time"
-                          {...field}
-                          placeholder="Select preferred time"
-                        />
-                      )}
+                      <FormLabel>Preferred Time</FormLabel>
+                      <Input
+                        type="time"
+                        {...field}
+                        placeholder="Select preferred time"
+                      />
                       <FormMessage />
-                      {useAvailabilityChecking &&
-                        availableSlots &&
-                        availableSlots.length > 0 && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Showing available time slots for{" "}
-                            {step1Data?.scheduledDate}
-                          </p>
-                        )}
-                      {!useAvailabilityChecking && (
-                        <p className="text-sm text-muted-foreground mt-1">
-                          We&apos;ll contact you to confirm availability and
-                          schedule your appointment
-                        </p>
-                      )}
+                      <p className="text-sm text-muted-foreground mt-1">
+                        We&apos;ll contact you to confirm availability and
+                        schedule your appointment
+                      </p>
                     </FormItem>
                   )}
                 />

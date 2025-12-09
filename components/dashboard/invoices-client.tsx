@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { toast } from "sonner";
 import Image from "next/image";
 import {
   Card,
@@ -53,6 +54,8 @@ type Invoice = {
   status: "draft" | "sent" | "paid" | "overdue";
   dueDate: string;
   paidDate?: string;
+  stripeInvoiceId?: string;
+  stripeInvoiceUrl?: string;
   notes?: string;
   appointment: {
     _id: Id<"appointments">;
@@ -406,14 +409,28 @@ export default function InvoicesClient() {
                   <TableCell>${invoice.total.toFixed(2)}</TableCell>
                   <TableCell>{getStatusBadge(invoice.status)}</TableCell>
                   <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedInvoice(invoice)}
-                    >
-                      <Eye className="w-4 h-4 mr-2" />
-                      View
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedInvoice(invoice)}
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View
+                      </Button>
+                      {invoice.status !== "paid" &&
+                        invoice.stripeInvoiceUrl && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() =>
+                              window.open(invoice.stripeInvoiceUrl, "_blank")
+                            }
+                          >
+                            Pay Now
+                          </Button>
+                        )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

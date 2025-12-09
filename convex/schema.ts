@@ -30,7 +30,9 @@ const schema = defineSchema({
     notes: v.optional(v.string()),
     // Payment fields
     stripeCustomerId: v.optional(v.string()),
-  }).index("email", ["email"]),
+  })
+    .index("email", ["email"])
+    .index("by_role", ["role"]),
 
   // Business Information
   businessInfo: defineTable({
@@ -160,6 +162,8 @@ const schema = defineSchema({
     dueDate: v.string(),
     paidDate: v.optional(v.string()),
     stripePaymentIntentId: v.optional(v.string()),
+    stripeInvoiceId: v.optional(v.string()),
+    stripeInvoiceUrl: v.optional(v.string()),
     paymentMethodId: v.optional(v.id("paymentMethods")),
     notes: v.optional(v.string()),
   })

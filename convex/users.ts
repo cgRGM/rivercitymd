@@ -460,9 +460,11 @@ export const listWithStats = query({
     if (currentUser?.role !== "admin") throw new Error("Admin access required");
 
     const users = await ctx.db.query("users").collect();
+    // Filter out admin users from customer list
+    const clientUsers = users.filter((user) => user.role !== "admin");
 
     const usersWithStats = await Promise.all(
-      users.map(async (user) => {
+      clientUsers.map(async (user) => {
         const appointments = await ctx.db
           .query("appointments")
           .withIndex("by_user", (q) => q.eq("userId", user._id))
@@ -620,27 +622,191 @@ export const createUserWithAppointment = mutation({
       createdBy: userId,
     });
 
-    // Create invoice
-    const invoiceCount = (await ctx.db.query("invoices").collect()).length;
-    const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
+    // Create Stripe customer and invoice using HTTP API
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+      throw new Error("STRIPE_SECRET_KEY environment variable is not set");
+    }
 
-    const items = validServices.map((service) => ({
-      serviceId: service!._id,
-      serviceName: service!.name,
-      quantity: vehicleIds.length,
-      unitPrice: service!.basePrice,
-      totalPrice: service!.basePrice * vehicleIds.length,
-    }));
+    // Create or get Stripe customer
+    let stripeCustomer;
+    const customerListResponse = await fetch(
+      `https://api.stripe.com/v1/customers?email=${encodeURIComponent(args.email)}&limit=1`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+        },
+      },
+    );
+
+    if (!customerListResponse.ok) {
+      throw new Error("Failed to check existing Stripe customers");
+    }
+
+    const customerList = await customerListResponse.json();
+
+    if (customerList.data.length > 0) {
+      stripeCustomer = customerList.data[0];
+    } else {
+      const customerResponse = await fetch(
+        "https://api.stripe.com/v1/customers",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${stripeSecretKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            email: args.email,
+            name: args.name,
+            phone: args.phone || "",
+            "address[line1]": args.address.street,
+            "address[city]": args.address.city,
+            "address[state]": args.address.state,
+            "address[postal_code]": args.address.zip,
+            "address[country]": "US",
+          }),
+        },
+      );
+
+      if (!customerResponse.ok) {
+        throw new Error("Failed to create Stripe customer");
+      }
+
+      stripeCustomer = await customerResponse.json();
+    }
+
+    // Update user with Stripe customer ID
+    await ctx.db.patch(userId, {
+      stripeCustomerId: stripeCustomer.id,
+    });
+
+    // Create invoice items using existing Stripe price IDs from services
+    const vehicleSize = args.vehicles[0]?.size || "medium";
+
+    for (const service of validServices) {
+      if (!service!.stripePriceIds || service!.stripePriceIds.length === 0) {
+        throw new Error(`Service ${service!.name} has no Stripe price IDs`);
+      }
+
+      // Find the appropriate price ID based on vehicle size
+      // The stripePriceIds array contains price IDs in order: small, medium, large
+      let priceIndex = 1; // Default to medium (index 1)
+      if (vehicleSize === "small") priceIndex = 0;
+      else if (vehicleSize === "large") priceIndex = 2;
+
+      const stripePriceId =
+        service!.stripePriceIds[priceIndex] ||
+        service!.stripePriceIds[1] ||
+        service!.stripePriceIds[0];
+
+      if (!stripePriceId) {
+        throw new Error(
+          `No Stripe price found for service ${service!.name} and size ${vehicleSize}`,
+        );
+      }
+
+      // Create invoice item
+      const invoiceItemResponse = await fetch(
+        "https://api.stripe.com/v1/invoiceitems",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${stripeSecretKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            customer: stripeCustomer.id,
+            price: stripePriceId,
+            quantity: vehicleIds.length.toString(),
+          }),
+        },
+      );
+
+      if (!invoiceItemResponse.ok) {
+        const errorText = await invoiceItemResponse.text();
+        throw new Error(`Failed to create invoice item: ${errorText}`);
+      }
+    }
+
+    // Create the invoice
+    const appointmentDate = new Date(args.scheduledDate);
+    const dueDate = new Date(appointmentDate);
+    dueDate.setDate(dueDate.getDate() + 30);
+
+    const invoiceResponse = await fetch("https://api.stripe.com/v1/invoices", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stripeSecretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        customer: stripeCustomer.id,
+        collection_method: "send_invoice",
+        days_until_due: "30",
+        auto_advance: "true",
+        description: `Mobile detailing service - ${args.scheduledDate}`,
+      }),
+    });
+
+    if (!invoiceResponse.ok) {
+      const errorText = await invoiceResponse.text();
+      throw new Error(`Failed to create Stripe invoice: ${errorText}`);
+    }
+
+    const stripeInvoice = await invoiceResponse.json();
+
+    // Send the invoice (Stripe will email it automatically)
+    const sendResponse = await fetch(
+      `https://api.stripe.com/v1/invoices/${stripeInvoice.id}/send`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+        },
+      },
+    );
+
+    if (!sendResponse.ok) {
+      const errorText = await sendResponse.text();
+      throw new Error(`Failed to send Stripe invoice: ${errorText}`);
+    }
+
+    const sentInvoice = await sendResponse.json();
+
+    // Store invoice in Convex with Stripe data
+    const invoiceNumber = `INV-${String(sentInvoice.number || Date.now()).padStart(4, "0")}`;
+
+    const items = validServices.map((service) => {
+      // Calculate the correct price based on vehicle size
+      let unitPrice = service!.basePriceMedium || service!.basePrice || 0;
+      if (vehicleSize === "small") {
+        unitPrice =
+          service!.basePriceSmall ||
+          service!.basePriceMedium ||
+          service!.basePrice ||
+          0;
+      } else if (vehicleSize === "large") {
+        unitPrice =
+          service!.basePriceLarge ||
+          service!.basePriceMedium ||
+          service!.basePrice ||
+          0;
+      }
+
+      return {
+        serviceId: service!._id,
+        serviceName: service!.name,
+        quantity: vehicleIds.length,
+        unitPrice,
+        totalPrice: unitPrice * vehicleIds.length,
+      };
+    });
 
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const tax = 0;
     const total = subtotal + tax;
-
-    const appointmentDate = new Date(args.scheduledDate);
-    const dueDate = new Date(
-      appointmentDate.setDate(appointmentDate.getDate() + 30),
-    );
-    const dueDateString = dueDate.toISOString().split("T")[0];
 
     await ctx.db.insert("invoices", {
       appointmentId,
@@ -650,8 +816,10 @@ export const createUserWithAppointment = mutation({
       subtotal,
       tax,
       total,
-      status: "draft",
-      dueDate: dueDateString,
+      status: "sent", // Invoice has been sent via Stripe
+      dueDate: dueDate.toISOString().split("T")[0],
+      stripeInvoiceId: sentInvoice.id,
+      stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
       notes: `Invoice for appointment on ${args.scheduledDate}`,
     });
 
