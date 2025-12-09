@@ -46,7 +46,7 @@ const step1Schema = z.object({
   street: z.string().min(1, "Street address is required"),
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
-  zip: z.string().min(1, "ZIP code is required"),
+  zip: z.string().optional(), // Make ZIP optional since not all addresses have postal codes
   locationNotes: z.string().optional(),
 });
 
@@ -111,10 +111,20 @@ export default function AppointmentModal({
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Form states - initialize with saved address data if available
+  // Form states - initialize with saved data if available
   const [step1Data, setStep1Data] = useState<Partial<Step1Data>>(() => {
-    // Load saved address from localStorage
+    // Load saved form data from localStorage
     if (typeof window !== "undefined") {
+      const savedData = localStorage.getItem("appointmentFormData");
+      if (savedData) {
+        try {
+          return JSON.parse(savedData);
+        } catch (error) {
+          console.warn("Error parsing saved form data:", error);
+        }
+      }
+
+      // Fallback: load saved address from localStorage and merge with any existing data
       const savedAddress = localStorage.getItem("selectedAddress");
       if (savedAddress) {
         try {
@@ -239,7 +249,10 @@ export default function AppointmentModal({
       case 1:
         isValid = await step1Form.trigger();
         if (isValid) {
-          setStep1Data(step1Form.getValues());
+          const formData = step1Form.getValues();
+          setStep1Data(formData);
+          // Save form data to localStorage
+          localStorage.setItem("appointmentFormData", JSON.stringify(formData));
           setCurrentStep(2);
         }
         break;
@@ -361,9 +374,10 @@ export default function AppointmentModal({
     });
     setStep4Data({ serviceIds: preselectedServices });
     setStep5Data({});
-    // Clear saved address from localStorage
+    // Clear saved data from localStorage
     if (typeof window !== "undefined") {
       localStorage.removeItem("selectedAddress");
+      localStorage.removeItem("appointmentFormData");
     }
     step1Form.reset();
     step2Form.reset();
@@ -558,6 +572,13 @@ export default function AppointmentModal({
                         shouldDirty: true,
                       });
                     }
+
+                    // Save current form data to localStorage
+                    const currentData = step1Form.getValues();
+                    localStorage.setItem(
+                      "appointmentFormData",
+                      JSON.stringify(currentData),
+                    );
                   }}
                   label="Service Address"
                   placeholder="Search for your service address"
