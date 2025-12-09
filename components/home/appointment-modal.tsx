@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -38,6 +38,26 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
+
+interface RadarAddress {
+  formattedAddress?: string;
+  addressLabel?: string;
+  addressComponents?: {
+    street?: string;
+    city?: string;
+    locality?: string;
+    state?: string;
+    region?: string;
+    postalCode?: string;
+  };
+  // Direct properties from Radar API response
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  latitude?: number;
+  longitude?: number;
+}
 
 // Step schemas
 const step1Schema = z.object({
@@ -207,6 +227,44 @@ export default function AppointmentModal({
     },
   });
 
+  // Memoized address selection callback to prevent Radar reinitialization
+  const handleAddressSelect = useCallback(
+    (address: RadarAddress) => {
+      console.log("Processing address selection:", address);
+
+      // Store the full address data in localStorage for persistence
+      localStorage.setItem("selectedAddress", JSON.stringify(address));
+
+      // Update form fields - Radar returns data directly on the address object
+      step1Form.setValue(
+        "street",
+        address.street || address.formattedAddress || "",
+        {
+          shouldValidate: true,
+          shouldDirty: true,
+        },
+      );
+      step1Form.setValue("city", address.city || "", {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+      step1Form.setValue("state", address.state || "", {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+      step1Form.setValue("zip", address.postalCode || "", {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+
+      // Save current form data to localStorage
+      const currentData = step1Form.getValues();
+      console.log("Updated form data:", currentData);
+      localStorage.setItem("appointmentFormData", JSON.stringify(currentData));
+    },
+    [step1Form],
+  );
+
   const addVehicle = () => {
     const vehicleType = step3Form.getValues("vehicleType");
     const size = getVehicleSize(vehicleType);
@@ -248,12 +306,17 @@ export default function AppointmentModal({
     switch (currentStep) {
       case 1:
         isValid = await step1Form.trigger();
+        console.log("Step 1 validation result:", isValid);
+        console.log("Step 1 form values:", step1Form.getValues());
+        console.log("Step 1 form errors:", step1Form.formState.errors);
         if (isValid) {
           const formData = step1Form.getValues();
           setStep1Data(formData);
           // Save form data to localStorage
           localStorage.setItem("appointmentFormData", JSON.stringify(formData));
           setCurrentStep(2);
+        } else {
+          console.log("Step 1 validation failed");
         }
         break;
       case 2:
@@ -527,59 +590,7 @@ export default function AppointmentModal({
               <div className="space-y-4">
                 <h3 className="text-sm font-medium">Service Location</h3>
                 <AddressInput
-                  onAddressSelect={(address) => {
-                    // Store the full address data in localStorage for persistence
-                    localStorage.setItem(
-                      "selectedAddress",
-                      JSON.stringify(address),
-                    );
-
-                    // Update form fields with parsed address components
-                    if (address.addressComponents) {
-                      const components = address.addressComponents;
-                      step1Form.setValue(
-                        "street",
-                        components.street || address.formattedAddress || "",
-                        {
-                          shouldValidate: true,
-                          shouldDirty: true,
-                        },
-                      );
-                      step1Form.setValue(
-                        "city",
-                        components.city || components.locality || "",
-                        {
-                          shouldValidate: true,
-                          shouldDirty: true,
-                        },
-                      );
-                      step1Form.setValue(
-                        "state",
-                        components.state || components.region || "",
-                        {
-                          shouldValidate: true,
-                          shouldDirty: true,
-                        },
-                      );
-                      step1Form.setValue("zip", components.postalCode || "", {
-                        shouldValidate: true,
-                        shouldDirty: true,
-                      });
-                    } else if (address.formattedAddress) {
-                      // Fallback: put everything in street field
-                      step1Form.setValue("street", address.formattedAddress, {
-                        shouldValidate: true,
-                        shouldDirty: true,
-                      });
-                    }
-
-                    // Save current form data to localStorage
-                    const currentData = step1Form.getValues();
-                    localStorage.setItem(
-                      "appointmentFormData",
-                      JSON.stringify(currentData),
-                    );
-                  }}
+                  onAddressSelect={handleAddressSelect}
                   label="Service Address"
                   placeholder="Search for your service address"
                 />
