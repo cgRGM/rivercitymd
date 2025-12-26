@@ -61,6 +61,35 @@ export const getMonthlyStats = query({
     const avgDuration =
       thisMonth.length > 0 ? totalDuration / thisMonth.length / 60 : 0;
 
+    // Calculate deposits
+    const invoices = await ctx.db.query("invoices").collect();
+    const thisMonthInvoices = invoices.filter((inv) => {
+      const date = new Date(inv._creationTime);
+      return date >= firstDayOfMonth && inv.depositPaid === true;
+    });
+    const lastMonthInvoices = invoices.filter((inv) => {
+      const date = new Date(inv._creationTime);
+      return (
+        date >= firstDayOfLastMonth &&
+        date < firstDayOfMonth &&
+        inv.depositPaid === true
+      );
+    });
+
+    const thisMonthDeposits = thisMonthInvoices.reduce(
+      (sum, inv) => sum + (inv.depositAmount || 0),
+      0,
+    );
+    const lastMonthDeposits = lastMonthInvoices.reduce(
+      (sum, inv) => sum + (inv.depositAmount || 0),
+      0,
+    );
+
+    const depositsChange =
+      lastMonthDeposits > 0
+        ? ((thisMonthDeposits - lastMonthDeposits) / lastMonthDeposits) * 100
+        : 0;
+
     return {
       totalRevenue: thisMonthRevenue,
       revenueChange: revenueChange.toFixed(1),
@@ -68,6 +97,8 @@ export const getMonthlyStats = query({
       bookingsChange: bookingsChange.toFixed(1),
       activeCustomers: activeClients.length,
       avgServiceTime: avgDuration.toFixed(1),
+      totalDeposits: thisMonthDeposits,
+      depositsChange: depositsChange.toFixed(1),
     };
   },
 });
@@ -160,6 +191,35 @@ export const getDashboardAnalytics = query({
     const retentionRate =
       totalCustomers > 0 ? (returningCustomers / totalCustomers) * 100 : 0;
 
+    // Calculate deposits for analytics
+    const invoices = await ctx.db.query("invoices").collect();
+    const thisMonthInvoices = invoices.filter((inv) => {
+      const date = new Date(inv._creationTime);
+      return date >= thisMonthStart && inv.depositPaid === true;
+    });
+    const lastMonthInvoices = invoices.filter((inv) => {
+      const date = new Date(inv._creationTime);
+      return (
+        date >= lastMonthStart &&
+        date < thisMonthStart &&
+        inv.depositPaid === true
+      );
+    });
+
+    const thisMonthDeposits = thisMonthInvoices.reduce(
+      (sum, inv) => sum + (inv.depositAmount || 0),
+      0,
+    );
+    const lastMonthDeposits = lastMonthInvoices.reduce(
+      (sum, inv) => sum + (inv.depositAmount || 0),
+      0,
+    );
+
+    const depositsChange =
+      lastMonthDeposits > 0
+        ? ((thisMonthDeposits - lastMonthDeposits) / lastMonthDeposits) * 100
+        : 0;
+
     return {
       monthlyData,
       topServices,
@@ -168,6 +228,8 @@ export const getDashboardAnalytics = query({
         returningCustomers,
         retentionRate: retentionRate.toFixed(0),
       },
+      totalDeposits: thisMonthDeposits,
+      depositsChange: depositsChange.toFixed(1),
     };
   },
 });

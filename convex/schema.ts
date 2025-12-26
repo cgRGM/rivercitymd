@@ -75,6 +75,14 @@ const schema = defineSchema({
     ),
   }),
 
+  // Deposit Settings (global deposit product)
+  depositSettings: defineTable({
+    amountPerVehicle: v.number(), // Deposit amount per vehicle (default $50)
+    stripeProductId: v.optional(v.string()), // Stripe product ID for deposit
+    stripePriceId: v.optional(v.string()), // Stripe price ID for deposit
+    isActive: v.boolean(),
+  }),
+
   // Services and Subscriptions
   services: defineTable({
     name: v.string(),
@@ -92,6 +100,7 @@ const schema = defineSchema({
     icon: v.optional(v.string()), // Emoji or icon identifier
     stripeProductId: v.optional(v.string()), // Stripe product ID
     stripePriceIds: v.optional(v.array(v.string())), // Stripe price IDs for different sizes
+    // Note: Deposit is now a separate product managed via depositSettings table
   }).index("by_category", ["categoryId"]),
 
   // Appointments/Bookings
@@ -166,6 +175,12 @@ const schema = defineSchema({
     stripeInvoiceUrl: v.optional(v.string()),
     paymentMethodId: v.optional(v.id("paymentMethods")),
     notes: v.optional(v.string()),
+    // Deposit fields
+    depositAmount: v.optional(v.number()), // $50 × vehicle count
+    depositPaid: v.optional(v.boolean()), // true when deposit charged
+    depositPaymentIntentId: v.optional(v.string()), // Stripe payment intent ID for deposit
+    remainingBalance: v.optional(v.number()), // total - depositAmount
+    finalPaymentIntentId: v.optional(v.string()), // Stripe payment intent ID for final payment
   })
     .index("by_user", ["userId"])
     .index("by_appointment", ["appointmentId"])

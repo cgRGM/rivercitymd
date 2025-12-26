@@ -171,6 +171,7 @@ export const createStripeProduct = action({
     }
 
     // Update service with Stripe product ID and price IDs
+    // Note: Deposit is now a separate product managed via depositSettings
     await ctx.runMutation(internal.services.updateStripeIds, {
       serviceId: args.serviceId,
       stripeProductId: product.id,
@@ -226,6 +227,7 @@ export const create = mutation({
       args.basePriceMedium || args.basePriceSmall || args.basePriceLarge || 0;
 
     // Create the service in the database
+    // Note: Deposit is now a separate product managed via depositSettings
     const serviceId = await ctx.db.insert("services", {
       name: args.name,
       description: args.description,

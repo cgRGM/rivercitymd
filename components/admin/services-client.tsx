@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -11,7 +12,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Edit, Trash2, AlertCircle, Check } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Plus, Edit, Trash2, AlertCircle, Check, Save, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useState } from "react";
 import { toast } from "sonner";
 import { AddServiceForm } from "@/components/forms";
 import { AddAddonForm } from "@/components/admin/forms/add-addon-form";
@@ -37,15 +38,29 @@ const CATEGORY_IDS = {
 } as const;
 
 export default function ServicesClient({}: Props) {
+  // All hooks must be called before any conditional returns
   const servicesQuery = useQuery(api.services.listWithBookingStats);
   const categoriesQuery = useQuery(api.services.listCategories);
   const deleteService = useMutation(api.services.deleteService);
+  const depositSettings = useQuery(api.depositSettings.get);
+  const updateDepositSettings = useMutation(api.depositSettings.upsert);
   const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAddAddonForm, setShowAddAddonForm] = useState(false);
   const [showAddSubscriptionForm, setShowAddSubscriptionForm] = useState(false);
   const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isEditingDeposit, setIsEditingDeposit] = useState(false);
+  const [depositAmount, setDepositAmount] = useState(
+    depositSettings?.amountPerVehicle ?? 50,
+  );
+
+  // Update deposit amount when settings change
+  React.useEffect(() => {
+    if (depositSettings) {
+      setDepositAmount(depositSettings.amountPerVehicle);
+    }
+  }, [depositSettings]);
 
   // Handle loading state
   if (servicesQuery === undefined) {
@@ -186,9 +201,63 @@ export default function ServicesClient({}: Props) {
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-3">
           <h2 className="text-3xl font-bold">Services</h2>
-          <p className="text-muted-foreground">Manage your service offerings</p>
+          {isEditingDeposit ? (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Deposit:</span>
+              <Input
+                type="number"
+                step="0.01"
+                value={depositAmount}
+                onChange={(e) =>
+                  setDepositAmount(parseFloat(e.target.value) || 50)
+                }
+                className="w-20"
+              />
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await updateDepositSettings({
+                      amountPerVehicle: depositAmount,
+                    });
+                    setIsEditingDeposit(false);
+                    toast.success("Deposit amount updated");
+                  } catch (error) {
+                    toast.error("Failed to update deposit amount");
+                  }
+                }}
+              >
+                <Save className="w-4 h-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setIsEditingDeposit(false);
+                  setDepositAmount(
+                    depositSettings?.amountPerVehicle ?? 50,
+                  );
+                }}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">
+                Deposit: ${depositSettings?.amountPerVehicle ?? 50} per vehicle
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setIsEditingDeposit(true)}
+              >
+                <Edit className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
         </div>
         <Button onClick={() => setShowServiceTypeDialog(true)}>
           <Plus className="w-4 h-4 mr-2" />
@@ -206,15 +275,16 @@ export default function ServicesClient({}: Props) {
                   <h3 className="text-2xl font-semibold">{categoryName}</h3>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                  {(categoryServices as any)?.map(
-                    (service: any, index: number) => (
-                      <Card
-                        key={service._id}
-                        className="animate-fade-in-up hover:shadow-lg transition-all"
-                        style={{ animationDelay: `${index * 50}ms` }}
-                      >
+                <div className="overflow-x-auto">
+                  <div className="flex gap-6 min-w-max pb-4">
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {(categoryServices as any)?.map(
+                      (service: any, index: number) => (
+                        <Card
+                          key={service._id}
+                          className="w-80 flex-shrink-0 animate-fade-in-up hover:shadow-lg transition-all"
+                          style={{ animationDelay: `${index * 50}ms` }}
+                        >
                         <CardHeader>
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
@@ -373,6 +443,7 @@ export default function ServicesClient({}: Props) {
                       </Card>
                     ),
                   )}
+                  </div>
                 </div>
               </div>
             ),

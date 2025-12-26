@@ -12,8 +12,11 @@ import {
   BarChart3,
   CreditCard,
   LogOut,
+  Star,
 } from "lucide-react";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 import {
   Sidebar,
@@ -28,6 +31,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 const menuItems = [
   {
@@ -62,6 +66,11 @@ const menuItems = [
     href: "/admin/payments",
   },
   {
+    title: "Reviews",
+    icon: Star,
+    href: "/admin/reviews",
+  },
+  {
     title: "Settings",
     icon: Settings,
     href: "/admin/settings",
@@ -72,6 +81,8 @@ export default function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { signOut } = useAuthActions();
+  const pendingAppointmentsCount = useQuery(api.appointments.getPendingCount) ?? 0;
+  const newCustomersCount = useQuery(api.users.getNewCustomersCount) ?? 0;
 
   const handleSignOut = async () => {
     await signOut();
@@ -107,12 +118,28 @@ export default function AdminSidebar() {
               {menuItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
+                // Get count for specific menu items
+                let count = 0;
+                if (item.href === "/admin/appointments") {
+                  count = pendingAppointmentsCount;
+                } else if (item.href === "/admin/customers") {
+                  count = newCustomersCount;
+                }
+
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton asChild isActive={isActive}>
-                      <Link href={item.href}>
+                      <Link href={item.href} className="relative w-full">
                         <Icon className="w-4 h-4" />
                         <span>{item.title}</span>
+                        {count > 0 && (
+                          <Badge
+                            variant="destructive"
+                            className="absolute right-2 h-5 min-w-5 px-1.5 flex items-center justify-center text-xs"
+                          >
+                            {count > 99 ? "99+" : count}
+                          </Badge>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

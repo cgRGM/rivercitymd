@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Clock,
   CheckCircle2,
+  CreditCard,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -30,6 +31,8 @@ export default function DashboardClient({}: Props) {
     bookingsChange: "0",
     activeCustomers: 0,
     avgServiceTime: "0",
+    totalDeposits: 0,
+    depositsChange: "0",
   };
   const upcomingAppointments = useQuery(api.appointments.getUpcoming) || [];
 
@@ -62,12 +65,19 @@ export default function DashboardClient({}: Props) {
       icon: Clock,
       trend: "down",
     },
+    {
+      title: "Deposits Collected",
+      value: `$${stats.totalDeposits.toLocaleString()}`,
+      change: `${stats.depositsChange}%`,
+      icon: CreditCard,
+      trend: parseFloat(stats.depositsChange) >= 0 ? "up" : "down",
+    },
   ];
 
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         {statsData.map((stat, index) => {
           const Icon = stat.icon;
           return (
@@ -141,7 +151,7 @@ export default function DashboardClient({}: Props) {
                       </div>
                       <div>
                         <div className="font-semibold">
-                          User ID: {appointment.userId}
+                          {appointment.userName || "Unknown Customer"}
                         </div>
                         <div className="text-sm text-muted-foreground">
                           {appointment.serviceIds.length} service(s) •{" "}

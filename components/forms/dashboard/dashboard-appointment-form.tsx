@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useRouter } from "next/navigation";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -57,7 +58,7 @@ export function DashboardAppointmentForm({
   const userVehicles = useQuery(api.vehicles.getMyVehicles);
   const services = useQuery(api.services.list);
   const createAppointment = useMutation(api.appointments.create);
-  const createStripeInvoice = useAction(api.appointments.createStripeInvoice);
+  const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -90,8 +91,8 @@ export function DashboardAppointmentForm({
 
     setIsLoading(true);
     try {
-      // Create the appointment first
-      const appointmentId = await createAppointment({
+      // Create the appointment and invoice
+      const { appointmentId, invoiceId } = await createAppointment({
         userId: currentUser._id,
         vehicleIds: data.vehicleIds as Id<"vehicles">[],
         serviceIds: data.serviceIds as Id<"services">[],
@@ -105,55 +106,16 @@ export function DashboardAppointmentForm({
         notes: data.notes,
       });
 
-      // Get the selected services and vehicles data
-      const selectedServices = services.filter((service) =>
-        data.serviceIds.includes(service._id),
-      );
-      const selectedVehicles = userVehicles.filter((vehicle) =>
-        data.vehicleIds.includes(vehicle._id),
-      );
-
-      // Calculate total price
-      const vehicleSize = selectedVehicles[0]?.size || "medium";
-      const totalPrice =
-        selectedServices.reduce((sum, service) => {
-          let price = service.basePriceMedium || service.basePrice || 0;
-          if (vehicleSize === "small") {
-            price =
-              service.basePriceSmall ||
-              service.basePriceMedium ||
-              service.basePrice ||
-              0;
-          } else if (vehicleSize === "large") {
-            price =
-              service.basePriceLarge ||
-              service.basePriceMedium ||
-              service.basePrice ||
-              0;
-          }
-          return sum + price;
-        }, 0) * selectedVehicles.length;
-
-      // Create Stripe invoice
-      await createStripeInvoice({
+      // Create checkout session for deposit payment
+      const { url } = await createDepositCheckout({
         appointmentId,
-        userId: currentUser._id,
-        services: selectedServices.map((s) => ({
-          _id: s._id,
-          stripePriceIds: s.stripePriceIds || [],
-          basePriceSmall: s.basePriceSmall,
-          basePriceMedium: s.basePriceMedium,
-          basePriceLarge: s.basePriceLarge,
-          name: s.name,
-        })),
-        vehicles: selectedVehicles.map((v) => ({ size: v.size })),
-        totalPrice,
-        scheduledDate: data.scheduledDate,
+        invoiceId,
+        successUrl: `${window.location.origin}/dashboard/appointments?payment=success`,
+        cancelUrl: `${window.location.origin}/dashboard/appointments?payment=cancelled`,
       });
 
-      toast.success("Appointment scheduled successfully!");
-      onOpenChange(false);
-      form.reset();
+      // Redirect to Stripe Checkout
+      window.location.href = url;
     } catch (error) {
       toast.error(
         error instanceof Error

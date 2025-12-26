@@ -1,7 +1,38 @@
-import { query, mutation, action, internalMutation } from "./_generated/server";
+import {
+  query,
+  mutation,
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+
+// Get count of new customers (created in last 30 days, admin only)
+export const getNewCustomersCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const currentUser = await ctx.db.get(userId);
+    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const users = await ctx.db.query("users").collect();
+
+    // Filter for customers (not admins) created in last 30 days
+    const newCustomers = users.filter(
+      (user) => user.role !== "admin" && user._creationTime >= thirtyDaysAgo,
+    );
+
+    return newCustomers.length;
+  },
+});
 
 // Get all users (admin only)
 export const list = query({
@@ -44,6 +75,14 @@ export const getCurrentUser = query({
     }
 
     return await ctx.db.get(userId);
+  },
+});
+
+// Internal query to get user by ID (no auth required, for internal actions)
+export const getByIdInternal = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args): Promise<Doc<"users"> | null> => {
+    return await ctx.db.get(args.userId);
   },
 });
 
@@ -449,6 +488,72 @@ export const deleteUser = mutation({
   },
 });
 
+// Get user by ID with full details (appointments, invoices, vehicles) - admin only
+export const getByIdWithDetails = query({
+  args: { userId: v.id("users") },
+  returns: v.union(
+    v.object({
+      user: v.any(), // Full user document
+      appointments: v.array(v.any()),
+      invoices: v.array(v.any()),
+      vehicles: v.array(v.any()),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const authUserId = await getAuthUserId(ctx);
+    if (!authUserId) throw new Error("Not authenticated");
+
+    const currentUser = await ctx.db.get(authUserId);
+    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+
+    const user = await ctx.db.get(args.userId);
+    if (!user) return null;
+
+    // Get all appointments for this user
+    const appointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    // Enrich appointments with services and vehicles
+    const enrichedAppointments = await Promise.all(
+      appointments.map(async (apt) => {
+        const services = await Promise.all(
+          apt.serviceIds.map((id) => ctx.db.get(id)),
+        );
+        const vehicles = await Promise.all(
+          apt.vehicleIds.map((id) => ctx.db.get(id)),
+        );
+        return {
+          ...apt,
+          services: services.filter((s) => s !== null),
+          vehicles: vehicles.filter((v) => v !== null),
+        };
+      }),
+    );
+
+    // Get all invoices for this user
+    const invoices = await ctx.db
+      .query("invoices")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    // Get all vehicles for this user
+    const vehicles = await ctx.db
+      .query("vehicles")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    return {
+      user,
+      appointments: enrichedAppointments,
+      invoices,
+      vehicles,
+    };
+  },
+});
+
 // Get users with statistics (total bookings, last visit, etc.) - admin only
 export const listWithStats = query({
   args: {},
@@ -496,12 +601,14 @@ export const listWithStats = query({
 });
 
 // Create user account with appointment (for marketing site signups)
+// Note: Password should be handled via Convex Auth signup before calling this mutation
+// This mutation creates the user in the database and appointment, but auth credentials
+// must be created separately using the auth system
 export const createUserWithAppointment = mutation({
   args: {
     name: v.string(),
     email: v.string(),
     phone: v.string(),
-    password: v.string(),
     address: v.object({
       street: v.string(),
       city: v.string(),
@@ -525,31 +632,48 @@ export const createUserWithAppointment = mutation({
     scheduledTime: v.string(),
     locationNotes: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    // Check if user already exists
-    const existingUser = await ctx.db
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    userId: Id<"users">;
+    appointmentId: Id<"appointments">;
+    invoiceId: Id<"invoices">;
+  }> => {
+    // Check if user already exists (may have been created by auth system)
+    let existingUser = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", args.email))
       .first();
 
+    let userId: Id<"users">;
     if (existingUser) {
-      throw new Error(
-        "An account with this email already exists. Please sign in instead.",
-      );
+      // User exists (likely created by auth system), use existing user
+      userId = existingUser._id;
+      // Update user info if needed (phone, address may not be set by auth)
+      const updateData: any = {};
+      if (!existingUser.phone) updateData.phone = args.phone;
+      if (!existingUser.address) updateData.address = args.address;
+      if (!existingUser.name || existingUser.name === existingUser.email) {
+        updateData.name = args.name;
+      }
+      if (Object.keys(updateData).length > 0) {
+        await ctx.db.patch(userId, updateData);
+      }
+    } else {
+      // Create the user account (auth may have failed, so create user without password)
+      userId = await ctx.db.insert("users", {
+        name: args.name,
+        email: args.email,
+        phone: args.phone,
+        address: args.address,
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+        cancellationCount: 0,
+      });
     }
-
-    // Create the user account
-    const userId = await ctx.db.insert("users", {
-      name: args.name,
-      email: args.email,
-      phone: args.phone,
-      address: args.address,
-      role: "client",
-      timesServiced: 0,
-      totalSpent: 0,
-      status: "active",
-      cancellationCount: 0,
-    });
 
     // Create vehicles
     const vehicleIds: string[] = [];
@@ -622,24 +746,80 @@ export const createUserWithAppointment = mutation({
       createdBy: userId,
     });
 
-    // Schedule Stripe invoice creation (will run after mutation completes)
-    await ctx.scheduler.runAfter(0, api.users.createUserAppointmentInvoice, {
-      userId,
-      appointmentId,
-      services: validServices.map((s) => ({
-        _id: s._id,
-        stripePriceIds: s.stripePriceIds || [],
-        basePriceSmall: s.basePriceSmall,
-        basePriceMedium: s.basePriceMedium,
-        basePriceLarge: s.basePriceLarge,
-        name: s.name,
-      })),
-      vehicles: args.vehicles.map((v) => ({ size: v.size })),
-      totalPrice,
-      scheduledDate: args.scheduledDate,
+    // Calculate invoice items
+    const vehicleSize = args.vehicles[0]?.size || "medium";
+    const items = validServices.map((service) => {
+      // Calculate the correct price based on vehicle size
+      let unitPrice = service!.basePriceMedium || service!.basePrice || 0;
+      if (vehicleSize === "small") {
+        unitPrice =
+          service!.basePriceSmall ||
+          service!.basePriceMedium ||
+          service!.basePrice ||
+          0;
+      } else if (vehicleSize === "large") {
+        unitPrice =
+          service!.basePriceLarge ||
+          service!.basePriceMedium ||
+          service!.basePrice ||
+          0;
+      }
+
+      return {
+        serviceId: service!._id,
+        serviceName: service!.name,
+        quantity: vehicleIds.length,
+        unitPrice,
+        totalPrice: unitPrice * vehicleIds.length,
+      };
     });
 
-    return { userId, appointmentId };
+    const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const tax = 0;
+    const total = subtotal + tax;
+
+    // Get deposit amount from settings (default $50 per vehicle)
+    const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
+    const depositPerVehicle = depositSettings?.amountPerVehicle ?? 50;
+    const calculatedDepositAmount = depositPerVehicle * vehicleIds.length;
+    // Cap deposit at total to prevent negative remaining balance
+    const depositAmount = Math.min(calculatedDepositAmount, total);
+    const remainingBalance = Math.max(0, total - depositAmount);
+
+    // Generate invoice number
+    const invoiceCount: number = (await ctx.runQuery(api.invoices.getCount, {}))
+      .count;
+    const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
+
+    // Create invoice date
+    const appointmentDate = new Date(args.scheduledDate);
+    const dueDate = new Date(appointmentDate);
+    dueDate.setDate(dueDate.getDate() + 30);
+
+    // Create invoice in Convex immediately (don't create Stripe invoice yet - wait for deposit)
+    const invoiceId: Id<"invoices"> = await ctx.db.insert("invoices", {
+      appointmentId,
+      userId,
+      invoiceNumber,
+      items,
+      subtotal,
+      tax,
+      total,
+      status: "draft", // Start as draft, will be sent after deposit is paid
+      dueDate: dueDate.toISOString().split("T")[0],
+      notes: `Invoice for appointment on ${args.scheduledDate}`,
+      depositAmount,
+      depositPaid: false,
+      remainingBalance,
+    });
+
+    // Ensure Stripe customer exists (schedule action to create if needed)
+    // This is critical for deposit checkout to work
+    await ctx.scheduler.runAfter(0, internal.users.ensureStripeCustomer, {
+      userId,
+    });
+
+    return { userId, appointmentId, invoiceId };
   },
 });
 
@@ -653,6 +833,104 @@ export const updateStripeCustomerId = mutation({
     await ctx.db.patch(args.userId, {
       stripeCustomerId: args.stripeCustomerId,
     });
+  },
+});
+
+// Internal action to ensure Stripe customer exists (for use by mutations)
+export const ensureStripeCustomer = internalAction({
+  args: {
+    userId: v.id("users"),
+  },
+  returns: v.string(), // Returns stripeCustomerId
+  handler: async (ctx, args): Promise<string> => {
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: args.userId,
+    });
+    if (!user) throw new Error("User not found");
+
+    // If user already has Stripe customer ID, return it
+    if (user.stripeCustomerId) {
+      return user.stripeCustomerId;
+    }
+
+    // Create Stripe customer
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+      throw new Error("STRIPE_SECRET_KEY environment variable is not set");
+    }
+
+    const customerResponse = await fetch(
+      "https://api.stripe.com/v1/customers",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          email: user.email || "",
+          name: user.name || "",
+          phone: user.phone || "",
+          "address[line1]": user.address?.street || "",
+          "address[city]": user.address?.city || "",
+          "address[state]": user.address?.state || "",
+          "address[postal_code]": user.address?.zip || "",
+          "address[country]": "US",
+          "metadata[convexUserId]": args.userId,
+        }),
+      },
+    );
+
+    if (!customerResponse.ok) {
+      const error = await customerResponse.json();
+      throw new Error(
+        `Failed to create Stripe customer: ${JSON.stringify(error)}`,
+      );
+    }
+
+    const stripeCustomer: any = await customerResponse.json();
+    const stripeCustomerId = stripeCustomer.id;
+
+    // Update user with Stripe customer ID
+    await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
+      userId: args.userId,
+      stripeCustomerId,
+    });
+
+    return stripeCustomerId;
+  },
+});
+
+// Internal mutation to update Stripe customer ID (for use by internal actions)
+export const updateStripeCustomerIdInternal = internalMutation({
+  args: {
+    userId: v.id("users"),
+    stripeCustomerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      stripeCustomerId: args.stripeCustomerId,
+    });
+  },
+});
+
+// Internal mutation to update user stats (only called by system)
+export const updateStats = internalMutation({
+  args: {
+    userId: v.id("users"),
+    timesServiced: v.optional(v.number()),
+    totalSpent: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const updateData: any = {};
+    if (args.timesServiced !== undefined) {
+      updateData.timesServiced = args.timesServiced;
+    }
+    if (args.totalSpent !== undefined) {
+      updateData.totalSpent = args.totalSpent;
+    }
+    await ctx.db.patch(args.userId, updateData);
+    return args.userId;
   },
 });
 
@@ -686,27 +964,30 @@ export const createUserAppointmentInvoice = action({
     stripeInvoiceUrl: v.string(),
     invoiceNumber: v.string(),
   }),
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    stripeInvoiceId: string;
+    stripeInvoiceUrl: string;
+    invoiceNumber: string;
+  }> => {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
       throw new Error("STRIPE_SECRET_KEY environment variable is not set");
     }
 
     // Get user data
-    const user = await ctx.runQuery(api.users.getById, {
+    const user: Doc<"users"> | null = await ctx.runQuery(api.users.getById, {
       userId: args.userId,
     });
     if (!user) throw new Error("User not found");
 
-    // Update user stats
-    await ctx.runMutation(api.users.update, {
-      userId: args.userId,
-      timesServiced: (user.timesServiced || 0) + 1,
-      totalSpent: (user.totalSpent || 0) + args.totalPrice,
-    });
+    // Note: User stats (timesServiced, totalSpent) should be updated when appointment is completed,
+    // not when invoice is created. This is handled in the appointment completion flow.
 
     // Check if user has Stripe customer ID, create if not
-    let stripeCustomerId = user.stripeCustomerId;
+    let stripeCustomerId: string | undefined = user.stripeCustomerId;
     if (!stripeCustomerId) {
       // Create Stripe customer
       const customerResponse = await fetch(
@@ -734,13 +1015,14 @@ export const createUserAppointmentInvoice = action({
         throw new Error("Failed to create Stripe customer");
       }
 
-      const stripeCustomer = await customerResponse.json();
+      const stripeCustomer: any = await customerResponse.json();
       stripeCustomerId = stripeCustomer.id;
 
       // Update user with Stripe customer ID
+      // stripeCustomerId is guaranteed to be a string here since we just assigned it
       await ctx.runMutation(api.users.updateStripeCustomerId, {
         userId: args.userId,
-        stripeCustomerId,
+        stripeCustomerId: stripeCustomerId!,
       });
     }
 
@@ -796,30 +1078,33 @@ export const createUserAppointmentInvoice = action({
     const dueDate = new Date(appointmentDate);
     dueDate.setDate(dueDate.getDate() + 30);
 
-    const invoiceResponse = await fetch("https://api.stripe.com/v1/invoices", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeSecretKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+    const invoiceResponse: Response = await fetch(
+      "https://api.stripe.com/v1/invoices",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          customer: stripeCustomerId!,
+          collection_method: "send_invoice",
+          days_until_due: "30",
+          auto_advance: "true",
+          description: `Mobile detailing service - ${args.scheduledDate}`,
+        }),
       },
-      body: new URLSearchParams({
-        customer: stripeCustomerId!,
-        collection_method: "send_invoice",
-        days_until_due: "30",
-        auto_advance: "true",
-        description: `Mobile detailing service - ${args.scheduledDate}`,
-      }),
-    });
+    );
 
     if (!invoiceResponse.ok) {
       const errorText = await invoiceResponse.text();
       throw new Error(`Failed to create Stripe invoice: ${errorText}`);
     }
 
-    const stripeInvoice = await invoiceResponse.json();
+    const stripeInvoice: any = await invoiceResponse.json();
 
     // Send the invoice (Stripe will email it automatically)
-    const sendResponse = await fetch(
+    const sendResponse: Response = await fetch(
       `https://api.stripe.com/v1/invoices/${stripeInvoice.id}/send`,
       {
         method: "POST",
@@ -834,11 +1119,12 @@ export const createUserAppointmentInvoice = action({
       throw new Error(`Failed to send Stripe invoice: ${errorText}`);
     }
 
-    const sentInvoice = await sendResponse.json();
+    const sentInvoice: any = await sendResponse.json();
 
     // Generate invoice number
-    const invoiceCount = (await ctx.runQuery(api.invoices.getCount, {})).count;
-    const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
+    const invoiceCount: number = (await ctx.runQuery(api.invoices.getCount, {}))
+      .count;
+    const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     // Create invoice items for Convex
     const items = args.services.map((service) => {
@@ -863,6 +1149,14 @@ export const createUserAppointmentInvoice = action({
     const tax = 0;
     const total = subtotal + tax;
 
+    // Get deposit amount from settings (default $50 per vehicle)
+    const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
+    const depositPerVehicle = depositSettings?.amountPerVehicle ?? 50;
+    const calculatedDepositAmount = depositPerVehicle * args.vehicles.length;
+    // Cap deposit at total to prevent negative remaining balance
+    const depositAmount = Math.min(calculatedDepositAmount, total);
+    const remainingBalance = Math.max(0, total - depositAmount);
+
     // Store invoice in Convex with Stripe data
     await ctx.runMutation(api.invoices.create, {
       appointmentId: args.appointmentId,
@@ -872,11 +1166,14 @@ export const createUserAppointmentInvoice = action({
       subtotal,
       tax,
       total,
-      status: "sent",
+      status: "draft", // Start as draft, will be sent after deposit is paid
       dueDate: dueDate.toISOString().split("T")[0],
       stripeInvoiceId: sentInvoice.id,
       stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
       notes: `Invoice for appointment on ${args.scheduledDate}`,
+      depositAmount,
+      depositPaid: false,
+      remainingBalance,
     });
 
     return {
