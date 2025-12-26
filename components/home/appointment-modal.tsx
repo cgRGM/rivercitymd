@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@/convex/_generated/api";
@@ -126,9 +125,7 @@ export default function AppointmentModal({
   open,
   onOpenChange,
   preselectedServices = [],
-  onSuccess,
 }: AppointmentModalProps) {
-  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -385,7 +382,6 @@ export default function AppointmentModal({
 
       // Step 1: Sign up using Convex Auth (creates user with password)
       // This MUST succeed for the checkout flow to work
-      let authSucceeded = false;
       try {
         const formData = new FormData();
         formData.set("email", finalData.email!);
@@ -393,7 +389,6 @@ export default function AppointmentModal({
         formData.set("flow", "signUp");
 
         await authActions.signIn("password", formData);
-        authSucceeded = true;
       } catch (authError) {
         // If signup fails (e.g., user already exists), try to sign in
         if (authError instanceof Error) {
@@ -403,8 +398,7 @@ export default function AppointmentModal({
           formData.set("flow", "signIn");
           try {
             await authActions.signIn("password", formData);
-            authSucceeded = true;
-          } catch (signInError) {
+          } catch {
             // If both fail, we cannot proceed because checkout requires authentication
             throw new Error(
               "Authentication failed. Please check your email and password, or try signing up with a different email.",
@@ -424,7 +418,7 @@ export default function AppointmentModal({
       // Step 3: Create user and appointment (password is handled by auth above)
       // Note: If auth succeeded, the user already exists in the DB via auth callback
       // createUserWithAppointment will update the existing user or create a new one if needed
-      const { userId, appointmentId, invoiceId } = await createUserAndAppointment({
+      const { appointmentId, invoiceId } = await createUserAndAppointment({
         name: finalData.name!,
         email: finalData.email!,
         phone: finalData.phone!,
