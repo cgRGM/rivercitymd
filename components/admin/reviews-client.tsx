@@ -84,6 +84,7 @@ export default function ReviewsClient({}: Props) {
     );
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const reviews = reviewsQuery as any[];
 
   const formatDate = (dateString: string) => {
@@ -128,6 +129,7 @@ export default function ReviewsClient({}: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {reviews.map((review: any) => (
                   <TableRow key={review._id}>
                     <TableCell>

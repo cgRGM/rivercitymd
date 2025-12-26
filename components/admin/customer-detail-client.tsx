@@ -77,7 +77,7 @@ export default function CustomerDetailClient({ customerId }: Props) {
             <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
             <h3 className="text-xl font-semibold mb-2">Customer Not Found</h3>
             <p className="text-muted-foreground mb-6">
-              The customer you're looking for doesn't exist.
+              The customer you&apos;re looking for doesn&apos;t exist.
             </p>
             <Link href="/admin/customers">
               <Button>Return to Customers</Button>
@@ -240,6 +240,7 @@ export default function CustomerDetailClient({ customerId }: Props) {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               {appointments.map((apt: any) => (
                 <div
                   key={apt._id}
@@ -254,7 +255,8 @@ export default function CustomerDetailClient({ customerId }: Props) {
                     </div>
                     <div className="text-sm text-muted-foreground">
                       {apt.services.length > 0
-                        ? apt.services.map((s: any) => s.name).join(", ")
+                        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          apt.services.map((s: any) => s.name).join(", ")
                         : "No services"}{" "}
                       • {apt.vehicles.length} vehicle(s)
                     </div>
@@ -301,6 +303,7 @@ export default function CustomerDetailClient({ customerId }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {invoices.map((invoice: any) => (
                   <TableRow key={invoice._id}>
                     <TableCell className="font-medium">
@@ -334,6 +337,7 @@ export default function CustomerDetailClient({ customerId }: Props) {
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               {vehicles.map((vehicle: any) => (
                 <div
                   key={vehicle._id}
