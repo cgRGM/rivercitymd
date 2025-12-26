@@ -1,7 +1,7 @@
 import { action, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
 // Get Stripe secret key from environment
@@ -301,8 +301,18 @@ export const createDepositCheckoutSession = action({
     // Get user details
     const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("User not found");
-    if (!user.stripeCustomerId) {
-      throw new Error("User does not have a Stripe customer ID");
+
+    // Ensure Stripe customer exists (create if needed)
+    // This handles cases where user was created but Stripe customer wasn't created yet
+    let stripeCustomerId = user.stripeCustomerId;
+    if (!stripeCustomerId) {
+      // Create Stripe customer on the fly
+      stripeCustomerId = await ctx.runAction(
+        internal.users.ensureStripeCustomer,
+        {
+          userId: user._id,
+        },
+      );
     }
 
     if (!invoice.depositAmount || invoice.depositAmount <= 0) {
@@ -325,7 +335,7 @@ export const createDepositCheckoutSession = action({
     // Create Stripe checkout session for deposit
     const sessionData = new URLSearchParams({
       mode: "payment",
-      customer: user.stripeCustomerId,
+      customer: stripeCustomerId,
       success_url: args.successUrl,
       cancel_url: args.cancelUrl,
       "metadata[appointmentId]": args.appointmentId,
@@ -400,16 +410,28 @@ export const createRemainingBalanceCheckoutSession = action({
     // Get user details
     const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("User not found");
-    if (!user.stripeCustomerId) {
-      throw new Error("User does not have a Stripe customer ID");
+
+    // Ensure Stripe customer exists (create if needed)
+    // This handles cases where user was created but Stripe customer wasn't created yet
+    let stripeCustomerId = user.stripeCustomerId;
+    if (!stripeCustomerId) {
+      // Create Stripe customer on the fly
+      stripeCustomerId = await ctx.runAction(
+        internal.users.ensureStripeCustomer,
+        {
+          userId: user._id,
+        },
+      );
     }
 
     if (!invoice.depositPaid) {
       throw new Error("Deposit must be paid before paying remaining balance");
     }
 
-    const remainingBalance =
-      invoice.remainingBalance || invoice.total - (invoice.depositAmount || 0);
+    const remainingBalance = Math.max(
+      0,
+      invoice.remainingBalance || invoice.total - (invoice.depositAmount || 0),
+    );
     if (remainingBalance <= 0) {
       throw new Error("No remaining balance to pay");
     }
@@ -417,7 +439,7 @@ export const createRemainingBalanceCheckoutSession = action({
     // Create Stripe checkout session for remaining balance
     const sessionData = new URLSearchParams({
       mode: "payment",
-      customer: user.stripeCustomerId,
+      customer: stripeCustomerId,
       success_url: args.successUrl,
       cancel_url: args.cancelUrl,
       "metadata[appointmentId]": args.appointmentId,
@@ -631,7 +653,6 @@ export const handleWebhook = action({
       case "checkout.session.completed": {
         const session = event.data.object;
         const invoiceIdString = session.metadata?.invoiceId;
-        const appointmentIdString = session.metadata?.appointmentId;
         const paymentType = session.metadata?.type; // "deposit" or undefined (legacy)
         const paymentIntentId = session.payment_intent as string | undefined;
 
@@ -645,28 +666,78 @@ export const handleWebhook = action({
             if (paymentType === "deposit") {
               // Deposit payment completed via checkout
               // Store payment intent ID and mark deposit as paid
-              await ctx.runMutation(api.invoices.updateDepositStatus, {
-                invoiceId,
-                depositPaid: true,
-                depositPaymentIntentId: paymentIntentId,
-                status: "draft", // Keep as draft until admin confirms and generates invoice
-              });
-            } else if (paymentType === "final_payment" || paymentType === "remaining_balance") {
+              await ctx.runMutation(
+                internal.invoices.updateDepositStatusInternal,
+                {
+                  invoiceId,
+                  depositPaid: true,
+                  depositPaymentIntentId: paymentIntentId,
+                  status: "draft", // Keep as draft until admin confirms and generates invoice
+                },
+              );
+
+              // Auto-confirm appointment when deposit is paid
+              const appointment = await ctx.runQuery(
+                internal.appointments.getByIdInternal,
+                {
+                  appointmentId: invoice.appointmentId,
+                },
+              );
+              if (appointment && appointment.status === "pending") {
+                await ctx.runMutation(
+                  internal.appointments.updateStatusInternal,
+                  {
+                    appointmentId: invoice.appointmentId,
+                    status: "confirmed",
+                  },
+                );
+              }
+            } else if (
+              paymentType === "final_payment" ||
+              paymentType === "remaining_balance"
+            ) {
               // Final payment or remaining balance completed
-              await ctx.runMutation(api.invoices.updateStatus, {
+              await ctx.runMutation(internal.invoices.updateStatusInternal, {
                 invoiceId,
                 status: "paid",
                 paidDate: new Date().toISOString().split("T")[0],
               });
               if (paymentIntentId) {
-                await ctx.runMutation(api.invoices.updateFinalPayment, {
-                  invoiceId,
-                  finalPaymentIntentId: paymentIntentId,
-                });
+                await ctx.runMutation(
+                  internal.invoices.updateFinalPaymentInternal,
+                  {
+                    invoiceId,
+                    finalPaymentIntentId: paymentIntentId,
+                  },
+                );
+              }
+
+              // Update user stats only when payment actually succeeds
+              // Get appointment to find the user
+              const appointment = await ctx.runQuery(
+                internal.appointments.getByIdInternal,
+                {
+                  appointmentId: invoice.appointmentId,
+                },
+              );
+              if (appointment) {
+                const user = await ctx.runQuery(
+                  internal.users.getByIdInternal,
+                  {
+                    userId: appointment.userId,
+                  },
+                );
+                if (user) {
+                  await ctx.runMutation(internal.users.updateStats, {
+                    userId: appointment.userId,
+                    timesServiced: (user.timesServiced || 0) + 1,
+                    totalSpent: (user.totalSpent || 0) + invoice.total,
+                  });
+                }
               }
             } else {
               // Legacy: treat as full payment
-              await ctx.runMutation(api.invoices.updateStatus, {
+              await ctx.runMutation(internal.invoices.updateStatusInternal, {
                 invoiceId,
                 status: "paid",
                 paidDate: new Date().toISOString().split("T")[0],
@@ -696,36 +767,72 @@ export const handleWebhook = action({
               // Deposit payment succeeded
               // Only update if not already marked as paid (avoid duplicate updates)
               if (!invoice.depositPaid) {
-                await ctx.runMutation(api.invoices.updateDepositStatus, {
-                  invoiceId,
-                  depositPaid: true,
-                  depositPaymentIntentId: paymentIntent.id,
-                  status: "draft", // Keep as draft until admin confirms
-                });
+                await ctx.runMutation(
+                  internal.invoices.updateDepositStatusInternal,
+                  {
+                    invoiceId,
+                    depositPaid: true,
+                    depositPaymentIntentId: paymentIntent.id,
+                    status: "draft", // Keep as draft until admin confirms
+                  },
+                );
               } else if (!invoice.depositPaymentIntentId) {
                 // Update payment intent ID if missing
-                await ctx.runMutation(api.invoices.updateDepositStatus, {
-                  invoiceId,
-                  depositPaid: true,
-                  depositPaymentIntentId: paymentIntent.id,
-                });
+                await ctx.runMutation(
+                  internal.invoices.updateDepositStatusInternal,
+                  {
+                    invoiceId,
+                    depositPaid: true,
+                    depositPaymentIntentId: paymentIntent.id,
+                  },
+                );
               }
-            } else if (paymentType === "final_payment" || paymentType === "remaining_balance") {
+            } else if (
+              paymentType === "final_payment" ||
+              paymentType === "remaining_balance"
+            ) {
               // Final payment succeeded
-              await ctx.runMutation(api.invoices.updateStatus, {
+              await ctx.runMutation(internal.invoices.updateStatusInternal, {
                 invoiceId,
                 status: "paid",
                 paidDate: new Date().toISOString().split("T")[0],
               });
 
               // Update final payment intent ID
-              await ctx.runMutation(api.invoices.updateFinalPayment, {
-                invoiceId,
-                finalPaymentIntentId: paymentIntent.id,
-              });
+              await ctx.runMutation(
+                internal.invoices.updateFinalPaymentInternal,
+                {
+                  invoiceId,
+                  finalPaymentIntentId: paymentIntent.id,
+                },
+              );
+
+              // Update user stats only when payment actually succeeds
+              // Get appointment to find the user
+              const appointment = await ctx.runQuery(
+                internal.appointments.getByIdInternal,
+                {
+                  appointmentId: invoice.appointmentId,
+                },
+              );
+              if (appointment) {
+                const user = await ctx.runQuery(
+                  internal.users.getByIdInternal,
+                  {
+                    userId: appointment.userId,
+                  },
+                );
+                if (user) {
+                  await ctx.runMutation(internal.users.updateStats, {
+                    userId: appointment.userId,
+                    timesServiced: (user.timesServiced || 0) + 1,
+                    totalSpent: (user.totalSpent || 0) + invoice.total,
+                  });
+                }
+              }
             } else {
               // Legacy: treat as full payment
-              await ctx.runMutation(api.invoices.updateStatus, {
+              await ctx.runMutation(internal.invoices.updateStatusInternal, {
                 invoiceId,
                 status: "paid",
                 paidDate: new Date().toISOString().split("T")[0],
@@ -890,7 +997,9 @@ export const syncPaymentStatus = action({
       // Try to find final payment intent by searching recent payment intents for this customer
       // that match the remaining balance amount
       try {
-        const remainingBalanceInCents = Math.round(invoice.remainingBalance * 100);
+        const remainingBalanceInCents = Math.round(
+          invoice.remainingBalance * 100,
+        );
         const paymentIntents = await stripeApiCall(
           `payment_intents?customer=${user.stripeCustomerId}&limit=20`,
           { method: "GET" },

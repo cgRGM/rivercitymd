@@ -5,6 +5,41 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 // Get all reviews for admin (with customer and appointment details)
 export const listForAdmin = query({
   args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("reviews"),
+      _creationTime: v.number(),
+      userId: v.id("users"),
+      appointmentId: v.id("appointments"),
+      rating: v.number(),
+      comment: v.optional(v.string()),
+      isPublic: v.boolean(),
+      reviewDate: v.string(),
+      customerName: v.string(),
+      customerEmail: v.string(),
+      appointmentDate: v.union(v.string(), v.null()),
+      services: v.array(
+        v.object({
+          _id: v.id("services"),
+          _creationTime: v.number(),
+          name: v.string(),
+          description: v.string(),
+          basePrice: v.number(),
+          basePriceSmall: v.optional(v.number()),
+          basePriceMedium: v.optional(v.number()),
+          basePriceLarge: v.optional(v.number()),
+          duration: v.number(),
+          categoryId: v.id("serviceCategories"),
+          includedServiceIds: v.optional(v.array(v.id("services"))),
+          isActive: v.boolean(),
+          features: v.optional(v.array(v.string())),
+          icon: v.optional(v.string()),
+          stripeProductId: v.optional(v.string()),
+          stripePriceIds: v.optional(v.array(v.string())),
+        }),
+      ),
+    }),
+  ),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
@@ -19,7 +54,7 @@ export const listForAdmin = query({
       reviews.map(async (review) => {
         const user = await ctx.db.get(review.userId);
         const appointment = await ctx.db.get(review.appointmentId);
-        
+
         const services = appointment
           ? await Promise.all(
               appointment.serviceIds.map((id) => ctx.db.get(id)),

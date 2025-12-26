@@ -1,4 +1,11 @@
-import { query, mutation, action, internalAction, internalQuery } from "./_generated/server";
+import {
+  query,
+  mutation,
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
@@ -102,10 +109,6 @@ export const getByUser = query({
 
 // Create appointment
 export const create = mutation({
-  returns: v.object({
-    appointmentId: v.id("appointments"),
-    invoiceId: v.id("invoices"),
-  }),
   args: {
     userId: v.id("users"),
     vehicleIds: v.array(v.id("vehicles")),
@@ -119,6 +122,10 @@ export const create = mutation({
     locationNotes: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
+  returns: v.object({
+    appointmentId: v.id("appointments"),
+    invoiceId: v.id("invoices"),
+  }),
   handler: async (
     ctx,
     args,
@@ -233,10 +240,15 @@ export const create = mutation({
 
     // Get deposit amount from settings (default $50 per vehicle)
     // Use internal query since this is called from a mutation
-    const depositSettings = await ctx.runQuery(internal.depositSettings.getInternal, {});
+    const depositSettings = await ctx.runQuery(
+      internal.depositSettings.getInternal,
+      {},
+    );
     const depositPerVehicle = depositSettings?.amountPerVehicle ?? 50;
-    const depositAmount = depositPerVehicle * args.vehicleIds.length;
-    const remainingBalance = total - depositAmount;
+    const calculatedDepositAmount = depositPerVehicle * args.vehicleIds.length;
+    // Cap deposit at total to prevent negative remaining balance
+    const depositAmount = Math.min(calculatedDepositAmount, total);
+    const remainingBalance = Math.max(0, total - depositAmount);
 
     // Generate invoice number
     const invoiceCountResult = await ctx.runQuery(api.invoices.getCount, {});
@@ -263,6 +275,12 @@ export const create = mutation({
       depositAmount,
       depositPaid: false,
       remainingBalance,
+    });
+
+    // Ensure Stripe customer exists (schedule action to create if needed)
+    // This is critical for deposit checkout to work
+    await ctx.scheduler.runAfter(0, internal.users.ensureStripeCustomer, {
+      userId: args.userId,
     });
 
     // Return both appointmentId and invoiceId so frontend can redirect to checkout
@@ -514,6 +532,69 @@ export const updateStatus = mutation({
   },
 });
 
+// Internal mutation to update appointment status (for use by webhook handlers)
+export const updateStatusInternal = internalMutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("confirmed"),
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("cancelled"),
+      v.literal("rescheduled"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+
+    const user = await ctx.db.get(appointment.userId);
+    if (!user) throw new Error("User not found");
+
+    if (args.status === "cancelled" && appointment.status !== "cancelled") {
+      await ctx.db.patch(user._id, {
+        cancellationCount: (user.cancellationCount || 0) + 1,
+      });
+    } else if (
+      args.status !== "cancelled" &&
+      appointment.status === "cancelled"
+    ) {
+      await ctx.db.patch(user._id, {
+        cancellationCount: Math.max(0, (user.cancellationCount || 0) - 1),
+      });
+    }
+
+    const oldStatus = appointment.status;
+    await ctx.db.patch(args.appointmentId, { status: args.status });
+
+    // When confirming an appointment with paid deposit, generate and send invoice
+    if (args.status === "confirmed" && oldStatus !== "confirmed") {
+      // Get invoice for this appointment
+      const invoice = await ctx.db
+        .query("invoices")
+        .withIndex("by_appointment", (q) =>
+          q.eq("appointmentId", args.appointmentId),
+        )
+        .first();
+
+      if (invoice && invoice.depositPaid && invoice.status === "draft") {
+        // Schedule invoice generation and sending
+        await ctx.scheduler.runAfter(
+          0,
+          internal.appointments.generateAndSendInvoice,
+          {
+            appointmentId: args.appointmentId,
+            invoiceId: invoice._id,
+          },
+        );
+      }
+    }
+
+    return args.appointmentId;
+  },
+});
+
 // Reschedule appointment
 export const reschedule = mutation({
   args: {
@@ -720,6 +801,7 @@ export const createStripeInvoice = action({
     ),
     totalPrice: v.number(),
     scheduledDate: v.string(),
+    invoiceId: v.optional(v.id("invoices")), // Optional: if provided, update existing invoice instead of creating new one
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -869,6 +951,18 @@ export const createStripeInvoice = action({
 
     const sentInvoice = await sendResponse.json();
 
+    // If invoiceId is provided, update existing invoice instead of creating new one
+    if (args.invoiceId) {
+      await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
+        invoiceId: args.invoiceId,
+        stripeInvoiceId: sentInvoice.id,
+        stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
+        status: "sent",
+      });
+      return null;
+    }
+
+    // Otherwise, create a new invoice (for backward compatibility)
     // Generate invoice number
     const invoiceCount = (await ctx.runQuery(api.invoices.getCount, {})).count;
     const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
@@ -1066,7 +1160,7 @@ export const generateAndSendInvoice = internalAction({
     // Get vehicle count from appointment (number of vehicle IDs)
     // The invoice items already have correct pricing per vehicle
     const vehicleCount = appointment.vehicleIds.length;
-    
+
     // Use medium as default size - invoice items already have correct pricing per vehicle
     const vehicleSize = "medium" as const;
 
@@ -1084,12 +1178,7 @@ export const generateAndSendInvoice = internalAction({
       vehicles: Array(vehicleCount).fill({ size: vehicleSize }),
       totalPrice: invoice.total,
       scheduledDate: appointment.scheduledDate,
-    });
-
-    // Update invoice status to sent
-    await ctx.runMutation(api.invoices.updateStatus, {
-      invoiceId: args.invoiceId,
-      status: "sent",
+      invoiceId: args.invoiceId, // Pass existing invoiceId to update instead of creating new one
     });
   },
 });
@@ -1146,12 +1235,9 @@ export const chargeFinalPayment = internalAction({
         finalPaymentIntentId: paymentIntent.id,
       });
 
-      // Update user stats when final payment is created
-      await ctx.runMutation(internal.users.updateStats, {
-        userId: appointment.userId,
-        timesServiced: (user.timesServiced || 0) + 1,
-        totalSpent: (user.totalSpent || 0) + invoice.total,
-      });
+      // Note: User stats (timesServiced, totalSpent) should only be updated
+      // when payment actually succeeds, not when payment intent is created.
+      // This is handled in the payment_intent.succeeded webhook handler.
     } catch (error) {
       console.error("Failed to create final payment intent:", error);
       // Don't throw - allow appointment to be completed even if payment fails

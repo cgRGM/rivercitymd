@@ -1,7 +1,14 @@
-import { query, mutation, action, internalMutation } from "./_generated/server";
+import {
+  query,
+  mutation,
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 
 // Get count of new customers (created in last 30 days, admin only)
@@ -68,6 +75,14 @@ export const getCurrentUser = query({
     }
 
     return await ctx.db.get(userId);
+  },
+});
+
+// Internal query to get user by ID (no auth required, for internal actions)
+export const getByIdInternal = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args): Promise<Doc<"users"> | null> => {
+    return await ctx.db.get(args.userId);
   },
 });
 
@@ -586,12 +601,14 @@ export const listWithStats = query({
 });
 
 // Create user account with appointment (for marketing site signups)
+// Note: Password should be handled via Convex Auth signup before calling this mutation
+// This mutation creates the user in the database and appointment, but auth credentials
+// must be created separately using the auth system
 export const createUserWithAppointment = mutation({
   args: {
     name: v.string(),
     email: v.string(),
     phone: v.string(),
-    password: v.string(),
     address: v.object({
       street: v.string(),
       city: v.string(),
@@ -623,30 +640,40 @@ export const createUserWithAppointment = mutation({
     appointmentId: Id<"appointments">;
     invoiceId: Id<"invoices">;
   }> => {
-    // Check if user already exists
-    const existingUser = await ctx.db
+    // Check if user already exists (may have been created by auth system)
+    let existingUser = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", args.email))
       .first();
 
+    let userId: Id<"users">;
     if (existingUser) {
-      throw new Error(
-        "An account with this email already exists. Please sign in instead.",
-      );
+      // User exists (likely created by auth system), use existing user
+      userId = existingUser._id;
+      // Update user info if needed (phone, address may not be set by auth)
+      const updateData: any = {};
+      if (!existingUser.phone) updateData.phone = args.phone;
+      if (!existingUser.address) updateData.address = args.address;
+      if (!existingUser.name || existingUser.name === existingUser.email) {
+        updateData.name = args.name;
+      }
+      if (Object.keys(updateData).length > 0) {
+        await ctx.db.patch(userId, updateData);
+      }
+    } else {
+      // Create the user account (auth may have failed, so create user without password)
+      userId = await ctx.db.insert("users", {
+        name: args.name,
+        email: args.email,
+        phone: args.phone,
+        address: args.address,
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+        cancellationCount: 0,
+      });
     }
-
-    // Create the user account
-    const userId = await ctx.db.insert("users", {
-      name: args.name,
-      email: args.email,
-      phone: args.phone,
-      address: args.address,
-      role: "client",
-      timesServiced: 0,
-      totalSpent: 0,
-      status: "active",
-      cancellationCount: 0,
-    });
 
     // Create vehicles
     const vehicleIds: string[] = [];
@@ -754,8 +781,10 @@ export const createUserWithAppointment = mutation({
     // Get deposit amount from settings (default $50 per vehicle)
     const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
     const depositPerVehicle = depositSettings?.amountPerVehicle ?? 50;
-    const depositAmount = depositPerVehicle * vehicleIds.length;
-    const remainingBalance = total - depositAmount;
+    const calculatedDepositAmount = depositPerVehicle * vehicleIds.length;
+    // Cap deposit at total to prevent negative remaining balance
+    const depositAmount = Math.min(calculatedDepositAmount, total);
+    const remainingBalance = Math.max(0, total - depositAmount);
 
     // Generate invoice number
     const invoiceCount: number = (await ctx.runQuery(api.invoices.getCount, {}))
@@ -784,12 +813,96 @@ export const createUserWithAppointment = mutation({
       remainingBalance,
     });
 
+    // Ensure Stripe customer exists (schedule action to create if needed)
+    // This is critical for deposit checkout to work
+    await ctx.scheduler.runAfter(0, internal.users.ensureStripeCustomer, {
+      userId,
+    });
+
     return { userId, appointmentId, invoiceId };
   },
 });
 
 // Update user Stripe customer ID
 export const updateStripeCustomerId = mutation({
+  args: {
+    userId: v.id("users"),
+    stripeCustomerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      stripeCustomerId: args.stripeCustomerId,
+    });
+  },
+});
+
+// Internal action to ensure Stripe customer exists (for use by mutations)
+export const ensureStripeCustomer = internalAction({
+  args: {
+    userId: v.id("users"),
+  },
+  returns: v.string(), // Returns stripeCustomerId
+  handler: async (ctx, args): Promise<string> => {
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: args.userId,
+    });
+    if (!user) throw new Error("User not found");
+
+    // If user already has Stripe customer ID, return it
+    if (user.stripeCustomerId) {
+      return user.stripeCustomerId;
+    }
+
+    // Create Stripe customer
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+      throw new Error("STRIPE_SECRET_KEY environment variable is not set");
+    }
+
+    const customerResponse = await fetch(
+      "https://api.stripe.com/v1/customers",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          email: user.email || "",
+          name: user.name || "",
+          phone: user.phone || "",
+          "address[line1]": user.address?.street || "",
+          "address[city]": user.address?.city || "",
+          "address[state]": user.address?.state || "",
+          "address[postal_code]": user.address?.zip || "",
+          "address[country]": "US",
+          "metadata[convexUserId]": args.userId,
+        }),
+      },
+    );
+
+    if (!customerResponse.ok) {
+      const error = await customerResponse.json();
+      throw new Error(
+        `Failed to create Stripe customer: ${JSON.stringify(error)}`,
+      );
+    }
+
+    const stripeCustomer: any = await customerResponse.json();
+    const stripeCustomerId = stripeCustomer.id;
+
+    // Update user with Stripe customer ID
+    await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
+      userId: args.userId,
+      stripeCustomerId,
+    });
+
+    return stripeCustomerId;
+  },
+});
+
+// Internal mutation to update Stripe customer ID (for use by internal actions)
+export const updateStripeCustomerIdInternal = internalMutation({
   args: {
     userId: v.id("users"),
     stripeCustomerId: v.string(),
@@ -1039,8 +1152,10 @@ export const createUserAppointmentInvoice = action({
     // Get deposit amount from settings (default $50 per vehicle)
     const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
     const depositPerVehicle = depositSettings?.amountPerVehicle ?? 50;
-    const depositAmount = depositPerVehicle * args.vehicles.length;
-    const remainingBalance = total - depositAmount;
+    const calculatedDepositAmount = depositPerVehicle * args.vehicles.length;
+    // Cap deposit at total to prevent negative remaining balance
+    const depositAmount = Math.min(calculatedDepositAmount, total);
+    const remainingBalance = Math.max(0, total - depositAmount);
 
     // Store invoice in Convex with Stripe data
     await ctx.runMutation(api.invoices.create, {

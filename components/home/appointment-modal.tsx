@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useAction } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@/convex/_generated/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -179,6 +180,7 @@ export default function AppointmentModal({
     api.users.createUserWithAppointment,
   );
   const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
+  const authActions = useAuthActions();
 
   // Step forms
   const step1Form = useForm<Step1Data>({
@@ -381,11 +383,51 @@ export default function AppointmentModal({
         ...step5Form.getValues(),
       };
 
+      // Step 1: Sign up using Convex Auth (creates user with password)
+      // This MUST succeed for the checkout flow to work
+      let authSucceeded = false;
+      try {
+        const formData = new FormData();
+        formData.set("email", finalData.email!);
+        formData.set("password", finalData.password!);
+        formData.set("flow", "signUp");
+
+        await authActions.signIn("password", formData);
+        authSucceeded = true;
+      } catch (authError) {
+        // If signup fails (e.g., user already exists), try to sign in
+        if (authError instanceof Error) {
+          const formData = new FormData();
+          formData.set("email", finalData.email!);
+          formData.set("password", finalData.password!);
+          formData.set("flow", "signIn");
+          try {
+            await authActions.signIn("password", formData);
+            authSucceeded = true;
+          } catch (signInError) {
+            // If both fail, we cannot proceed because checkout requires authentication
+            throw new Error(
+              "Authentication failed. Please check your email and password, or try signing up with a different email.",
+            );
+          }
+        } else {
+          throw new Error(
+            "Authentication failed. Please try again or contact support if the problem persists.",
+          );
+        }
+      }
+
+      // Step 2: Wait a moment for auth state to propagate
+      // This ensures the user is authenticated before proceeding
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Step 3: Create user and appointment (password is handled by auth above)
+      // Note: If auth succeeded, the user already exists in the DB via auth callback
+      // createUserWithAppointment will update the existing user or create a new one if needed
       const { userId, appointmentId, invoiceId } = await createUserAndAppointment({
         name: finalData.name!,
         email: finalData.email!,
         phone: finalData.phone!,
-        password: finalData.password!,
         address: {
           street: finalData.street!,
           city: finalData.city!,
@@ -397,7 +439,7 @@ export default function AppointmentModal({
           year: parseInt(vehicle.year),
         })),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        serviceIds: finalData.serviceIds! as any, // TODO: Fix service ID mapping
+        serviceIds: finalData.serviceIds! as any,
         scheduledDate: finalData.scheduledDate!,
         scheduledTime: finalData.scheduledTime!,
         locationNotes: finalData.locationNotes,

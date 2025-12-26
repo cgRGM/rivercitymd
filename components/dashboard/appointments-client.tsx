@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useConvexAuth } from "convex/react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -89,6 +90,7 @@ interface AppointmentsClientProps {}
 
 export default function AppointmentsClient({}: AppointmentsClientProps) {
   const { isAuthenticated } = useConvexAuth();
+  const searchParams = useSearchParams();
   const [isAppointmentOpen, setIsAppointmentOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] =
@@ -96,6 +98,20 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
 
   const appointmentsData = useQuery(api.appointments.getUserAppointments);
   const updateStatus = useMutation(api.appointments.updateStatus);
+
+  // Handle payment success/cancelled redirects from Stripe
+  useEffect(() => {
+    const payment = searchParams.get("payment");
+    if (payment === "success") {
+      toast.success("Deposit payment completed successfully! Your appointment is pending confirmation.");
+      // Clean up URL
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (payment === "cancelled") {
+      toast.error("Payment was cancelled. Please complete payment to confirm your appointment.");
+      // Clean up URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [searchParams]);
 
   // Handle unauthenticated state
   if (!isAuthenticated) {

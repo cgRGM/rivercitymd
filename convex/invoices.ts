@@ -62,7 +62,9 @@ export const getByAppointment = query({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("invoices")
-      .withIndex("by_appointment", (q) => q.eq("appointmentId", args.appointmentId))
+      .withIndex("by_appointment", (q) =>
+        q.eq("appointmentId", args.appointmentId),
+      )
       .first();
   },
 });
@@ -166,6 +168,30 @@ export const updateStatus = mutation({
   },
 });
 
+// Internal mutation to update invoice status (for use by webhook handlers)
+export const updateStatusInternal = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("sent"),
+      v.literal("paid"),
+      v.literal("overdue"),
+    ),
+    paidDate: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const updateData: any = { status: args.status };
+    if (args.status === "paid") {
+      updateData.paidDate =
+        args.paidDate || new Date().toISOString().split("T")[0];
+    }
+
+    await ctx.db.patch(args.invoiceId, updateData);
+    return args.invoiceId;
+  },
+});
+
 // Update deposit status
 export const updateDepositStatus = mutation({
   args: {
@@ -202,6 +228,39 @@ export const updateDepositStatus = mutation({
   },
 });
 
+// Internal mutation to update deposit status (for use by webhook handlers)
+export const updateDepositStatusInternal = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    depositPaid: v.boolean(),
+    depositPaymentIntentId: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("draft"),
+        v.literal("sent"),
+        v.literal("paid"),
+        v.literal("overdue"),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const updateData: any = {
+      depositPaid: args.depositPaid,
+    };
+
+    if (args.depositPaymentIntentId) {
+      updateData.depositPaymentIntentId = args.depositPaymentIntentId;
+    }
+
+    if (args.status) {
+      updateData.status = args.status;
+    }
+
+    await ctx.db.patch(args.invoiceId, updateData);
+    return args.invoiceId;
+  },
+});
+
 // Update final payment intent ID
 export const updateFinalPayment = mutation({
   args: {
@@ -214,6 +273,43 @@ export const updateFinalPayment = mutation({
 
     await ctx.db.patch(args.invoiceId, {
       finalPaymentIntentId: args.finalPaymentIntentId,
+    });
+    return args.invoiceId;
+  },
+});
+
+// Internal mutation to update final payment intent ID (for use by webhook handlers)
+export const updateFinalPaymentInternal = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    finalPaymentIntentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.invoiceId, {
+      finalPaymentIntentId: args.finalPaymentIntentId,
+    });
+    return args.invoiceId;
+  },
+});
+
+// Internal mutation to update Stripe invoice data (for use by internal actions)
+export const updateStripeInvoiceData = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    stripeInvoiceId: v.string(),
+    stripeInvoiceUrl: v.string(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("sent"),
+      v.literal("paid"),
+      v.literal("overdue"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.invoiceId, {
+      stripeInvoiceId: args.stripeInvoiceId,
+      stripeInvoiceUrl: args.stripeInvoiceUrl,
+      status: args.status,
     });
     return args.invoiceId;
   },
