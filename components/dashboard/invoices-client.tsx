@@ -588,43 +588,41 @@ export default function InvoicesClient() {
                                   Pay Balance
                                 </Button>
                               )}
-                              {invoice.status !== "paid" && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={syncingInvoiceId === invoice._id}
-                                  onClick={async () => {
-                                    setSyncingInvoiceId(invoice._id);
-                                    try {
-                                      const result = await syncPaymentStatus({
-                                        invoiceId: invoice._id,
-                                      });
-                                      if (result.updated) {
-                                        toast.success("Payment status synced successfully");
-                                      } else {
-                                        toast.info("No payment updates found");
-                                      }
-                                    } catch (error) {
-                                      toast.error(
-                                        error instanceof Error
-                                          ? error.message
-                                          : "Failed to sync payment status",
-                                      );
-                                    } finally {
-                                      setSyncingInvoiceId(null);
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={syncingInvoiceId === invoice._id}
+                                onClick={async () => {
+                                  setSyncingInvoiceId(invoice._id);
+                                  try {
+                                    const result = await syncPaymentStatus({
+                                      invoiceId: invoice._id,
+                                    });
+                                    if (result.updated) {
+                                      toast.success("Payment status synced successfully");
+                                    } else {
+                                      toast.info("No payment updates found");
                                     }
-                                  }}
-                                >
-                                  <RefreshCw
-                                    className={`w-4 h-4 mr-2 ${
-                                      syncingInvoiceId === invoice._id
-                                        ? "animate-spin"
-                                        : ""
-                                    }`}
-                                  />
-                                  Sync
-                                </Button>
-                              )}
+                                  } catch (error) {
+                                    toast.error(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Failed to sync payment status",
+                                    );
+                                  } finally {
+                                    setSyncingInvoiceId(null);
+                                  }
+                                }}
+                              >
+                                <RefreshCw
+                                  className={`w-4 h-4 mr-2 ${
+                                    syncingInvoiceId === invoice._id
+                                      ? "animate-spin"
+                                      : ""
+                                  }`}
+                                />
+                                Sync
+                              </Button>
                             </>
                           ) : invoice.stripeInvoiceUrl ? (
                             // No deposit or deposit not required, show invoice payment

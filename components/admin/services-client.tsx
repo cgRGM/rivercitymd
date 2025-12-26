@@ -173,7 +173,6 @@ export default function ServicesClient({}: Props) {
         (acc: any, category: any) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const categoryServices = (servicesQuery || []).filter(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (service: any) => service.categoryId === category._id,
           );
           acc[category.name] = categoryServices;
