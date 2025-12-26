@@ -57,6 +57,14 @@ describe("appointments", () => {
       });
     });
 
+    // Create deposit settings (required for appointment creation)
+    await t.run(async (ctx) => {
+      await ctx.db.insert("depositSettings", {
+        amountPerVehicle: 50,
+        isActive: true,
+      });
+    });
+
     // Create appointment as admin
     const adminId = await t.run(async (ctx) => {
       return await ctx.db.insert("users", {
@@ -71,7 +79,7 @@ describe("appointments", () => {
 
     const asAdmin = t.withIdentity({ subject: adminId });
 
-    const appointmentId = await asAdmin.mutation(api.appointments.create, {
+    const { appointmentId, invoiceId } = await asAdmin.mutation(api.appointments.create, {
       userId,
       vehicleIds: [vehicleId],
       serviceIds: [serviceId],
@@ -84,6 +92,7 @@ describe("appointments", () => {
     });
 
     expect(appointmentId).toBeDefined();
+    expect(invoiceId).toBeDefined();
 
     // Verify appointment was created
     const appointment = await t.run(async (ctx) => {
@@ -154,6 +163,14 @@ describe("appointments", () => {
         make: "Honda",
         model: "Civic",
         color: "Red",
+      });
+    });
+
+    // Create deposit settings (required for appointment creation)
+    await t.run(async (ctx) => {
+      await ctx.db.insert("depositSettings", {
+        amountPerVehicle: 50,
+        isActive: true,
       });
     });
 
@@ -252,6 +269,14 @@ describe("appointments", () => {
       });
     });
 
+    // Create deposit settings (required for appointment creation)
+    await t.run(async (ctx) => {
+      await ctx.db.insert("depositSettings", {
+        amountPerVehicle: 50,
+        isActive: true,
+      });
+    });
+
     const adminId = await t.run(async (ctx) => {
       return await ctx.db.insert("users", {
         name: "Admin",
@@ -262,7 +287,7 @@ describe("appointments", () => {
 
     const asAdmin = t.withIdentity({ subject: adminId });
 
-    const appointmentId = await asAdmin.mutation(api.appointments.create, {
+    const { appointmentId } = await asAdmin.mutation(api.appointments.create, {
       userId,
       vehicleIds: [vehicleId],
       serviceIds: [serviceId],

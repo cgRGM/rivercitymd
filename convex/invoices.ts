@@ -4,6 +4,7 @@ import {
   internalQuery,
   internalMutation,
 } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
@@ -55,6 +56,25 @@ export const getByStripeId = query({
   },
 });
 
+// Get invoice by appointment ID
+export const getByAppointment = query({
+  args: { appointmentId: v.id("appointments") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("invoices")
+      .withIndex("by_appointment", (q) => q.eq("appointmentId", args.appointmentId))
+      .first();
+  },
+});
+
+// Internal query to get invoice by ID (no auth required, for internal actions)
+export const getByIdInternal = internalQuery({
+  args: { invoiceId: v.id("invoices") },
+  handler: async (ctx, args): Promise<Doc<"invoices"> | null> => {
+    return await ctx.db.get(args.invoiceId);
+  },
+});
+
 // Get invoice count
 export const getCount = query({
   args: {},
@@ -92,6 +112,11 @@ export const create = mutation({
     stripeInvoiceId: v.optional(v.string()),
     stripeInvoiceUrl: v.optional(v.string()),
     notes: v.optional(v.string()),
+    depositAmount: v.optional(v.number()),
+    depositPaid: v.optional(v.boolean()),
+    depositPaymentIntentId: v.optional(v.string()),
+    remainingBalance: v.optional(v.number()),
+    finalPaymentIntentId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("invoices", args);
@@ -137,6 +162,59 @@ export const updateStatus = mutation({
     }
 
     await ctx.db.patch(args.invoiceId, updateData);
+    return args.invoiceId;
+  },
+});
+
+// Update deposit status
+export const updateDepositStatus = mutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    depositPaid: v.boolean(),
+    depositPaymentIntentId: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("draft"),
+        v.literal("sent"),
+        v.literal("paid"),
+        v.literal("overdue"),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const updateData: any = {
+      depositPaid: args.depositPaid,
+    };
+
+    if (args.depositPaymentIntentId) {
+      updateData.depositPaymentIntentId = args.depositPaymentIntentId;
+    }
+
+    if (args.status) {
+      updateData.status = args.status;
+    }
+
+    await ctx.db.patch(args.invoiceId, updateData);
+    return args.invoiceId;
+  },
+});
+
+// Update final payment intent ID
+export const updateFinalPayment = mutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    finalPaymentIntentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    await ctx.db.patch(args.invoiceId, {
+      finalPaymentIntentId: args.finalPaymentIntentId,
+    });
     return args.invoiceId;
   },
 });

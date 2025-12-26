@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import Image from "next/image";
+import { RefreshCw } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -57,6 +58,12 @@ type Invoice = {
   stripeInvoiceId?: string;
   stripeInvoiceUrl?: string;
   notes?: string;
+  // Deposit fields
+  depositAmount?: number;
+  depositPaid?: boolean;
+  depositPaymentIntentId?: string;
+  remainingBalance?: number;
+  finalPaymentIntentId?: string;
   appointment: {
     _id: Id<"appointments">;
     services: Array<{
@@ -128,7 +135,7 @@ function InvoicePreview({ invoice }: { invoice: Invoice }) {
           </p>
           <p>
             <span className="font-bold text-gray-500">Date:</span>{" "}
-            {new Date(invoice._creationTime).toLocaleDateString()}
+            {new Date(invoice._creationTime).toISOString().split("T")[0]}
           </p>
           <p>
             <span className="font-bold text-gray-500">Due Date:</span>{" "}
@@ -170,9 +177,34 @@ function InvoicePreview({ invoice }: { invoice: Invoice }) {
             <span className="text-gray-600">Sales Tax</span>
             <span>${invoice.tax.toFixed(2)}</span>
           </div>
+          {invoice.depositAmount && invoice.depositAmount > 0 && (
+            <>
+              <div className="flex justify-between border-t pt-2">
+                <span className="text-gray-600">Total</span>
+                <span>${invoice.total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">
+                  Deposit {invoice.depositPaid ? "(Paid)" : "(Pending)"}
+                </span>
+                <span className={invoice.depositPaid ? "text-green-600" : ""}>
+                  -${invoice.depositAmount.toFixed(2)}
+                </span>
+              </div>
+            </>
+          )}
           <div className="flex justify-between font-bold text-lg border-t pt-2">
-            <span>Total</span>
-            <span>${invoice.total.toFixed(2)}</span>
+            <span>
+              {invoice.depositAmount && invoice.depositAmount > 0
+                ? "Remaining Balance"
+                : "Total"}
+            </span>
+            <span className="text-lg">
+              $
+              {invoice.remainingBalance !== undefined
+                ? invoice.remainingBalance.toFixed(2)
+                : invoice.total.toFixed(2)}
+            </span>
           </div>
         </div>
       </div>
@@ -218,7 +250,11 @@ function InvoiceModal({
 export default function InvoicesClient() {
   const { isAuthenticated } = useConvexAuth();
   const invoicesQuery = useQuery(api.invoices.getUserInvoices);
+  const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
+  const createRemainingBalanceCheckout = useAction(api.payments.createRemainingBalanceCheckoutSession);
+  const syncPaymentStatus = useAction(api.payments.syncPaymentStatus);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [syncingInvoiceId, setSyncingInvoiceId] = useState<Id<"invoices"> | null>(null);
 
   // Handle unauthenticated state
   if (!isAuthenticated) {
@@ -403,11 +439,40 @@ export default function InvoicesClient() {
                     {invoice.invoiceNumber}
                   </TableCell>
                   <TableCell>
-                    {new Date(invoice._creationTime).toLocaleDateString()}
+                    {new Date(invoice._creationTime).toISOString().split("T")[0]}
                   </TableCell>
                   <TableCell>{invoice.dueDate}</TableCell>
-                  <TableCell>${invoice.total.toFixed(2)}</TableCell>
-                  <TableCell>{getStatusBadge(invoice.status)}</TableCell>
+                  <TableCell>
+                    {invoice.depositAmount && invoice.depositAmount > 0 ? (
+                      <div>
+                        <div className="font-medium">
+                          ${invoice.remainingBalance !== undefined
+                            ? invoice.remainingBalance.toFixed(2)
+                            : invoice.total.toFixed(2)}
+                        </div>
+                        {invoice.depositPaid && (
+                          <div className="text-xs text-muted-foreground">
+                            Deposit: ${invoice.depositAmount.toFixed(2)} paid
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      `$${invoice.total.toFixed(2)}`
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      {getStatusBadge(invoice.status)}
+                      {invoice.depositAmount && invoice.depositAmount > 0 && (
+                        <Badge
+                          variant={invoice.depositPaid ? "default" : "outline"}
+                          className="text-xs w-fit"
+                        >
+                          Deposit {invoice.depositPaid ? "Paid" : "Pending"}
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       <Button
@@ -418,18 +483,163 @@ export default function InvoicesClient() {
                         <Eye className="w-4 h-4 mr-2" />
                         View
                       </Button>
-                      {invoice.status !== "paid" &&
-                        invoice.stripeInvoiceUrl && (
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() =>
-                              window.open(invoice.stripeInvoiceUrl, "_blank")
-                            }
-                          >
-                            Pay Now
-                          </Button>
-                        )}
+                      {invoice.status !== "paid" && (
+                        <>
+                          {!invoice.depositPaid &&
+                            invoice.depositAmount &&
+                            invoice.depositAmount > 0 ? (
+                            <>
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    const { url } = await createDepositCheckout({
+                                      appointmentId: invoice.appointmentId,
+                                      invoiceId: invoice._id,
+                                      successUrl: `${window.location.origin}/dashboard/invoices?payment=success`,
+                                      cancelUrl: `${window.location.origin}/dashboard/invoices?payment=cancelled`,
+                                    });
+                                    window.location.href = url;
+                                  } catch (error) {
+                                    toast.error(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Failed to create deposit payment",
+                                    );
+                                  }
+                                }}
+                              >
+                                Pay Deposit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={syncingInvoiceId === invoice._id}
+                                onClick={async () => {
+                                  setSyncingInvoiceId(invoice._id);
+                                  try {
+                                    const result = await syncPaymentStatus({
+                                      invoiceId: invoice._id,
+                                    });
+                                    if (result.updated) {
+                                      toast.success("Payment status synced successfully");
+                                    } else {
+                                      toast.info("No payment updates found");
+                                    }
+                                  } catch (error) {
+                                    toast.error(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Failed to sync payment status",
+                                    );
+                                  } finally {
+                                    setSyncingInvoiceId(null);
+                                  }
+                                }}
+                              >
+                                <RefreshCw
+                                  className={`w-4 h-4 mr-2 ${
+                                    syncingInvoiceId === invoice._id
+                                      ? "animate-spin"
+                                      : ""
+                                  }`}
+                                />
+                                Sync
+                              </Button>
+                            </>
+                          ) : invoice.depositPaid &&
+                            invoice.remainingBalance &&
+                            invoice.remainingBalance > 0 ? (
+                            // Deposit paid, show payment option for remaining balance
+                            <>
+                              {invoice.stripeInvoiceUrl ? (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() =>
+                                    window.open(invoice.stripeInvoiceUrl, "_blank")
+                                  }
+                                >
+                                  Pay Invoice
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={async () => {
+                                    try {
+                                      const { url } = await createRemainingBalanceCheckout({
+                                        appointmentId: invoice.appointmentId,
+                                        invoiceId: invoice._id,
+                                        successUrl: `${window.location.origin}/dashboard/invoices?payment=success`,
+                                        cancelUrl: `${window.location.origin}/dashboard/invoices?payment=cancelled`,
+                                      });
+                                      window.location.href = url;
+                                    } catch (error) {
+                                      toast.error(
+                                        error instanceof Error
+                                          ? error.message
+                                          : "Failed to create payment",
+                                      );
+                                    }
+                                  }}
+                                >
+                                  Pay Balance
+                                </Button>
+                              )}
+                              {invoice.status !== "paid" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={syncingInvoiceId === invoice._id}
+                                  onClick={async () => {
+                                    setSyncingInvoiceId(invoice._id);
+                                    try {
+                                      const result = await syncPaymentStatus({
+                                        invoiceId: invoice._id,
+                                      });
+                                      if (result.updated) {
+                                        toast.success("Payment status synced successfully");
+                                      } else {
+                                        toast.info("No payment updates found");
+                                      }
+                                    } catch (error) {
+                                      toast.error(
+                                        error instanceof Error
+                                          ? error.message
+                                          : "Failed to sync payment status",
+                                      );
+                                    } finally {
+                                      setSyncingInvoiceId(null);
+                                    }
+                                  }}
+                                >
+                                  <RefreshCw
+                                    className={`w-4 h-4 mr-2 ${
+                                      syncingInvoiceId === invoice._id
+                                        ? "animate-spin"
+                                        : ""
+                                    }`}
+                                  />
+                                  Sync
+                                </Button>
+                              )}
+                            </>
+                          ) : invoice.stripeInvoiceUrl ? (
+                            // No deposit or deposit not required, show invoice payment
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() =>
+                                window.open(invoice.stripeInvoiceUrl, "_blank")
+                              }
+                            >
+                              Pay Invoice
+                            </Button>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

@@ -16,7 +16,7 @@ import {
   ChartLegend,
   ChartLegendContent,
 } from "@/components/ui/chart";
-import { TrendingUp, TrendingDown } from "lucide-react";
+import { TrendingUp, TrendingDown, CreditCard } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -52,6 +52,12 @@ export default function AnalyticsClient({}: Props) {
       returningCustomers: 0,
       retentionRate: "0",
     },
+    totalDeposits: 0,
+    depositsChange: "0",
+  };
+  const monthlyStats = useQuery(api.analytics.getMonthlyStats) || {
+    totalDeposits: 0,
+    depositsChange: "0",
   };
 
   return (
@@ -265,7 +271,7 @@ export default function AnalyticsClient({}: Props) {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold">
@@ -313,6 +319,26 @@ export default function AnalyticsClient({}: Props) {
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Average Monthly Revenue
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold">
+              ${monthlyStats.totalDeposits.toLocaleString()}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Deposits This Month
+            </p>
+            <p
+              className={`text-xs mt-1 ${
+                parseFloat(monthlyStats.depositsChange) >= 0
+                  ? "text-green-600"
+                  : "text-red-600"
+              }`}
+            >
+              {parseFloat(monthlyStats.depositsChange) >= 0 ? "+" : ""}
+              {monthlyStats.depositsChange}% from last month
             </p>
           </CardContent>
         </Card>

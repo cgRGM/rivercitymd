@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -178,6 +178,7 @@ export default function AppointmentModal({
   const createUserAndAppointment = useMutation(
     api.users.createUserWithAppointment,
   );
+  const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
 
   // Step forms
   const step1Form = useForm<Step1Data>({
@@ -380,7 +381,7 @@ export default function AppointmentModal({
         ...step5Form.getValues(),
       };
 
-      await createUserAndAppointment({
+      const { userId, appointmentId, invoiceId } = await createUserAndAppointment({
         name: finalData.name!,
         email: finalData.email!,
         phone: finalData.phone!,
@@ -402,10 +403,16 @@ export default function AppointmentModal({
         locationNotes: finalData.locationNotes,
       });
 
-      toast.success("Account created! Welcome to River City Mobile Detailing!");
-      onOpenChange(false);
-      onSuccess?.();
-      router.push("/dashboard");
+      // Create checkout session for deposit payment
+      const { url } = await createDepositCheckout({
+        appointmentId,
+        invoiceId,
+        successUrl: `${window.location.origin}/dashboard/appointments?payment=success`,
+        cancelUrl: `${window.location.origin}/dashboard/appointments?payment=cancelled`,
+      });
+
+      // Redirect to Stripe Checkout
+      window.location.href = url;
     } catch (error) {
       // Provide more user-friendly error messages
       let errorMessage = "Failed to create account";

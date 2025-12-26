@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Plus, Mail, Phone, MapPin, AlertCircle } from "lucide-react";
 import { useState } from "react";
+import Link from "next/link";
 import { AddCustomerForm } from "@/components/forms";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -177,12 +178,16 @@ export default function CustomersClient({}: Props) {
         <div className="grid md:grid-cols-2 gap-4">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {filteredCustomers.map((customer: any, index: number) => (
-            <Card
+            <Link
               key={customer._id}
-              className="animate-fade-in-up hover:shadow-lg transition-all cursor-pointer"
-              style={{ animationDelay: `${index * 50}ms` }}
+              href={`/admin/customers/${customer._id}`}
+              className="block"
             >
-              <CardContent className="pt-6">
+              <Card
+                className="animate-fade-in-up hover:shadow-lg transition-all cursor-pointer"
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                <CardContent className="pt-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="font-bold text-lg">
@@ -251,6 +256,7 @@ export default function CustomersClient({}: Props) {
                 )}
               </CardContent>
             </Card>
+            </Link>
           ))}
         </div>
       )}
