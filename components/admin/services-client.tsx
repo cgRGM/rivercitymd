@@ -168,11 +168,12 @@ export default function ServicesClient({}: Props) {
 
   // Group services by category, ensuring all categories are shown
   const servicesByCategory = categories
-    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      categories.reduce(
+    ? categories.reduce(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (acc: any, category: any) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const categoryServices = (servicesQuery || []).filter(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (service: any) => service.categoryId === category._id,
           );
           acc[category.name] = categoryServices;
@@ -224,7 +225,7 @@ export default function ServicesClient({}: Props) {
                     });
                     setIsEditingDeposit(false);
                     toast.success("Deposit amount updated");
-                  } catch (error) {
+                  } catch {
                     toast.error("Failed to update deposit amount");
                   }
                 }}
@@ -279,6 +280,7 @@ export default function ServicesClient({}: Props) {
                   <div className="flex gap-6 min-w-max pb-4">
                     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {(categoryServices as any)?.map(
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       (service: any, index: number) => (
                         <Card
                           key={service._id}

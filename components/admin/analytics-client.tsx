@@ -16,7 +16,7 @@ import {
   ChartLegend,
   ChartLegendContent,
 } from "@/components/ui/chart";
-import { TrendingUp, TrendingDown, CreditCard } from "lucide-react";
+import { TrendingUp, TrendingDown } from "lucide-react";
 import {
   Bar,
   BarChart,
