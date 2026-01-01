@@ -31,7 +31,7 @@ type Vehicle = {
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user } = useUser();
+  const { user, isLoaded: isUserLoaded } = useUser();
   const createUserProfile = useMutation(api.users.createUserProfile);
   const currentUser = useQuery(api.auth.getCurrentUser);
 
@@ -146,6 +146,12 @@ export default function OnboardingPage() {
       return;
     }
 
+    // Ensure user is loaded before proceeding
+    if (!isUserLoaded || !user) {
+      setError("Please wait for your account to load...");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -170,21 +176,13 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Force a token refresh and refresh the User object
-      // If user is available, reload it to refresh the session token
-      // Otherwise, router.refresh() will trigger a middleware re-run with updated token
-      if (user) {
-        await user.reload();
-      }
+      // Reload the user object to refresh the session token with updated metadata
+      await user.reload();
 
-      // Refresh the router to ensure middleware runs with updated session token
-      router.refresh();
-
-      // Small delay to ensure session token is refreshed before navigation
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Redirect based on user role
-      router.push("/dashboard");
+      // Use window.location.href to force a full page reload
+      // This ensures the middleware gets a fresh session token with the updated metadata
+      // The middleware will then redirect to the appropriate dashboard based on role
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to complete onboarding",
