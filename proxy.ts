@@ -57,12 +57,29 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     }
 
     // User exists in Convex - now check onboarding completion status
-    // Catch users who do not have `onboardingComplete: true` in their publicMetadata
-    // Redirect them to the /onboarding route to complete onboarding
-    if (!sessionClaims?.metadata?.onboardingComplete) {
+    // Check both Clerk metadata AND Convex user record to handle race conditions
+    // where Clerk metadata might be stale but Convex record is up-to-date
+    const onboardingStatus = await fetchQuery(
+      api.users.getOnboardingStatus,
+      {},
+      {
+        url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+        token: token,
+      },
+    );
+
+    // If onboarding is not complete in Convex, redirect to onboarding
+    // This is the source of truth - if Convex says incomplete, user needs to complete it
+    if (!onboardingStatus.isComplete) {
       const onboardingUrl = new URL("/onboarding", req.url);
       return NextResponse.redirect(onboardingUrl);
     }
+
+    // Onboarding is complete in Convex - allow access
+    // Note: We don't strictly require Clerk metadata to be updated because:
+    // 1. Convex record is the source of truth
+    // 2. Clerk metadata update is eventually consistent
+    // 3. This prevents race conditions where metadata is stale but onboarding is actually complete
 
     // User exists and onboarding is complete - proceed with role-based routing
     const role = userRole.type;

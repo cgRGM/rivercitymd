@@ -169,23 +169,16 @@ export default function OnboardingPage() {
       });
 
       // Then, update Clerk's publicMetadata to mark onboarding as complete
-      const result = await completeOnboarding();
-      if (result?.error) {
-        setError(result.error);
-        setIsLoading(false);
-        return;
-      }
+      // This is done asynchronously and doesn't block navigation
+      // The middleware uses Convex user record as the source of truth, not Clerk metadata
+      completeOnboarding().catch((err) => {
+        // Log error but don't block navigation - Convex record is the source of truth
+        console.error("Failed to update Clerk metadata:", err);
+      });
 
-      // Force Next.js to refresh server components and re-fetch session
-      // This ensures the middleware gets a fresh session token with the updated metadata
-      router.refresh();
-
-      // Small delay to allow session refresh, then navigate
-      // Using router.push with a query param to force a fresh server-side render
-      // This ensures the middleware sees the updated sessionClaims
-      setTimeout(() => {
-        router.push("/dashboard?onboarding=complete");
-      }, 100);
+      // Navigate immediately - middleware will check Convex user record
+      // which was just updated by createUserProfile, so it will be accurate
+      router.push("/dashboard");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to complete onboarding",
