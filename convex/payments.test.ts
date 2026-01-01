@@ -2,7 +2,7 @@ import { convexTest } from "convex-test";
 import { expect, test, describe, vi, beforeEach, beforeAll } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { modules } from "./test.setup";
+import { modules, createMockResponse } from "./test.setup";
 
 describe("payments", () => {
   beforeAll(() => {
@@ -132,15 +132,11 @@ describe("payments", () => {
       url: "https://checkout.stripe.com/test",
     };
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        return {
-          ok: true,
-          json: async () => mockStripeResponse,
-        } as Response;
-      }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch" as any)
+      .mockImplementation(async () => {
+        return createMockResponse(mockStripeResponse);
+      });
 
     const asUser = t.withIdentity({ subject: userId });
     const result = await asUser.action(
@@ -156,7 +152,7 @@ describe("payments", () => {
     expect(result.sessionId).toBe("cs_test_123");
     expect(result.url).toBe("https://checkout.stripe.com/test");
 
-    vi.unstubAllGlobals();
+    fetchSpy.mockRestore();
   });
 
   test("create deposit checkout session requires authentication", async () => {
@@ -205,34 +201,24 @@ describe("payments", () => {
       adminId,
     );
 
-    // Mock ensureStripeCustomer to return a customer ID
-    const mockEnsureStripeCustomer = vi.fn(async () => "cus_new_123");
-
     // Mock Stripe API responses
     let fetchCallCount = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch" as any)
+      .mockImplementation(async (url: string) => {
         fetchCallCount++;
         if (url.includes("customers")) {
           // First call: create customer
-          return {
-            ok: true,
-            json: async () => ({ id: "cus_new_123" }),
-          } as Response;
+          return createMockResponse({ id: "cus_new_123" });
         } else if (url.includes("checkout/sessions")) {
           // Second call: create checkout session
-          return {
-            ok: true,
-            json: async () => ({
-              id: "cs_test_123",
-              url: "https://checkout.stripe.com/test",
-            }),
-          } as Response;
+          return createMockResponse({
+            id: "cs_test_123",
+            url: "https://checkout.stripe.com/test",
+          });
         }
-        return { ok: false } as Response;
-      }),
-    );
+        return createMockResponse({ error: "Not found" }, { ok: false, status: 404 });
+      });
 
     // Mock the internal action call
     // Note: In a real test, we'd need to mock the internal action differently
@@ -254,7 +240,7 @@ describe("payments", () => {
       // In a real scenario, ensureStripeCustomer would be called and succeed
     }
 
-    vi.unstubAllGlobals();
+    fetchSpy.mockRestore();
   });
 
   test("create remaining balance checkout session", async () => {
@@ -287,15 +273,11 @@ describe("payments", () => {
       url: "https://checkout.stripe.com/remaining",
     };
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        return {
-          ok: true,
-          json: async () => mockStripeResponse,
-        } as Response;
-      }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch" as any)
+      .mockImplementation(async () => {
+        return createMockResponse(mockStripeResponse);
+      });
 
     const asUser = t.withIdentity({ subject: userId });
     const result = await asUser.action(
@@ -311,7 +293,7 @@ describe("payments", () => {
     expect(result.sessionId).toBe("cs_remaining_123");
     expect(result.url).toBe("https://checkout.stripe.com/remaining");
 
-    vi.unstubAllGlobals();
+    fetchSpy.mockRestore();
   });
 
   test("handle webhook - checkout.session.completed for deposit", async () => {
@@ -482,23 +464,19 @@ describe("payments", () => {
     });
 
     // Mock Stripe API response
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        return {
-          ok: true,
-          json: async () => ({
-            data: [
-              {
-                id: "pm_test_123",
-                type: "card",
-                card: { last4: "4242", brand: "visa" },
-              },
-            ],
-          }),
-        } as Response;
-      }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch" as any)
+      .mockImplementation(async () => {
+        return createMockResponse({
+          data: [
+            {
+              id: "pm_test_123",
+              type: "card",
+              card: { last4: "4242", brand: "visa" },
+            },
+          ],
+        });
+      });
 
     const asUser = t.withIdentity({ subject: userId });
     const paymentMethods = await asUser.query(api.payments.getPaymentMethods, {
@@ -511,7 +489,7 @@ describe("payments", () => {
       brand: "visa",
     });
 
-    vi.unstubAllGlobals();
+    fetchSpy.mockRestore();
   });
 
   test("create payment intent", async () => {
@@ -539,15 +517,11 @@ describe("payments", () => {
       status: "requires_payment_method",
     };
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        return {
-          ok: true,
-          json: async () => mockPaymentIntent,
-        } as Response;
-      }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch" as any)
+      .mockImplementation(async () => {
+        return createMockResponse(mockPaymentIntent);
+      });
 
     const asUser = t.withIdentity({ subject: userId });
     const result = await asUser.action(api.payments.createPaymentIntent, {
@@ -561,6 +535,6 @@ describe("payments", () => {
     expect(result.id).toBe("pi_test_123");
     expect(result.amount).toBe(5000);
 
-    vi.unstubAllGlobals();
+    fetchSpy.mockRestore();
   });
 });

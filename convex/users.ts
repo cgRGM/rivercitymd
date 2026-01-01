@@ -856,8 +856,8 @@ export const ensureStripeCustomer = internalAction({
     // Create Stripe customer
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
-      // Throw error to maintain function contract and detect configuration issues
-      // In test environments, this error will be caught by test setup error handlers
+      // Throw an explicit error to maintain the function contract and surface
+      // configuration issues early; include the userId to aid debugging in any environment.
       throw new Error(
         `STRIPE_SECRET_KEY environment variable is not set for user ${args.userId}`,
       );

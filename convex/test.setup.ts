@@ -14,7 +14,7 @@ if (typeof process !== "undefined") {
 
 // Helper function to create a mock Response with both json() and text() methods
 // This ensures full Response compatibility for error handling code that calls response.text()
-function createMockResponse(
+export function createMockResponse(
   data: any,
   options: { ok?: boolean; status?: number } = {},
 ): Response {
