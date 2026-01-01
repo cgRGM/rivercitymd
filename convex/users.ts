@@ -274,9 +274,58 @@ export const createUserProfile = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || !identity.email) {
       throw new Error("Not authenticated");
+    }
+
+    // Check if user exists, create if not
+    let userId = await getUserIdFromIdentity(ctx);
+    
+    if (!userId) {
+      // User doesn't exist - create them first
+      // Get Clerk user ID from identity
+      const clerkUserId = identity.subject;
+      
+      // Create Stripe customer for new users
+      let stripeCustomerId: string | undefined;
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      if (stripeSecretKey) {
+        try {
+          const Stripe = (await import("stripe")).default;
+          const stripe = new Stripe(stripeSecretKey, {
+            apiVersion: "2025-10-29.clover",
+          });
+          const customer = await stripe.customers.create({
+            email: identity.email,
+            name: args.name,
+            metadata: {
+              clerkUserId: clerkUserId,
+            },
+          });
+          stripeCustomerId = customer.id;
+        } catch (error) {
+          console.error("Failed to create Stripe customer:", error);
+          // Continue with user creation even if Stripe customer creation fails
+        }
+      }
+
+      // Create new user
+      const userData: any = {
+        email: identity.email,
+        name: args.name,
+        clerkUserId: clerkUserId,
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      };
+
+      if (stripeCustomerId) {
+        userData.stripeCustomerId = stripeCustomerId;
+      }
+
+      userId = await ctx.db.insert("users", userData);
     }
 
     // Update user with onboarding data
