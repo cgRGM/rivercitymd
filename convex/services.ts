@@ -59,7 +59,11 @@ export const createStripeProduct = action({
 
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
-      throw new Error("STRIPE_SECRET_KEY environment variable is not set");
+      // Throw error to maintain function contract and detect configuration issues
+      // In test environments, this error will be caught by test setup error handlers
+      throw new Error(
+        `STRIPE_SECRET_KEY environment variable is not set for service ${args.serviceId}`,
+      );
     }
 
     // Create Stripe product using HTTP fetch (no SDK)

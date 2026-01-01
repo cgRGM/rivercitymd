@@ -61,6 +61,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/stripe": "^8.0.417",
+    "@vitest/coverage-v8": "4.0.16",
     "convex-test": "^0.0.38",
     "dotenv": "^16.6.1",
     "eslint": "^9.39.2",
