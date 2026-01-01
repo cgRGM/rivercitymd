@@ -54,7 +54,15 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
       },
     );
 
-    const role = userRole?.type;
+    // If userRole is null, the user doesn't exist in Convex
+    // Even though onboardingComplete is true, they need to complete onboarding again
+    // to create their Convex user record
+    if (!userRole) {
+      const onboardingUrl = new URL("/onboarding", req.url);
+      return NextResponse.redirect(onboardingUrl);
+    }
+
+    const role = userRole.type;
 
     // ADMIN - Full access to /admin, redirect from /dashboard to /admin
     if (role === "admin") {
@@ -75,15 +83,14 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
         return NextResponse.next(); // Allow
       }
     }
+
+    // If we have a valid role but the route doesn't match, allow access
+    // (handles other protected routes that aren't admin/dashboard specific)
+    return NextResponse.next();
   } catch (error) {
     console.error("Error checking user role:", error);
     const signInUrl = new URL("/sign-in", req.url);
     return NextResponse.redirect(signInUrl);
-  }
-
-  // If the user is logged in and the route is protected, let them view.
-  if (isAuthenticated && !isPublicRoute(req)) {
-    return NextResponse.next();
   }
 
   return NextResponse.next();
