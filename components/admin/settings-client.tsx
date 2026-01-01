@@ -50,7 +50,7 @@ export default function SettingsClient({
       "Saturday",
     ];
     return days.map((day, index) => {
-      const existing = hours.find((h) => h.dayOfWeek === index);
+      const existing = hours.find((h: { dayOfWeek: number }) => h.dayOfWeek === index);
       return {
         day,
         dayOfWeek: index,
