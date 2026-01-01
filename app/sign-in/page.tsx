@@ -18,32 +18,27 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
-import { useAuthActions } from "@convex-dev/auth/react";
+import { useSignIn } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { Authenticated, Unauthenticated } from "convex/react";
 
 export default function SignInPage() {
   const router = useRouter();
-  const authActions = useAuthActions();
+  const { isSignedIn, userId } = useAuth();
+  const { isLoaded, signIn, setActive } = useSignIn();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-
-  // Check if auth is initialized
-  useEffect(() => {
-    if (authActions) {
-      setIsInitializing(false);
-    }
-  }, [authActions]);
 
   // Check if user is already authenticated
   const currentUser = useQuery(api.users.getCurrentUser);
   const userRole = useQuery(api.auth.getUserRole);
 
   useEffect(() => {
-    if (currentUser && userRole) {
+    if (isSignedIn && currentUser && userRole) {
       // User is authenticated, redirect based on role
       if (userRole.type === "admin") {
         router.push("/admin");
@@ -51,64 +46,49 @@ export default function SignInPage() {
         router.push("/dashboard");
       }
     }
-  }, [currentUser, userRole, router]);
+  }, [isSignedIn, currentUser, userRole, router]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isLoaded || !signIn) return;
+
     setError(null);
     setIsLoading(true);
 
-    if (!authActions?.signIn) {
-      setError("Authentication system is not ready. Please refresh the page.");
-      setIsLoading(false);
-      return;
-    }
-
     try {
-      const formData = new FormData();
-      formData.set("email", email);
-      formData.set("password", password);
-      formData.set("flow", "signIn");
+      const result = await signIn.create({
+        identifier: email,
+        password,
+      });
 
-      await authActions.signIn("password", formData);
-
-      // Let middleware handle the redirect based on role
-      // Just refresh to trigger middleware check
-      router.refresh();
-    } catch (err) {
+      if (result.status === "complete") {
+        await setActive({ session: result.createdSessionId });
+        router.refresh();
+      } else {
+        setError("Sign in incomplete. Please try again.");
+      }
+    } catch (err: any) {
       console.error("Sign in error:", err);
 
       // Handle specific error messages gracefully
       let errorMessage = "Failed to sign in";
 
-      if (err instanceof Error) {
-        const message = err.message.toLowerCase();
-
-        if (message.includes("invalid") && message.includes("secret")) {
+      if (err.errors) {
+        const firstError = err.errors[0];
+        if (firstError.code === "form_identifier_not_found") {
           errorMessage =
-            "Authentication service is temporarily unavailable. Please try again later.";
-        } else if (message.includes("network") || message.includes("fetch")) {
+            "No account found with this email. Please check your email or sign up.";
+        } else if (firstError.code === "form_password_incorrect") {
+          errorMessage =
+            "Invalid password. Please check your password and try again.";
+        } else if (firstError.message) {
+          errorMessage = firstError.message;
+        }
+      } else if (err instanceof Error) {
+        const message = err.message.toLowerCase();
+        if (message.includes("network") || message.includes("fetch")) {
           errorMessage =
             "Network error. Please check your connection and try again.";
-        } else if (
-          message.includes("unauthorized") ||
-          message.includes("invalid credentials")
-        ) {
-          errorMessage =
-            "Invalid email or password. Please check your credentials and try again.";
-        } else if (message.includes("too many")) {
-          errorMessage =
-            "Too many failed attempts. Please wait a few minutes before trying again.";
-        } else if (
-          message.includes("account") &&
-          message.includes("disabled")
-        ) {
-          errorMessage =
-            "Your account has been disabled. Please contact support.";
-        } else {
-          // For any other server errors, show a generic message
-          errorMessage =
-            "Unable to sign in at this time. Please try again later.";
         }
       }
 
@@ -118,8 +98,8 @@ export default function SignInPage() {
     }
   };
 
-  // Show loading state while auth initializes
-  if (isInitializing || !authActions) {
+  // Show loading state while Clerk initializes
+  if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-background p-4">
         <div className="text-center">

@@ -16,6 +16,7 @@
     "test:coverage": "vitest run --coverage --coverage.reporter=text"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.36.5",
     "@convex-dev/auth": "^0.0.90",
     "@convex-dev/resend": "^0.2.3",
     "@convex-dev/workflow": "^0.3.3",

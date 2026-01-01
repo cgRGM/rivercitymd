@@ -1,25 +1,27 @@
-import { useAuthActions } from "@convex-dev/auth/react";
-import { useConvexAuth } from "convex/react";
-import { useRouter } from "next/router";
+"use client";
+
+import { SignOutButton as ClerkSignOutButton } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 export default function SignOutButton() {
-  const { isAuthenticated } = useConvexAuth();
-  const { signOut } = useAuthActions();
+  const { isSignedIn } = useAuth();
   const router = useRouter();
+
+  if (!isSignedIn) {
+    return null;
+  }
+
   return (
-    <>
-      {isAuthenticated && (
-        <button
-          className="bg-slate-200 dark:bg-slate-800 text-foreground rounded-md px-2 py-1"
-          onClick={() =>
-            void signOut().then(() => {
-              router.push("/");
-            })
-          }
-        >
-          Sign out
-        </button>
-      )}
-    </>
+    <ClerkSignOutButton
+      redirectUrl="/"
+      signOutCallback={() => {
+        router.push("/");
+      }}
+    >
+      <button className="bg-slate-200 dark:bg-slate-800 text-foreground rounded-md px-2 py-1">
+        Sign out
+      </button>
+    </ClerkSignOutButton>
   );
 }

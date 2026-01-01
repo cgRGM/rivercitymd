@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -19,80 +19,73 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft } from "lucide-react";
-import { useAuthActions } from "@convex-dev/auth/react";
+import { useSignUp } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 
 export default function SignUpPage() {
   const router = useRouter();
-  const authActions = useAuthActions();
+  const { isSignedIn } = useAuth();
+  const { isLoaded, signUp, setActive } = useSignUp();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [pendingVerification, setPendingVerification] = useState(false);
+  const [code, setCode] = useState("");
 
-  // Check if auth is initialized
-  useEffect(() => {
-    if (authActions) {
-      setIsInitializing(false);
-    }
-  }, [authActions]);
+  // Redirect if already signed in
+  if (isSignedIn) {
+    router.push("/onboarding");
+    return null;
+  }
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isLoaded || !signUp) return;
+
     setError(null);
     setIsLoading(true);
 
-    if (!authActions?.signIn) {
-      setError("Authentication system is not ready. Please refresh the page.");
-      setIsLoading(false);
-      return;
-    }
-
     try {
-      const formData = new FormData();
-      formData.set("email", email);
-      formData.set("password", password);
-      formData.set("flow", "signUp");
+      const result = await signUp.create({
+        emailAddress: email,
+        password,
+      });
 
-      await authActions.signIn("password", formData);
-      // Redirect to onboarding for new users
-      router.push("/onboarding");
-    } catch (err) {
+      // If email verification is required
+      if (result.status === "missing_requirements") {
+        await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+        setPendingVerification(true);
+      } else if (result.status === "complete") {
+        await setActive({ session: result.createdSessionId });
+        router.push("/onboarding");
+      }
+    } catch (err: any) {
       console.error("Sign up error:", err);
 
       // Handle specific error messages gracefully
       let errorMessage = "Failed to create account";
 
-      if (err instanceof Error) {
-        const message = err.message.toLowerCase();
-
-        if (message.includes("invalid") && message.includes("secret")) {
-          errorMessage =
-            "Authentication service is temporarily unavailable. Please try again later.";
-        } else if (
-          message.includes("already exists") ||
-          message.includes("duplicate")
-        ) {
+      if (err.errors) {
+        const firstError = err.errors[0];
+        if (firstError.code === "form_identifier_exists") {
           errorMessage =
             "An account with this email already exists. Try signing in instead.";
-        } else if (message.includes("cannot read properties of null")) {
+        } else if (firstError.code === "form_password_pwned") {
           errorMessage =
-            "Account creation error. This email may already be registered. Try signing in or use a different email.";
-        } else if (message.includes("network") || message.includes("fetch")) {
+            "This password has been found in a data breach. Please choose a different password.";
+        } else if (firstError.code === "form_password_length_too_short") {
+          errorMessage =
+            "Password is too short. Please choose a password with at least 8 characters.";
+        } else if (firstError.message) {
+          errorMessage = firstError.message;
+        }
+      } else if (err instanceof Error) {
+        const message = err.message.toLowerCase();
+        if (message.includes("network") || message.includes("fetch")) {
           errorMessage =
             "Network error. Please check your connection and try again.";
-        } else if (message.includes("password") && message.includes("weak")) {
-          errorMessage =
-            "Password is too weak. Please choose a stronger password.";
-        } else if (message.includes("email") && message.includes("invalid")) {
-          errorMessage = "Please enter a valid email address.";
-        } else if (message.includes("required")) {
-          errorMessage = "Please fill in all required fields.";
-        } else {
-          // For any other server errors, show a generic message
-          errorMessage =
-            "Unable to create account at this time. Please try again later.";
         }
       }
 
@@ -102,13 +95,92 @@ export default function SignUpPage() {
     }
   };
 
-  // Show loading state while auth initializes
-  if (isInitializing || !authActions) {
+  const handleVerifyEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isLoaded || !signUp) return;
+
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const completeSignUp = await signUp.attemptEmailAddressVerification({
+        code,
+      });
+
+      if (completeSignUp.status === "complete") {
+        await setActive({ session: completeSignUp.createdSessionId });
+        router.push("/onboarding");
+      } else {
+        setError("Verification failed. Please try again.");
+      }
+    } catch (err: any) {
+      console.error("Verification error:", err);
+      setError(
+        err.errors?.[0]?.message || "Invalid verification code. Please try again.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Show loading state while Clerk initializes
+  if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-background p-4">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show email verification form if needed
+  if (pendingVerification) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-background p-4">
+        <div className="w-full max-w-md space-y-8">
+          <Card>
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-2xl font-bold">
+                Verify your email
+              </CardTitle>
+              <CardDescription>
+                We sent a verification code to {email}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleVerifyEmail} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="code">Verification Code</Label>
+                  <Input
+                    id="code"
+                    type="text"
+                    placeholder="Enter code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+                {error && (
+                  <div className="bg-red-500/20 border-2 border-red-500/50 rounded-md p-3">
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      {error}
+                    </p>
+                  </div>
+                )}
+                <Button
+                  type="submit"
+                  className="w-full"
+                  size="lg"
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Verifying..." : "Verify Email"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );

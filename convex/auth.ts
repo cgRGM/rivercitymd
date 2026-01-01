@@ -1,16 +1,8 @@
-import { Password } from "@convex-dev/auth/providers/Password";
-import { convexAuth } from "@convex-dev/auth/server";
-import { query } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { query, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { v } from "convex/values";
 import Stripe from "stripe";
-
-// Validate required environment variables
-const convexSiteUrl = process.env.CONVEX_SITE_URL;
-if (!convexSiteUrl) {
-  throw new Error(
-    "CONVEX_SITE_URL environment variable is not set. Please set it in your Convex environment.",
-  );
-}
+import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
 
 // Initialize Stripe with environment variable
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -24,81 +16,56 @@ const stripe = new Stripe(stripeSecretKey, {
   apiVersion: "2025-10-29.clover",
 });
 
-export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [
-    Password({
-      profile(params) {
-        return {
-          email: params.email as string,
-          name: params.email as string,
-        };
-      },
-    }),
-  ],
-  callbacks: {
-    async afterUserCreatedOrUpdated(ctx, { userId, existingUserId }) {
-      // Only set up new users (not updates)
-      if (existingUserId) {
-        return;
-      }
-
-      // Get the user to check their email
-      const user = await ctx.db.get(userId);
-      if (!user) return;
-
-      // Create Stripe customer for new users
-      let stripeCustomerId: string | undefined;
-      try {
-        const customer = await stripe.customers.create({
-          email: user.email,
-          name: user.name,
-          metadata: {
-            convexUserId: userId,
-          },
-        });
-        stripeCustomerId = customer.id;
-      } catch (error) {
-        console.error("Failed to create Stripe customer:", error);
-        // Continue with user creation even if Stripe customer creation fails
-      }
-
-      // Set default role and Stripe customer ID
-      const updateData: any = {
-        role: "client",
-        timesServiced: 0,
-        totalSpent: 0,
-        status: "active",
-      };
-
-      if (stripeCustomerId) {
-        updateData.stripeCustomerId = stripeCustomerId;
-      }
-
-      await ctx.db.patch(userId, updateData);
-    },
-  },
-});
 
 // Get the current user's role
 export const getUserRole = query({
   args: {},
+  returns: v.union(
+    v.object({
+      type: v.union(v.literal("admin"), v.literal("client")),
+      userId: v.id("users"),
+      name: v.string(),
+      email: v.string(),
+      phone: v.union(v.string(), v.null()),
+    }),
+    v.null(),
+  ),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || !identity.email) {
       return null;
     }
 
-    const user = await ctx.db.get(userId);
+    // Find user by email (Clerk email) or by Clerk user ID
+    let user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+
+    // If user doesn't exist, create them
     if (!user) {
-      return null;
+      const userId = await ctx.runMutation(internal.auth.ensureUserFromClerk, {
+        email: identity.email,
+        name: identity.name || identity.email,
+        clerkUserId: identity.subject,
+      });
+      user = await ctx.db.get(userId);
+      if (!user) {
+        return null;
+      }
+    } else if (!user.clerkUserId && identity.subject) {
+      // Update existing user with Clerk user ID if missing
+      await ctx.db.patch(user._id, {
+        clerkUserId: identity.subject,
+      });
     }
 
     return {
-      type: user.role || "client",
-      userId,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
+      type: (user.role || "client") as "admin" | "client",
+      userId: user._id,
+      name: user.name || identity.email,
+      email: user.email || identity.email,
+      phone: user.phone || null,
     };
   },
 });
@@ -106,23 +73,133 @@ export const getUserRole = query({
 // Get current authenticated user's info
 export const getCurrentUser = query({
   args: {},
+  returns: v.union(
+    v.object({
+      userId: v.id("users"),
+      email: v.union(v.string(), v.null()),
+      name: v.union(v.string(), v.null()),
+      phone: v.union(v.string(), v.null()),
+      role: v.union(v.literal("admin"), v.literal("client")),
+    }),
+    v.null(),
+  ),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || !identity.email) {
       return null;
     }
 
-    const user = await ctx.db.get(userId);
+    // Find user by email (Clerk email) or by Clerk user ID
+    let user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .first();
+
+    // If user doesn't exist, create them
     if (!user) {
-      return null;
+      const userId = await ctx.runMutation(internal.auth.ensureUserFromClerk, {
+        email: identity.email,
+        name: identity.name || identity.email,
+        clerkUserId: identity.subject,
+      });
+      user = await ctx.db.get(userId);
+      if (!user) {
+        return null;
+      }
+    } else if (!user.clerkUserId && identity.subject) {
+      // Update existing user with Clerk user ID if missing
+      await ctx.db.patch(user._id, {
+        clerkUserId: identity.subject,
+      });
     }
 
     return {
-      userId,
-      email: user.email || null,
-      name: user.name || null,
+      userId: user._id,
+      email: user.email || identity.email,
+      name: user.name || identity.name || null,
       phone: user.phone || null,
-      role: user.role || "client",
+      role: (user.role || "client") as "admin" | "client",
     };
+  },
+});
+
+// Helper function to get user ID from Clerk identity
+// Use this in queries, mutations, and actions
+export async function getUserIdFromIdentity(
+  ctx: QueryCtx | MutationCtx | ActionCtx,
+): Promise<string | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity || !identity.email) {
+    return null;
+  }
+
+  // Find user by email (Clerk email)
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", identity.email!))
+    .first();
+
+  return user?._id || null;
+}
+
+// Internal mutation to create or update user from Clerk identity
+// This will be called when a user signs in for the first time
+export const ensureUserFromClerk = internalMutation({
+  args: {
+    email: v.string(),
+    name: v.union(v.string(), v.null()),
+    clerkUserId: v.string(),
+  },
+  returns: v.id("users"),
+  handler: async (ctx, args) => {
+    // Check if user already exists
+    let user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+
+    if (user) {
+      // Update clerkUserId if not set
+      if (!user.clerkUserId) {
+        await ctx.db.patch(user._id, {
+          clerkUserId: args.clerkUserId,
+        });
+      }
+      return user._id;
+    }
+
+    // Create new user
+    // Create Stripe customer for new users
+    let stripeCustomerId: string | undefined;
+    try {
+      const customer = await stripe.customers.create({
+        email: args.email,
+        name: args.name || args.email,
+        metadata: {
+          clerkUserId: args.clerkUserId,
+        },
+      });
+      stripeCustomerId = customer.id;
+    } catch (error) {
+      console.error("Failed to create Stripe customer:", error);
+      // Continue with user creation even if Stripe customer creation fails
+    }
+
+    // Set default role and Stripe customer ID
+    const userData: any = {
+      email: args.email,
+      name: args.name || args.email,
+      clerkUserId: args.clerkUserId,
+      role: "client",
+      timesServiced: 0,
+      totalSpent: 0,
+      status: "active",
+    };
+
+    if (stripeCustomerId) {
+      userData.stripeCustomerId = stripeCustomerId;
+    }
+
+    return await ctx.db.insert("users", userData);
   },
 });

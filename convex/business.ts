@@ -1,6 +1,6 @@
 import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 import { api } from "./_generated/api";
 import { Resend } from "@convex-dev/resend";
 import { components } from "./_generated/api";
@@ -35,7 +35,7 @@ export const update = mutation({
     logoId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const { id, ...updates } = args;

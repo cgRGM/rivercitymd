@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
-import { useAuthActions } from "@convex-dev/auth/react";
+import { useSignIn, useSignUp, useAuth } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -176,7 +176,9 @@ export default function AppointmentModal({
     api.users.createUserWithAppointment,
   );
   const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
-  const authActions = useAuthActions();
+  const { isSignedIn } = useAuth();
+  const { signIn, setActive: setActiveSignIn } = useSignIn();
+  const { signUp, setActive: setActiveSignUp } = useSignUp();
 
   // Step forms
   const step1Form = useForm<Step1Data>({
@@ -379,34 +381,55 @@ export default function AppointmentModal({
         ...step5Form.getValues(),
       };
 
-      // Step 1: Sign up using Convex Auth (creates user with password)
+      // Step 1: Sign up using Clerk (creates user with password)
       // This MUST succeed for the checkout flow to work
-      try {
-        const formData = new FormData();
-        formData.set("email", finalData.email!);
-        formData.set("password", finalData.password!);
-        formData.set("flow", "signUp");
+      if (!signUp || !signIn) {
+        throw new Error("Authentication system is not ready. Please refresh the page.");
+      }
 
-        await authActions.signIn("password", formData);
-      } catch (authError) {
-        // If signup fails (e.g., user already exists), try to sign in
-        if (authError instanceof Error) {
-          const formData = new FormData();
-          formData.set("email", finalData.email!);
-          formData.set("password", finalData.password!);
-          formData.set("flow", "signIn");
-          try {
-            await authActions.signIn("password", formData);
-          } catch {
-            // If both fail, we cannot proceed because checkout requires authentication
-            throw new Error(
-              "Authentication failed. Please check your email and password, or try signing up with a different email.",
-            );
+      try {
+        // Try to sign up first
+        const signUpResult = await signUp.create({
+          emailAddress: finalData.email!,
+          password: finalData.password!,
+        });
+
+        if (signUpResult.status === "complete") {
+          await setActiveSignUp({ session: signUpResult.createdSessionId });
+        } else if (signUpResult.status === "missing_requirements") {
+          // If email verification is required, we need to handle it
+          // For now, try to sign in instead (user might already exist)
+          const signInResult = await signIn.create({
+            identifier: finalData.email!,
+            password: finalData.password!,
+          });
+
+          if (signInResult.status === "complete") {
+            await setActiveSignIn({ session: signInResult.createdSessionId });
+          } else {
+            throw new Error("Sign in incomplete. Please try again.");
           }
-        } else {
-          throw new Error(
-            "Authentication failed. Please try again or contact support if the problem persists.",
-          );
+        }
+      } catch (authError: any) {
+        // If signup fails (e.g., user already exists), try to sign in
+        try {
+          const signInResult = await signIn.create({
+            identifier: finalData.email!,
+            password: finalData.password!,
+          });
+
+          if (signInResult.status === "complete") {
+            await setActiveSignIn({ session: signInResult.createdSessionId });
+          } else {
+            throw new Error("Sign in incomplete. Please try again.");
+          }
+        } catch (signInError: any) {
+          // If both fail, we cannot proceed because checkout requires authentication
+          const errorMessage =
+            signInError.errors?.[0]?.message ||
+            authError.errors?.[0]?.message ||
+            "Authentication failed. Please check your email and password, or try signing up with a different email.";
+          throw new Error(errorMessage);
         }
       }
 

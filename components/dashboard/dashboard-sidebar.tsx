@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
-import { useAuthActions } from "@convex-dev/auth/react";
+import { SignOutButton } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import {
   LayoutDashboard,
   Calendar,
@@ -62,14 +63,7 @@ const menuItems = [
 
 export default function DashboardSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { signOut } = useAuthActions();
-
-  const handleSignOut = () => {
-    void signOut().then(() => {
-      router.push("/");
-    });
-  };
+  const { isSignedIn } = useAuth();
 
   return (
     <Sidebar>
@@ -117,15 +111,12 @@ export default function DashboardSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-4">
-        <Button
-          variant="ghost"
-          className="w-full justify-start"
-          size="sm"
-          onClick={handleSignOut}
-        >
-          <LogOut className="w-4 h-4 mr-2" />
-          Sign Out
-        </Button>
+        <SignOutButton redirectUrl="/">
+          <Button variant="ghost" className="w-full justify-start" size="sm">
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </Button>
+        </SignOutButton>
       </SidebarFooter>
     </Sidebar>
   );

@@ -1,12 +1,12 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 
 // Get monthly statistics for dashboard
 export const getMonthlyStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const today = new Date();
@@ -109,7 +109,7 @@ export const getDashboardAnalytics = query({
     months: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const monthCount = args.months || 6;

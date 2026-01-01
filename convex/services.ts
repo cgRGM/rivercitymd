@@ -7,7 +7,7 @@ import {
   internalAction,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 import { Id } from "./_generated/dataModel";
 import { internal, api } from "./_generated/api";
 
@@ -32,7 +32,7 @@ export const createCategory = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     return await ctx.db.insert("serviceCategories", {
@@ -223,7 +223,7 @@ export const create = mutation({
     icon: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // Calculate basePrice for backwards compatibility (use medium if available)
@@ -273,7 +273,7 @@ export const update = mutation({
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const { serviceId, ...updates } = args;
@@ -299,7 +299,7 @@ export const deleteService = mutation({
     serviceId: v.id("services"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // Check if service is being used in any appointments
@@ -362,7 +362,7 @@ export const updateStripeProduct = mutation({
     serviceId: v.id("services"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const service = await ctx.db.get(args.serviceId);
@@ -409,7 +409,7 @@ export const getById = query({
     serviceId: v.id("services"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     return await ctx.db.get(args.serviceId);
