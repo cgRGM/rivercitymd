@@ -1,8 +1,9 @@
-import { query, internalMutation } from "./_generated/server";
+import { query, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import Stripe from "stripe";
 import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 // Initialize Stripe with environment variable
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -37,27 +38,13 @@ export const getUserRole = query({
     }
 
     // Find user by email (Clerk email) or by Clerk user ID
-    let user = await ctx.db
+    const user = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", identity.email!))
       .first();
 
-    // If user doesn't exist, create them
     if (!user) {
-      const userId = await ctx.runMutation(internal.auth.ensureUserFromClerk, {
-        email: identity.email,
-        name: identity.name || identity.email,
-        clerkUserId: identity.subject,
-      });
-      user = await ctx.db.get(userId);
-      if (!user) {
-        return null;
-      }
-    } else if (!user.clerkUserId && identity.subject) {
-      // Update existing user with Clerk user ID if missing
-      await ctx.db.patch(user._id, {
-        clerkUserId: identity.subject,
-      });
+      return null;
     }
 
     return {
@@ -90,27 +77,13 @@ export const getCurrentUser = query({
     }
 
     // Find user by email (Clerk email) or by Clerk user ID
-    let user = await ctx.db
+    const user = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", identity.email!))
       .first();
 
-    // If user doesn't exist, create them
     if (!user) {
-      const userId = await ctx.runMutation(internal.auth.ensureUserFromClerk, {
-        email: identity.email,
-        name: identity.name || identity.email,
-        clerkUserId: identity.subject,
-      });
-      user = await ctx.db.get(userId);
-      if (!user) {
-        return null;
-      }
-    } else if (!user.clerkUserId && identity.subject) {
-      // Update existing user with Clerk user ID if missing
-      await ctx.db.patch(user._id, {
-        clerkUserId: identity.subject,
-      });
+      return null;
     }
 
     return {
@@ -123,10 +96,24 @@ export const getCurrentUser = query({
   },
 });
 
+// Internal query to get user ID by email (used by actions)
+export const getUserIdByEmail = internalQuery({
+  args: {
+    email: v.string(),
+  },
+  returns: v.union(v.id("users"), v.null()),
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+
+    return user?._id || null;
+  },
+});
+
 // Helper function to get user ID from Clerk identity
 // Use this in queries, mutations, and actions
-import type { Id } from "./_generated/dataModel";
-
 export async function getUserIdFromIdentity(
   ctx: QueryCtx | MutationCtx | ActionCtx,
 ): Promise<Id<"users"> | null> {
@@ -135,13 +122,20 @@ export async function getUserIdFromIdentity(
     return null;
   }
 
-  // Find user by email (Clerk email)
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_email", (q) => q.eq("email", identity.email!))
-    .first();
+  // For queries and mutations, query directly
+  if ("db" in ctx) {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
+      .first();
 
-  return user?._id || null;
+    return user?._id || null;
+  }
+
+  // For actions, use an internal query
+  return await ctx.runQuery(internal.auth.getUserIdByEmail, {
+    email: identity.email,
+  });
 }
 
 // Internal mutation to create or update user from Clerk identity

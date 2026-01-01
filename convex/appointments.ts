@@ -139,7 +139,7 @@ export const create = mutation({
     const services = await Promise.all(
       args.serviceIds.map((id) => ctx.db.get(id)),
     );
-    const validServices = services.filter((s) => s !== null);
+    const validServices = services.filter((s: any) => s !== null);
     if (validServices.length !== args.serviceIds.length) {
       throw new Error("One or more services not found");
     }
@@ -313,7 +313,7 @@ export const update = mutation({
     const services = await Promise.all(
       updates.serviceIds.map((id) => ctx.db.get(id)),
     );
-    const validServices = services.filter((s) => s !== null);
+    const validServices = services.filter((s: any) => s !== null);
     if (validServices.length !== updates.serviceIds.length) {
       throw new Error("One or more services not found");
     }
@@ -1155,7 +1155,7 @@ export const generateAndSendInvoice = internalAction({
         ctx.runQuery(api.services.getById, { serviceId: id }),
       ),
     );
-    const validServices = services.filter((s) => s !== null);
+    const validServices = services.filter((s: any) => s !== null);
 
     // Get vehicle count from appointment (number of vehicle IDs)
     // The invoice items already have correct pricing per vehicle
@@ -1167,7 +1167,7 @@ export const generateAndSendInvoice = internalAction({
     await ctx.runAction(api.appointments.createStripeInvoice, {
       appointmentId: args.appointmentId,
       userId: appointment.userId,
-      services: validServices.map((s) => ({
+      services: validServices.map((s: any) => ({
         _id: s!._id,
         stripePriceIds: s!.stripePriceIds || [],
         basePriceSmall: s!.basePriceSmall,
