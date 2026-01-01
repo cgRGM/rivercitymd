@@ -113,7 +113,7 @@ export function Footer() {
         </div>
 
         <div className="border-t border-primary-foreground/20 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-primary-foreground/60">
-          <div>© 2025 River City Mobile Detail. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} River City Mobile Detail. All rights reserved.</div>
           <div className="flex gap-6">
             {legalLinks.map((link) => (
               <Link
