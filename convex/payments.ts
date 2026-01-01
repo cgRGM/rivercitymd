@@ -4,16 +4,20 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
-// Get Stripe secret key from environment
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-if (!stripeSecretKey) {
-  throw new Error(
-    "STRIPE_SECRET_KEY environment variable is not set. Please set it in your Convex environment.",
-  );
+// Helper function to get Stripe secret key from environment
+function getStripeSecretKey(): string {
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeSecretKey) {
+    throw new Error(
+      "STRIPE_SECRET_KEY environment variable is not set. Please set it in your Convex environment.",
+    );
+  }
+  return stripeSecretKey;
 }
 
 // Helper function to make Stripe API calls
 async function stripeApiCall(endpoint: string, options: RequestInit = {}) {
+  const stripeSecretKey = getStripeSecretKey();
   const url = `https://api.stripe.com/v1/${endpoint}`;
   const response = await fetch(url, {
     ...options,
@@ -658,7 +662,7 @@ export const handleWebhook = action({
 
         if (invoiceIdString) {
           const invoiceId = invoiceIdString as Id<"invoices">;
-          const invoice = await ctx.runQuery(api.invoices.getById, {
+          const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
             invoiceId,
           });
 
@@ -758,7 +762,7 @@ export const handleWebhook = action({
         if (invoiceIdString) {
           // Convert string ID from metadata to Convex Id type
           const invoiceId = invoiceIdString as Id<"invoices">;
-          const invoice = await ctx.runQuery(api.invoices.getById, {
+          const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
             invoiceId,
           });
 

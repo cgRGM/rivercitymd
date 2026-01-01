@@ -2,36 +2,57 @@ import { convexTest } from "convex-test";
 import { expect, test, describe } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { modules } from "./test.setup";
 
 describe("users", () => {
   test("create user profile during onboarding", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
+
+    // Create a user with minimal info
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        email: "newuser@example.com",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const asUser = t.withIdentity({ subject: userId });
+
+    // Update profile during onboarding
+    await asUser.mutation(api.users.updateUserProfile, {
+      name: "New User",
+      phone: "555-0000",
+      address: {
+        street: "123 New St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+    });
+
+    // Verify profile was updated
+    const user = await asUser.query(api.users.getCurrentUser, {});
+    expect(user).toMatchObject({
+      name: "New User",
+      phone: "555-0000",
+      email: "newuser@example.com",
+    });
   });
 
   test("get current user", async () => {
-    const t = convexTest(schema);
-  });
-
-  test("onboarding status", async () => {
-    const t = convexTest(schema);
-  });
-
-  test("add and remove vehicles", async () => {
-    const t = convexTest(schema);
-  });
-
-  test("admin functions", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     // Create a user
     const userId = await t.run(async (ctx) => {
       return await ctx.db.insert("users", {
-        name: "Current User",
-        email: "current@example.com",
-        phone: "555-9999",
+        name: "Test User",
+        email: "test@example.com",
+        phone: "555-1234",
         role: "client",
-        timesServiced: 2,
-        totalSpent: 150,
+        timesServiced: 0,
+        totalSpent: 0,
         status: "active",
       });
     });
@@ -42,18 +63,15 @@ describe("users", () => {
     const currentUser = await asUser.query(api.users.getCurrentUser, {});
 
     expect(currentUser).toMatchObject({
-      name: "Current User",
-      email: "current@example.com",
-      phone: "555-9999",
+      name: "Test User",
+      email: "test@example.com",
+      phone: "555-1234",
       role: "client",
-      timesServiced: 2,
-      totalSpent: 150,
-      status: "active",
     });
   });
 
   test("onboarding status", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     // Test user with no profile info
     const incompleteUserId = await t.run(async (ctx) => {
@@ -118,8 +136,40 @@ describe("users", () => {
     expect(completeStatus.missingSteps).toEqual([]);
   });
 
+  test("get current user with profile data", async () => {
+    const t = convexTest(schema, modules);
+
+    // Create a user
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Current User",
+        email: "current@example.com",
+        phone: "555-9999",
+        role: "client",
+        timesServiced: 2,
+        totalSpent: 150,
+        status: "active",
+      });
+    });
+
+    const asUser = t.withIdentity({ subject: userId });
+
+    // Get current user
+    const currentUser = await asUser.query(api.users.getCurrentUser, {});
+
+    expect(currentUser).toMatchObject({
+      name: "Current User",
+      email: "current@example.com",
+      phone: "555-9999",
+      role: "client",
+      timesServiced: 2,
+      totalSpent: 150,
+      status: "active",
+    });
+  });
+
   test("add and remove vehicles", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     // Create a user
     const userId = await t.run(async (ctx) => {
@@ -170,8 +220,8 @@ describe("users", () => {
     expect(vehiclesAfterRemoval.length).toBe(0);
   });
 
-  test("admin functions", async () => {
-    const t = convexTest(schema);
+  test("admin can manage users", async () => {
+    const t = convexTest(schema, modules);
 
     // Create admin user
     const adminId = await t.run(async (ctx) => {

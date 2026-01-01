@@ -2,10 +2,11 @@ import { convexTest } from "convex-test";
 import { expect, test, describe } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { modules } from "./test.setup";
 
 describe("appointments", () => {
   test("create appointment", async () => {
-    const t = convexTest(schema, {});
+    const t = convexTest(schema, modules);
 
     // Create a user
     const userId = await t.run(async (ctx) => {
@@ -91,6 +92,9 @@ describe("appointments", () => {
       zip: "62701",
     });
 
+    // Wait for scheduled functions (ensureStripeCustomer) to complete
+    await t.finishInProgressScheduledFunctions();
+
     expect(appointmentId).toBeDefined();
     expect(invoiceId).toBeDefined();
 
@@ -124,7 +128,7 @@ describe("appointments", () => {
   });
 
   test("list appointments", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     // Create test data
     const userId = await t.run(async (ctx) => {
@@ -209,6 +213,9 @@ describe("appointments", () => {
       zip: "62702",
     });
 
+    // Wait for scheduled functions to complete
+    await t.finishInProgressScheduledFunctions();
+
     // Test listing appointments
     const appointments = await asAdmin.query(api.appointments.list, {});
     expect(appointments.length).toBe(2);
@@ -227,7 +234,7 @@ describe("appointments", () => {
   });
 
   test("update appointment status", async () => {
-    const t = convexTest(schema);
+    const t = convexTest(schema, modules);
 
     // Create test data
     const userId = await t.run(async (ctx) => {
@@ -298,6 +305,9 @@ describe("appointments", () => {
       state: "IL",
       zip: "62703",
     });
+
+    // Wait for scheduled functions to complete
+    await t.finishInProgressScheduledFunctions();
 
     // Update status to confirmed
     await asAdmin.mutation(api.appointments.updateStatus, {
