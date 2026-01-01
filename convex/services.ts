@@ -59,8 +59,7 @@ export const createStripeProduct = action({
 
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
-      // Throw error to maintain function contract and detect configuration issues
-      // In test environments, this error will be caught by test setup error handlers
+      // Throw error to maintain function contract and surface configuration issues
       throw new Error(
         `STRIPE_SECRET_KEY environment variable is not set for service ${args.serviceId}`,
       );
