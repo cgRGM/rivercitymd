@@ -176,13 +176,16 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Reload the user object to refresh the session token with updated metadata
-      await user.reload();
-
-      // Use window.location.href to force a full page reload
+      // Force Next.js to refresh server components and re-fetch session
       // This ensures the middleware gets a fresh session token with the updated metadata
-      // The middleware will then redirect to the appropriate dashboard based on role
-      window.location.href = "/dashboard";
+      router.refresh();
+
+      // Small delay to allow session refresh, then navigate
+      // Using router.push with a query param to force a fresh server-side render
+      // This ensures the middleware sees the updated sessionClaims
+      setTimeout(() => {
+        router.push("/dashboard?onboarding=complete");
+      }, 100);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to complete onboarding",

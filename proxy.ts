@@ -29,14 +29,9 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     return NextResponse.next();
   }
 
-  // Catch users who do not have `onboardingComplete: true` in their publicMetadata
-  // Redirect them to the /onboarding route to complete onboarding
-  if (isAuthenticated && !sessionClaims?.metadata?.onboardingComplete) {
-    const onboardingUrl = new URL("/onboarding", req.url);
-    return NextResponse.redirect(onboardingUrl);
-  }
-
-  // Onboarding complete - get user role for routing
+  // First, check if Convex user exists (required before checking onboarding status)
+  // This prevents infinite redirect loops when Clerk metadata says onboarding is complete
+  // but Convex user record doesn't exist
   try {
     const token = await getToken();
 
@@ -55,13 +50,21 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     );
 
     // If userRole is null, the user doesn't exist in Convex
-    // Even though onboardingComplete is true, they need to complete onboarding again
-    // to create their Convex user record
+    // Redirect to onboarding to create the user record, regardless of Clerk metadata
     if (!userRole) {
       const onboardingUrl = new URL("/onboarding", req.url);
       return NextResponse.redirect(onboardingUrl);
     }
 
+    // User exists in Convex - now check onboarding completion status
+    // Catch users who do not have `onboardingComplete: true` in their publicMetadata
+    // Redirect them to the /onboarding route to complete onboarding
+    if (!sessionClaims?.metadata?.onboardingComplete) {
+      const onboardingUrl = new URL("/onboarding", req.url);
+      return NextResponse.redirect(onboardingUrl);
+    }
+
+    // User exists and onboarding is complete - proceed with role-based routing
     const role = userRole.type;
 
     // ADMIN - Full access to /admin, redirect from /dashboard to /admin
