@@ -19,6 +19,8 @@ import {
 import { ArrowLeft, Plus, X } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useUser } from "@clerk/nextjs";
+import { completeOnboarding } from "./_actions";
 
 type Vehicle = {
   year: number;
@@ -29,6 +31,7 @@ type Vehicle = {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { user } = useUser();
   const createUserProfile = useMutation(api.users.createUserProfile);
   const currentUser = useQuery(api.auth.getCurrentUser);
 
@@ -146,6 +149,7 @@ export default function OnboardingPage() {
     setIsLoading(true);
 
     try {
+      // First, save the profile data to Convex
       await createUserProfile({
         name,
         phone,
@@ -158,6 +162,18 @@ export default function OnboardingPage() {
         vehicles: validVehicles,
       });
 
+      // Then, update Clerk's publicMetadata to mark onboarding as complete
+      const result = await completeOnboarding();
+      if (result?.error) {
+        setError(result.error);
+        setIsLoading(false);
+        return;
+      }
+
+      // Force a token refresh and refresh the User object
+      await user?.reload();
+
+      // Redirect based on user role
       router.push("/dashboard");
     } catch (err) {
       setError(
