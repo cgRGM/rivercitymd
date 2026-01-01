@@ -1,6 +1,6 @@
 import { action, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
@@ -144,7 +144,7 @@ export const getPaymentMethods = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own payment methods, admins can see all
@@ -167,7 +167,7 @@ export const addPaymentMethod = mutation({
   },
   returns: v.id("paymentMethods"),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // Get payment method details from Stripe
@@ -218,7 +218,7 @@ export const setDefaultPaymentMethod = mutation({
   args: { paymentMethodId: v.id("paymentMethods") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // First, unset all default payment methods for this user
@@ -245,7 +245,7 @@ export const deletePaymentMethod = mutation({
   args: { paymentMethodId: v.id("paymentMethods") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const paymentMethod = await ctx.db.get(args.paymentMethodId);
@@ -286,7 +286,7 @@ export const createDepositCheckoutSession = action({
     ctx: any,
     args: any,
   ): Promise<{ sessionId: string; url: string }> => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // Get invoice and appointment details
@@ -395,7 +395,7 @@ export const createRemainingBalanceCheckoutSession = action({
     ctx: any,
     args: any,
   ): Promise<{ sessionId: string; url: string }> => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // Get invoice and appointment details
@@ -495,7 +495,7 @@ export const createCheckoutSession = action({
     ctx: any,
     args: any,
   ): Promise<{ sessionId: string; url: string }> => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // Get invoice details
@@ -896,7 +896,7 @@ export const syncPaymentStatus = action({
     invoiceId: v.id("invoices"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const invoice: any = await ctx.runQuery(api.invoices.getById, {

@@ -1,13 +1,13 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 
 export const list = query({
   args: {
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own messages, admins can see all
@@ -30,7 +30,7 @@ export const send = mutation({
     message: v.string(),
   },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only send messages to themselves, admins can send to anyone

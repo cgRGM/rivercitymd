@@ -14,7 +14,8 @@ import {
   LogOut,
   Star,
 } from "lucide-react";
-import { useAuthActions } from "@convex-dev/auth/react";
+import { SignOutButton } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
@@ -79,15 +80,9 @@ const menuItems = [
 
 export default function AdminSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { signOut } = useAuthActions();
+  const { isSignedIn } = useAuth();
   const pendingAppointmentsCount = useQuery(api.appointments.getPendingCount) ?? 0;
   const newCustomersCount = useQuery(api.users.getNewCustomersCount) ?? 0;
-
-  const handleSignOut = async () => {
-    await signOut();
-    router.push("/");
-  };
 
   return (
     <Sidebar>
@@ -151,15 +146,12 @@ export default function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-4">
-        <Button
-          variant="ghost"
-          className="w-full justify-start"
-          size="sm"
-          onClick={handleSignOut}
-        >
-          <LogOut className="w-4 h-4 mr-2" />
-          Sign Out
-        </Button>
+        <SignOutButton redirectUrl="/">
+          <Button variant="ghost" className="w-full justify-start" size="sm">
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </Button>
+        </SignOutButton>
       </SidebarFooter>
     </Sidebar>
   );

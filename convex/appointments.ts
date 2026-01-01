@@ -7,7 +7,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -16,7 +16,7 @@ export const getPendingCount = query({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(userId);
@@ -47,7 +47,7 @@ export const list = query({
     date: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     let appointmentsQuery;
@@ -73,7 +73,7 @@ export const list = query({
 export const getById = query({
   args: { appointmentId: v.id("appointments") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
     return await ctx.db.get(args.appointmentId);
   },
@@ -91,7 +91,7 @@ export const getByIdInternal = internalQuery({
 export const getByUser = query({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own appointments, admins can see all
@@ -133,7 +133,7 @@ export const create = mutation({
     appointmentId: Id<"appointments">;
     invoiceId: Id<"invoices">;
   }> => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     const services = await Promise.all(
@@ -305,7 +305,7 @@ export const update = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const { appointmentId, ...updates } = args;
@@ -419,7 +419,7 @@ export const update = mutation({
 export const deleteAppointment = mutation({
   args: { appointmentId: v.id("appointments") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const invoice = await ctx.db
@@ -451,7 +451,7 @@ export const updateStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const appointment = await ctx.db.get(args.appointmentId);
@@ -603,7 +603,7 @@ export const reschedule = mutation({
     newTime: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     await ctx.db.patch(args.appointmentId, {
@@ -623,7 +623,7 @@ export const getCalendarView = query({
     endDate: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const appointments = await ctx.db.query("appointments").collect();
@@ -672,7 +672,7 @@ export const getUpcoming = query({
     }),
   ),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const today = new Date();
@@ -715,7 +715,7 @@ export const getUpcoming = query({
 export const getUserAppointments = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const today = new Date();
@@ -1025,7 +1025,7 @@ export const listWithDetails = query({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const appointments = await ctx.db.query("appointments").collect();

@@ -6,7 +6,7 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 
 // Get all invoices
 export const list = query({
@@ -21,7 +21,7 @@ export const list = query({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     if (args.status) {
@@ -39,7 +39,7 @@ export const list = query({
 export const getById = query({
   args: { invoiceId: v.id("invoices") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
     return await ctx.db.get(args.invoiceId);
   },
@@ -129,7 +129,7 @@ export const create = mutation({
 export const deleteInvoice = mutation({
   args: { id: v.id("invoices") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const invoice = await ctx.db.get(args.id);
@@ -154,7 +154,7 @@ export const updateStatus = mutation({
     paidDate: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const updateData: any = { status: args.status };
@@ -208,7 +208,7 @@ export const updateDepositStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const updateData: any = {
@@ -268,7 +268,7 @@ export const updateFinalPayment = mutation({
     finalPaymentIntentId: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     await ctx.db.patch(args.invoiceId, {
@@ -328,7 +328,7 @@ export const listWithDetails = query({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     let invoices = await ctx.db.query("invoices").collect();
@@ -359,7 +359,7 @@ export const listWithDetails = query({
 export const getUserInvoices = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const invoices = await ctx.db
@@ -397,7 +397,7 @@ export const getUserInvoices = query({
 export const getSummaryStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const invoices = await ctx.db.query("invoices").collect();

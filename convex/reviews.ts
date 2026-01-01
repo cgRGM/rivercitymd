@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 
 // Get all reviews for admin (with customer and appointment details)
 export const listForAdmin = query({
@@ -41,7 +41,7 @@ export const listForAdmin = query({
     }),
   ),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(userId);
@@ -101,7 +101,7 @@ export const list = query({
 export const getByUser = query({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own reviews, admins can see all
@@ -121,7 +121,7 @@ export const getByUser = query({
 export const getUserReviewsWithDetails = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const reviews = await ctx.db
@@ -161,7 +161,7 @@ export const getUserReviewsWithDetails = query({
 export const getPendingReviews = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     // Get all completed appointments for this user
@@ -214,7 +214,7 @@ export const requestReview = mutation({
     appointmentId: v.id("appointments"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const appointment = await ctx.db.get(args.appointmentId);

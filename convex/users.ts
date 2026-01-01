@@ -7,16 +7,16 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { getUserIdFromIdentity } from "./auth";
 
 // Get count of new customers (created in last 30 days, admin only)
 export const getNewCustomersCount = query({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(userId);
@@ -38,7 +38,7 @@ export const getNewCustomersCount = query({
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(userId);
@@ -52,7 +52,7 @@ export const list = query({
 export const getById = query({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own data, admins can see all
@@ -69,7 +69,7 @@ export const getById = query({
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       return null;
     }
@@ -90,7 +90,7 @@ export const getByIdInternal = internalQuery({
 export const hasCompletedOnboarding = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       return false;
     }
@@ -114,7 +114,7 @@ export const hasCompletedOnboarding = query({
 export const getOnboardingStatus = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       return {
         isComplete: false,
@@ -176,7 +176,7 @@ export const getOnboardingStatus = query({
 export const getUserVehicles = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       return [];
     }
@@ -211,7 +211,7 @@ export const create = mutation({
     color: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(authUserId);
@@ -219,7 +219,7 @@ export const create = mutation({
 
     const existingUser = await ctx.db
       .query("users")
-      .withIndex("email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
 
     if (existingUser) {
@@ -274,7 +274,7 @@ export const createUserProfile = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       throw new Error("Not authenticated");
     }
@@ -324,7 +324,7 @@ export const update = mutation({
     status: v.optional(v.union(v.literal("active"), v.literal("inactive"))),
   },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(authUserId);
@@ -372,7 +372,7 @@ export const updateUserProfile = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       throw new Error("Not authenticated");
     }
@@ -399,7 +399,7 @@ export const addVehicle = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       throw new Error("Not authenticated");
     }
@@ -424,7 +424,7 @@ export const removeVehicle = mutation({
     vehicleId: v.id("vehicles"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       throw new Error("Not authenticated");
     }
@@ -450,7 +450,7 @@ export const removeVehicle = mutation({
 export const deleteUser = mutation({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(authUserId);
@@ -501,7 +501,7 @@ export const getByIdWithDetails = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
-    const authUserId = await getAuthUserId(ctx);
+    const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(authUserId);
@@ -558,7 +558,7 @@ export const getByIdWithDetails = query({
 export const listWithStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(userId);
@@ -643,7 +643,7 @@ export const createUserWithAppointment = mutation({
     // Check if user already exists (may have been created by auth system)
     let existingUser = await ctx.db
       .query("users")
-      .withIndex("email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
 
     let userId: Id<"users">;

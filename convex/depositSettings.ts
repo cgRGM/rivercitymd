@@ -1,6 +1,6 @@
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getUserIdFromIdentity } from "./auth";
 import { api, internal } from "./_generated/api";
 
 // Get deposit settings
@@ -48,7 +48,7 @@ export const upsert = mutation({
   },
   returns: v.id("depositSettings"),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     const currentUser = await ctx.db.get(userId);

@@ -1,10 +1,8 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
 
 // Customize users table to include role and basic info
 const schema = defineSchema({
-  ...authTables,
   users: defineTable({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -12,6 +10,8 @@ const schema = defineSchema({
     phone: v.optional(v.string()),
     phoneVerificationTime: v.optional(v.number()),
     image: v.optional(v.string()),
+    // Clerk integration
+    clerkUserId: v.optional(v.string()),
     // Custom fields
     role: v.optional(v.union(v.literal("admin"), v.literal("client"))),
     // Client fields (users are clients)
@@ -31,7 +31,8 @@ const schema = defineSchema({
     // Payment fields
     stripeCustomerId: v.optional(v.string()),
   })
-    .index("email", ["email"])
+    .index("by_email", ["email"])
+    .index("by_clerk_user_id", ["clerkUserId"])
     .index("by_role", ["role"]),
 
   // Business Information
