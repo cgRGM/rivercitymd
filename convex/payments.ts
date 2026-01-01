@@ -4,7 +4,12 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
-// Helper function to get Stripe secret key from environment
+/**
+ * Retrieve the Stripe secret key from the environment, throwing if it is not set.
+ *
+ * @returns The STRIPE_SECRET_KEY environment value.
+ * @throws Error if STRIPE_SECRET_KEY is not defined in the environment.
+ */
 function getStripeSecretKey(): string {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey) {
@@ -15,7 +20,14 @@ function getStripeSecretKey(): string {
   return stripeSecretKey;
 }
 
-// Helper function to make Stripe API calls
+/**
+ * Send a request to the Stripe REST API and return the parsed JSON response.
+ *
+ * @param endpoint - Stripe API endpoint path (e.g., `payment_intents`, without a leading slash)
+ * @param options - Fetch options forwarded to the request (headers and body may be provided)
+ * @returns The parsed JSON response from Stripe
+ * @throws Error if the Stripe API responds with a non-OK status
+ */
 async function stripeApiCall(endpoint: string, options: RequestInit = {}) {
   const stripeSecretKey = getStripeSecretKey();
   const url = `https://api.stripe.com/v1/${endpoint}`;
