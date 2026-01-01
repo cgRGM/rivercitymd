@@ -171,7 +171,17 @@ export default function OnboardingPage() {
       }
 
       // Force a token refresh and refresh the User object
-      await user?.reload();
+      // If user is available, reload it to refresh the session token
+      // Otherwise, router.refresh() will trigger a middleware re-run with updated token
+      if (user) {
+        await user.reload();
+      }
+
+      // Refresh the router to ensure middleware runs with updated session token
+      router.refresh();
+
+      // Small delay to ensure session token is refreshed before navigation
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Redirect based on user role
       router.push("/dashboard");
