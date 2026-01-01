@@ -13,7 +13,15 @@ if (typeof process !== "undefined") {
 }
 
 // Helper function to create a mock Response with both json() and text() methods
-// This ensures full Response compatibility for error handling code that calls response.text()
+/**
+ * Create a mock Response object that mimics fetch responses.
+ *
+ * @param data - The payload returned by `json()` and serialized by `text()`. When `ok` is `false`, `data` may contain an `error` object whose `message` and `type` are used to populate a Stripe-like error shape.
+ * @param options - Optional response options.
+ * @param options.ok - Whether the response is successful; defaults to `true`.
+ * @param options.status - HTTP status code; defaults to `200`.
+ * @returns A mock `Response` object whose `json()` resolves to `data` and whose `text()` resolves to the JSON string of `data`. If `ok` is `false`, `text()` returns a JSON string in a Stripe-like `{ error: { message, type } }` format.
+ */
 function createMockResponse(
   data: any,
   options: { ok?: boolean; status?: number } = {},
