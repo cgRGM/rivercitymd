@@ -4,10 +4,12 @@
 /*
 Email Setup Instructions:
 1. Create a Resend account at https://resend.com
-2. Add domain: notifications.rivercitymd.com
-3. Verify DNS records (SPF, DKIM, DMARC)
-4. Configure webhook: https://your-convex-url.convex.site/resend-webhook
-5. Set environment variables in Vercel:
+2. Add domain: rivercitymd.com
+3. Verify DNS records (SPF, DKIM, DMARC) in your domain registrar
+4. Configure webhook in Resend dashboard:
+   - URL: https://your-convex-url.convex.site/resend-webhook
+   - Events: email.sent, email.delivered, email.bounced, email.complained
+5. Set environment variables in Vercel (Production):
    - RESEND_API_KEY=your_resend_api_key
    - RESEND_WEBHOOK_SECRET=your_webhook_secret
    - CONVEX_SITE_URL=https://your-app-url
@@ -17,6 +19,7 @@ Email Setup Instructions:
  - sendAppointmentConfirmationEmail: Sent when appointments are created
  - sendAdminAppointmentNotification: Sent to admin for appointment changes
 
+All emails are sent from: notifications@rivercitymd.com
 All emails use professional templates with business branding.
 */
 
@@ -183,7 +186,7 @@ export const sendWelcomeEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <welcome@notifications.rivercitymd.com>`,
+      from: `${business.name} <notifications@rivercitymd.com>`,
       to: user.email,
       subject: `Welcome to ${business.name}!`,
       html,
@@ -401,7 +404,7 @@ export const sendAppointmentConfirmationEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <appointments@notifications.rivercitymd.com>`,
+      from: `${business.name} <notifications@rivercitymd.com>`,
       to: user.email,
       subject: `Appointment Confirmed - ${appointment.scheduledDate}`,
       html,
@@ -482,7 +485,7 @@ export const sendAdminAppointmentNotification = internalAction({
     `;
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
+      from: `${business.name} <notifications@rivercitymd.com>`,
       to: "dustin@rivercitymd.com",
       subject: `${actionText} - ${appointment.scheduledDate} ${appointment.scheduledTime}`,
       html,

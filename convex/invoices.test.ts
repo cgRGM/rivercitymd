@@ -7,7 +7,7 @@ import { modules } from "./test.setup";
 describe("invoices", () => {
   // Helper function to create test user
   async function createTestUser(t: any) {
-    return await t.run(async (ctx) => {
+    return await t.run(async (ctx: any) => {
       return await ctx.db.insert("users", {
         name: "Test User",
         email: "test@example.com",
@@ -22,14 +22,14 @@ describe("invoices", () => {
 
   // Helper function to create test appointment
   async function createTestAppointment(t: any, userId: any, adminId: any) {
-    const categoryId = await t.run(async (ctx) => {
+    const categoryId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("serviceCategories", {
         name: "Test Category",
         type: "standard",
       });
     });
 
-    const serviceId = await t.run(async (ctx) => {
+    const serviceId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("services", {
         name: "Test Service",
         description: "Test service description",
@@ -40,7 +40,7 @@ describe("invoices", () => {
       });
     });
 
-    const vehicleId = await t.run(async (ctx) => {
+    const vehicleId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("vehicles", {
         userId,
         year: 2020,
@@ -50,7 +50,7 @@ describe("invoices", () => {
       });
     });
 
-    await t.run(async (ctx) => {
+    await t.run(async (ctx: any) => {
       await ctx.db.insert("depositSettings", {
         amountPerVehicle: 50,
         isActive: true,
@@ -80,7 +80,7 @@ describe("invoices", () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
 
-    const appointmentId = await t.run(async (ctx) => {
+    const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -107,7 +107,7 @@ describe("invoices", () => {
       invoiceNumber: "INV-001",
       items: [
         {
-          serviceId: await t.run(async (ctx) => {
+          serviceId: await t.run(async (ctx: any) => {
             const categoryId = await ctx.db.insert("serviceCategories", {
               name: "Test",
               type: "standard",
@@ -139,7 +139,7 @@ describe("invoices", () => {
 
     expect(invoiceId).toBeDefined();
 
-    const invoice = await t.run(async (ctx) => {
+    const invoice = await t.run(async (ctx: any) => {
       return await ctx.db.get(invoiceId);
     });
 
@@ -161,7 +161,7 @@ describe("invoices", () => {
     const asUser = t.withIdentity({ subject: userId });
 
     // Create multiple invoices with different statuses
-    const appointmentId1 = await t.run(async (ctx) => {
+    const appointmentId1 = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -193,7 +193,7 @@ describe("invoices", () => {
       dueDate: "2024-12-15",
     });
 
-    const appointmentId2 = await t.run(async (ctx) => {
+    const appointmentId2 = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -255,7 +255,7 @@ describe("invoices", () => {
     const userId = await createTestUser(t);
     const asUser = t.withIdentity({ subject: userId });
 
-    const appointmentId = await t.run(async (ctx) => {
+    const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -301,7 +301,7 @@ describe("invoices", () => {
   test("get invoice by appointment", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const adminId = await t.run(async (ctx) => {
+    const adminId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("users", {
         name: "Admin",
         email: "admin@test.com",
@@ -332,7 +332,7 @@ describe("invoices", () => {
     const userId = await createTestUser(t);
     const asUser = t.withIdentity({ subject: userId });
 
-    const appointmentId = await t.run(async (ctx) => {
+    const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -370,7 +370,7 @@ describe("invoices", () => {
       status: "sent",
     });
 
-    let invoice = await t.run(async (ctx) => {
+    let invoice = await t.run(async (ctx: any) => {
       return await ctx.db.get(invoiceId);
     });
     expect(invoice?.status).toBe("sent");
@@ -384,7 +384,7 @@ describe("invoices", () => {
       paidDate,
     });
 
-    invoice = await t.run(async (ctx) => {
+    invoice = await t.run(async (ctx: any) => {
       return await ctx.db.get(invoiceId);
     });
     expect(invoice?.status).toBe("paid");
@@ -396,7 +396,7 @@ describe("invoices", () => {
     const userId = await createTestUser(t);
     const asUser = t.withIdentity({ subject: userId });
 
-    const appointmentId = await t.run(async (ctx) => {
+    const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -438,7 +438,7 @@ describe("invoices", () => {
       depositPaymentIntentId: "pi_test_123",
     });
 
-    const invoice = await t.run(async (ctx) => {
+    const invoice = await t.run(async (ctx: any) => {
       return await ctx.db.get(invoiceId);
     });
 
@@ -451,7 +451,7 @@ describe("invoices", () => {
     const userId = await createTestUser(t);
     const asUser = t.withIdentity({ subject: userId });
 
-    const appointmentId = await t.run(async (ctx) => {
+    const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -500,7 +500,7 @@ describe("invoices", () => {
       paidDate: new Date().toISOString().split("T")[0],
     });
 
-    const invoice = await t.run(async (ctx) => {
+    const invoice = await t.run(async (ctx: any) => {
       return await ctx.db.get(invoiceId);
     });
 
@@ -514,7 +514,7 @@ describe("invoices", () => {
     const userId = await createTestUser(t);
     const asUser = t.withIdentity({ subject: userId });
 
-    const appointmentId = await t.run(async (ctx) => {
+    const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
@@ -552,7 +552,7 @@ describe("invoices", () => {
     });
 
     // Verify deletion
-    const invoice = await t.run(async (ctx) => {
+    const invoice = await t.run(async (ctx: any) => {
       return await ctx.db.get(invoiceId);
     });
     expect(invoice).toBeNull();
@@ -563,7 +563,7 @@ describe("invoices", () => {
     const userId = await createTestUser(t);
     const asUser = t.withIdentity({ subject: userId });
 
-    const appointmentId = await t.run(async (ctx) => {
+    const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
         userId,
         vehicleIds: [],
