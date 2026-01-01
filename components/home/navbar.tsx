@@ -82,25 +82,21 @@ export default function Navbar() {
               >
                 Contact
               </Link>
-              <Link href="/sign-in">
-                <Button variant="ghost" size="sm">
-                  Login
-                </Button>
-              </Link>
-              <Link href="/sign-up">
-                <Button size="sm">Get Started</Button>
-              </Link>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/sign-in">Login</Link>
+              </Button>
+              <Button size="sm" asChild>
+                <Link href="/sign-up">Get Started</Link>
+              </Button>
             </div>
 
             <div className="md:hidden flex items-center gap-2">
-              <Link href="/sign-in">
-                <Button variant="ghost" size="sm">
-                  Login
-                </Button>
-              </Link>
-              <Link href="/sign-up">
-                <Button size="sm">Start</Button>
-              </Link>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/sign-in">Login</Link>
+              </Button>
+              <Button size="sm" asChild>
+                <Link href="/sign-up">Start</Link>
+              </Button>
             </div>
           </div>
         </div>
