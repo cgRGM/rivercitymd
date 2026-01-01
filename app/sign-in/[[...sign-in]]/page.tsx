@@ -10,19 +10,21 @@ import { api } from "@/convex/_generated/api";
 export default function SignInPage() {
   const router = useRouter();
   const { isSignedIn } = useAuth();
-  const currentUser = useQuery(api.users.getCurrentUser);
   const userRole = useQuery(api.auth.getUserRole);
 
   useEffect(() => {
-    if (isSignedIn && currentUser && userRole) {
-      // User is authenticated, redirect based on role
+    // Only require isSignedIn and userRole for redirect
+    // userRole will be null if user record doesn't exist in Convex,
+    // in which case middleware will handle redirect to onboarding
+    if (isSignedIn && userRole) {
+      // User is authenticated and has a role, redirect based on role
       if (userRole.type === "admin") {
         router.push("/admin");
       } else {
         router.push("/dashboard");
       }
     }
-  }, [isSignedIn, currentUser, userRole, router]);
+  }, [isSignedIn, userRole, router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-background p-4">
