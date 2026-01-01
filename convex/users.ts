@@ -219,7 +219,7 @@ export const create = mutation({
 
     const existingUser = await ctx.db
       .query("users")
-      .withIndex("email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
 
     if (existingUser) {
@@ -643,7 +643,7 @@ export const createUserWithAppointment = mutation({
     // Check if user already exists (may have been created by auth system)
     let existingUser = await ctx.db
       .query("users")
-      .withIndex("email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
 
     let userId: Id<"users">;

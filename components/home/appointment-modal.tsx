@@ -397,21 +397,22 @@ export default function AppointmentModal({
         if (signUpResult.status === "complete") {
           await setActiveSignUp({ session: signUpResult.createdSessionId });
         } else if (signUpResult.status === "missing_requirements") {
-          // If email verification is required, we need to handle it
-          // For now, try to sign in instead (user might already exist)
-          const signInResult = await signIn.create({
-            identifier: finalData.email!,
-            password: finalData.password!,
-          });
-
-          if (signInResult.status === "complete") {
-            await setActiveSignIn({ session: signInResult.createdSessionId });
-          } else {
-            throw new Error("Sign in incomplete. Please try again.");
-          }
+          // Email verification is required - prepare verification and inform user
+          await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+          // Throw a specific error that won't trigger the sign-in fallback
+          const verificationError = new Error(
+            "Email verification required. Please check your email for a verification code and verify your account before booking an appointment. You can sign in after verification.",
+          );
+          (verificationError as any).isVerificationRequired = true;
+          throw verificationError;
         }
       } catch (authError: any) {
-        // If signup fails (e.g., user already exists), try to sign in
+        // Don't attempt sign-in if email verification is required
+        if (authError.isVerificationRequired) {
+          throw authError; // Re-throw verification errors
+        }
+
+        // If signup fails for other reasons (e.g., user already exists), try to sign in
         try {
           const signInResult = await signIn.create({
             identifier: finalData.email!,

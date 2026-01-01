@@ -125,9 +125,11 @@ export const getCurrentUser = query({
 
 // Helper function to get user ID from Clerk identity
 // Use this in queries, mutations, and actions
+import type { Id } from "./_generated/dataModel";
+
 export async function getUserIdFromIdentity(
   ctx: QueryCtx | MutationCtx | ActionCtx,
-): Promise<string | null> {
+): Promise<Id<"users"> | null> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity || !identity.email) {
     return null;

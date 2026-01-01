@@ -34,12 +34,6 @@ export default function SignUpPage() {
   const [pendingVerification, setPendingVerification] = useState(false);
   const [code, setCode] = useState("");
 
-  // Redirect if already signed in
-  if (isSignedIn) {
-    router.push("/onboarding");
-    return null;
-  }
-
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoaded || !signUp) return;
@@ -133,6 +127,12 @@ export default function SignUpPage() {
         </div>
       </div>
     );
+  }
+
+  // Redirect if already signed in (check after isLoaded to avoid hydration issues)
+  if (isSignedIn) {
+    router.push("/onboarding");
+    return null;
   }
 
   // Show email verification form if needed
