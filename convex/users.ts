@@ -113,6 +113,11 @@ export const hasCompletedOnboarding = query({
 // Get detailed onboarding status (which steps are missing)
 export const getOnboardingStatus = query({
   args: {},
+  returns: v.object({
+    isComplete: v.boolean(),
+    missingSteps: v.array(v.string()),
+    nextStep: v.number(),
+  }),
   handler: async (ctx) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
@@ -273,6 +278,9 @@ export const createUserProfile = mutation({
       }),
     ),
   },
+  returns: v.object({
+    userId: v.id("users"),
+  }),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity || !identity.email) {
