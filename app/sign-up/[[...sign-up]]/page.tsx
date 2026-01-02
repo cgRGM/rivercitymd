@@ -28,8 +28,6 @@ export default function SignUpPage() {
         path="/sign-up"
         signInUrl="/sign-in"
         forceRedirectUrl="/onboarding"
-        skipOrganizationInvitationScreen={false}
-        afterSignUpUrl="/onboarding"
       />
     </div>
   );
