@@ -30,12 +30,63 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     return redirectToSignIn({ returnBackUrl: req.url });
   }
 
-  // If user is on sign-in page and authenticated, let middleware handle redirect
-  // This prevents the sign-in page from blocking redirects
+  // If user is authenticated and on sign-in page, check onboarding and redirect appropriately
+  // This ensures onboarding checks happen before any redirect
   if (url.pathname.startsWith("/sign-in")) {
-    // Don't redirect here - let the sign-in page component handle it
-    // or let the middleware redirect after checking user status
-    return NextResponse.next();
+    try {
+      const token = await getToken();
+
+      if (!token) {
+        // No token, let them stay on sign-in page
+        return NextResponse.next();
+      }
+
+      // Check if user exists in Convex
+      const userRole = await fetchQuery(
+        api.auth.getUserRole,
+        {},
+        {
+          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+          token: token,
+        },
+      );
+
+      // If user doesn't exist in Convex, redirect to onboarding
+      if (!userRole) {
+        const onboardingUrl = new URL("/onboarding", req.url);
+        return NextResponse.redirect(onboardingUrl);
+      }
+
+      // User exists - check onboarding completion status
+      const onboardingStatus = await fetchQuery(
+        api.users.getOnboardingStatus,
+        {},
+        {
+          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+          token: token,
+        },
+      );
+
+      // If onboarding is not complete, redirect to onboarding
+      if (!onboardingStatus.isComplete) {
+        const onboardingUrl = new URL("/onboarding", req.url);
+        return NextResponse.redirect(onboardingUrl);
+      }
+
+      // Onboarding is complete - redirect based on organization membership
+      const isInOrganization = !!orgId;
+      const role = isInOrganization ? "admin" : userRole.type;
+
+      if (role === "admin") {
+        return NextResponse.redirect(new URL("/admin", req.url));
+      } else {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+    } catch (error) {
+      // If there's an error, let them stay on sign-in page
+      console.error("Error checking user status in sign-in middleware:", error);
+      return NextResponse.next();
+    }
   }
 
   // For users visiting /onboarding, don't try to redirect
