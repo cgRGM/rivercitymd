@@ -281,51 +281,65 @@ export const createUserProfile = mutation({
 
     // Check if user exists, create if not
     let userId = await getUserIdFromIdentity(ctx);
-    
+
     if (!userId) {
       // User doesn't exist - create them first
       // Get Clerk user ID from identity
       const clerkUserId = identity.subject;
-      
-      // Create Stripe customer for new users
-      let stripeCustomerId: string | undefined;
-      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-      if (stripeSecretKey) {
-        try {
-          const Stripe = (await import("stripe")).default;
-          const stripe = new Stripe(stripeSecretKey, {
-            apiVersion: "2025-10-29.clover",
-          });
-          const customer = await stripe.customers.create({
-            email: identity.email,
-            name: args.name,
-            metadata: {
-              clerkUserId: clerkUserId,
-            },
-          });
-          stripeCustomerId = customer.id;
-        } catch (error) {
-          console.error("Failed to create Stripe customer:", error);
-          // Continue with user creation even if Stripe customer creation fails
+
+      // Check if user exists by clerkUserId (in case they were created manually)
+      // This preserves admin roles if an admin was created in Clerk but not in Convex
+      const existingUserByClerkId = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
+        .first();
+
+      if (existingUserByClerkId) {
+        // User exists by clerkUserId - use existing user and preserve their role
+        userId = existingUserByClerkId._id;
+      } else {
+        // User doesn't exist at all - create new user
+        // Default to "client" role for new signups (admins should be created manually in Convex first)
+        // Create Stripe customer for new users
+        let stripeCustomerId: string | undefined;
+        const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+        if (stripeSecretKey) {
+          try {
+            const Stripe = (await import("stripe")).default;
+            const stripe = new Stripe(stripeSecretKey, {
+              apiVersion: "2025-10-29.clover",
+            });
+            const customer = await stripe.customers.create({
+              email: identity.email,
+              name: args.name,
+              metadata: {
+                clerkUserId: clerkUserId,
+              },
+            });
+            stripeCustomerId = customer.id;
+          } catch (error) {
+            console.error("Failed to create Stripe customer:", error);
+            // Continue with user creation even if Stripe customer creation fails
+          }
         }
+
+        // Create new user with default "client" role
+        const userData: any = {
+          email: identity.email,
+          name: args.name,
+          clerkUserId: clerkUserId,
+          role: "client", // Default role for new signups
+          timesServiced: 0,
+          totalSpent: 0,
+          status: "active",
+        };
+
+        if (stripeCustomerId) {
+          userData.stripeCustomerId = stripeCustomerId;
+        }
+
+        userId = await ctx.db.insert("users", userData);
       }
-
-      // Create new user
-      const userData: any = {
-        email: identity.email,
-        name: args.name,
-        clerkUserId: clerkUserId,
-        role: "client",
-        timesServiced: 0,
-        totalSpent: 0,
-        status: "active",
-      };
-
-      if (stripeCustomerId) {
-        userData.stripeCustomerId = stripeCustomerId;
-      }
-
-      userId = await ctx.db.insert("users", userData);
     }
 
     // Update user with onboarding data

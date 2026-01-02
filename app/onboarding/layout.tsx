@@ -10,12 +10,12 @@ export default async function OnboardingLayout({
 }) {
   const { sessionClaims, getToken } = await auth();
 
-  // First check if Convex user exists - if not, allow onboarding to proceed
-  // This prevents infinite redirect loops when Clerk metadata says onboarding is complete
-  // but Convex user record doesn't exist
+  // Check if user exists in Convex and if onboarding is complete
+  // Use Convex as the source of truth (not Clerk metadata) to avoid race conditions
   try {
     const token = await getToken();
     if (token) {
+      // First check if user exists
       const userRole = await fetchQuery(
         api.auth.getUserRole,
         {},
@@ -25,16 +25,30 @@ export default async function OnboardingLayout({
         },
       );
 
-      // If user exists in Convex AND onboarding is complete, redirect to dashboard
-      // If user doesn't exist, allow onboarding to proceed (they need to create the record)
-      if (userRole && sessionClaims?.metadata?.onboardingComplete === true) {
+      // If user doesn't exist, allow onboarding to proceed
+      if (!userRole) {
+        return <>{children}</>;
+      }
+
+      // User exists - check onboarding status using Convex (source of truth)
+      const onboardingStatus = await fetchQuery(
+        api.users.getOnboardingStatus,
+        {},
+        {
+          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+          token: token,
+        },
+      );
+
+      // If onboarding is complete in Convex, redirect to dashboard
+      if (onboardingStatus.isComplete) {
         redirect("/dashboard");
       }
     }
   } catch (error) {
-    // If there's an error checking user role, allow onboarding to proceed
+    // If there's an error checking user role or onboarding status, allow onboarding to proceed
     // This prevents blocking users from completing onboarding due to transient errors
-    console.error("Error checking user role in onboarding layout:", error);
+    console.error("Error checking user status in onboarding layout:", error);
   }
 
   return <>{children}</>;
