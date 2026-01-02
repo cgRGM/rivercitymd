@@ -20,7 +20,7 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   } = await auth();
   const url = new URL(req.url);
 
-  // Allow public routes
+  // Allow public routes (including sign-in and sign-up)
   if (isPublicRoute(req)) {
     return NextResponse.next();
   }
@@ -28,6 +28,14 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   // Redirect unauthenticated users to sign-in
   if (!isAuthenticated) {
     return redirectToSignIn({ returnBackUrl: req.url });
+  }
+
+  // If user is on sign-in page and authenticated, let middleware handle redirect
+  // This prevents the sign-in page from blocking redirects
+  if (url.pathname.startsWith("/sign-in")) {
+    // Don't redirect here - let the sign-in page component handle it
+    // or let the middleware redirect after checking user status
+    return NextResponse.next();
   }
 
   // For users visiting /onboarding, don't try to redirect
