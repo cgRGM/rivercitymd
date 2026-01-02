@@ -38,7 +38,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider publishableKey={clerkPublishableKey}>
+    <ClerkProvider
+      publishableKey={clerkPublishableKey}
+      signUpUrl="/sign-up"
+      signInUrl="/sign-in"
+      afterSignInUrl="/dashboard"
+      afterSignUpUrl="/onboarding"
+    >
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}

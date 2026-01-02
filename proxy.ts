@@ -10,8 +10,14 @@ const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 const isCustomerRoute = createRouteMatcher(["/dashboard(.*)"]);
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {
-  const { userId, isAuthenticated, sessionClaims, redirectToSignIn, getToken } =
-    await auth();
+  const {
+    userId,
+    isAuthenticated,
+    sessionClaims,
+    redirectToSignIn,
+    getToken,
+    orgId,
+  } = await auth();
   const url = new URL(req.url);
 
   // Allow public routes
@@ -82,7 +88,12 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     // 3. This prevents race conditions where metadata is stale but onboarding is actually complete
 
     // User exists and onboarding is complete - proceed with role-based routing
-    const role = userRole.type;
+    // Role is determined by organization membership:
+    // - Users in an organization (orgId exists) → admin
+    // - Users not in an organization → client
+    // Check both Convex role and current organization membership
+    const isInOrganization = !!orgId;
+    const role = isInOrganization ? "admin" : userRole.type;
 
     // ADMIN - Full access to /admin, redirect from /dashboard to /admin
     if (role === "admin") {

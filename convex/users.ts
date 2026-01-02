@@ -307,7 +307,12 @@ export const createUserProfile = mutation({
         userId = existingUserByClerkId._id;
       } else {
         // User doesn't exist at all - create new user
-        // Default to "client" role for new signups (admins should be created manually in Convex first)
+        // Role is determined by Clerk organization membership:
+        // - Users in an organization → admin
+        // - Users not in an organization → client
+        const isInOrganization = !!identity.orgId;
+        const userRole = isInOrganization ? "admin" : "client";
+
         // Create Stripe customer for new users
         let stripeCustomerId: string | undefined;
         const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -331,12 +336,12 @@ export const createUserProfile = mutation({
           }
         }
 
-        // Create new user with default "client" role
+        // Create new user with role based on organization membership
         const userData: any = {
           email: identity.email,
           name: args.name,
           clerkUserId: clerkUserId,
-          role: "client", // Default role for new signups
+          role: userRole,
           timesServiced: 0,
           totalSpent: 0,
           status: "active",
@@ -351,10 +356,15 @@ export const createUserProfile = mutation({
     }
 
     // Update user with onboarding data
+    // Also update role based on current organization membership
+    const isInOrganization = !!identity.orgId;
+    const userRole = isInOrganization ? "admin" : "client";
+
     await ctx.db.patch(userId, {
       name: args.name,
       phone: args.phone,
       address: args.address,
+      role: userRole, // Update role based on organization membership
       timesServiced: 0,
       totalSpent: 0,
       status: "active",

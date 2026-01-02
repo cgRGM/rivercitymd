@@ -19,6 +19,9 @@ const stripe = new Stripe(stripeSecretKey, {
 
 
 // Get the current user's role
+// Role is determined by Clerk organization membership:
+// - Users in an organization → admin
+// - Users not in an organization → client
 export const getUserRole = query({
   args: {},
   returns: v.union(
@@ -47,8 +50,15 @@ export const getUserRole = query({
       return null;
     }
 
+    // Determine role based on Clerk organization membership
+    // If user is in an organization, they're an admin
+    // Otherwise, they're a client
+    // Check both the stored role and current organization membership
+    const isInOrganization = !!identity.orgId;
+    const role = isInOrganization ? "admin" : (user.role || "client");
+
     return {
-      type: (user.role || "client") as "admin" | "client",
+      type: role as "admin" | "client",
       userId: user._id,
       name: user.name || identity.email,
       email: user.email || identity.email,
