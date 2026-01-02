@@ -89,20 +89,15 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     }
   }
 
-  // Redirect unauthenticated users to sign-in
-  // Check this AFTER handling authenticated users on sign-in page
-  if (!isAuthenticated) {
-    // If not authenticated and trying to access a protected route, redirect to sign-in
-    if (!isPublicRoute(req)) {
-      return redirectToSignIn({ returnBackUrl: req.url });
-    }
-    // If not authenticated and on a public route, allow access
+  // Allow public routes (including sign-in and sign-up) for unauthenticated users
+  // This comes AFTER the authenticated sign-in check above
+  if (isPublicRoute(req)) {
     return NextResponse.next();
   }
 
-  // Allow public routes for authenticated users (except sign-in which is handled above)
-  if (isPublicRoute(req)) {
-    return NextResponse.next();
+  // Redirect unauthenticated users trying to access protected routes
+  if (!isAuthenticated) {
+    return redirectToSignIn({ returnBackUrl: req.url });
   }
 
   // For users visiting /onboarding, don't try to redirect
