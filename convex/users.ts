@@ -385,6 +385,124 @@ export const createUserProfile = mutation({
   },
 });
 
+// ===== Clerk Webhook Handlers =====
+// These mutations are called by the Clerk webhook endpoint to sync user data
+
+// Upsert user from Clerk webhook (user.created or user.updated events)
+export const upsertFromClerk = internalMutation({
+  args: {
+    data: v.any(), // Clerk UserJSON type - validated by webhook signature
+  },
+  returns: v.union(v.id("users"), v.null()),
+  handler: async (ctx, args) => {
+    const clerkData = args.data as {
+      id: string;
+      first_name: string | null;
+      last_name: string | null;
+      email_addresses: Array<{ email_address: string }>;
+      image_url: string | null;
+    };
+
+    const clerkUserId = clerkData.id;
+    const email =
+      clerkData.email_addresses?.[0]?.email_address || null;
+    const name = clerkData.first_name || clerkData.last_name
+      ? `${clerkData.first_name || ""} ${clerkData.last_name || ""}`.trim()
+      : email || "User";
+
+    if (!email) {
+      console.warn("Clerk webhook: User has no email, skipping", clerkUserId);
+      return null;
+    }
+
+    // Check if user exists by clerkUserId
+    const existingUserByClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
+      .first();
+
+    // Also check by email in case clerkUserId wasn't set
+    const existingUserByEmail = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+
+    if (existingUserByClerkId || existingUserByEmail) {
+      // User exists - update basic info but preserve onboarding data
+      const userId = existingUserByClerkId?._id || existingUserByEmail!._id;
+      const existingUser = await ctx.db.get(userId);
+
+      // Preserve onboarding data (address, phone, vehicles) and other important fields
+      await ctx.db.patch(userId, {
+        email: email,
+        name: name,
+        clerkUserId: clerkUserId, // Ensure clerkUserId is set
+        image: clerkData.image_url || existingUser?.image || undefined,
+        // Preserve: address, phone, role, vehicles, stripeCustomerId, etc.
+        // Only update if fields are missing
+        ...(existingUser?.role === undefined && { role: "client" }),
+        ...(existingUser?.status === undefined && { status: "active" }),
+      });
+
+      return userId;
+    }
+
+    // New user - create with default values
+    // Don't create Stripe customer here - it will be created during onboarding or first payment
+    // Role will be determined by organization membership when they sign in
+    const userId = await ctx.db.insert("users", {
+      email: email,
+      name: name,
+      clerkUserId: clerkUserId,
+      image: clerkData.image_url || undefined,
+      role: "client", // Default role, will be updated based on org membership
+      timesServiced: 0,
+      totalSpent: 0,
+      status: "active",
+    });
+
+    return userId;
+  },
+});
+
+// Delete user from Clerk webhook (user.deleted event)
+export const deleteFromClerk = internalMutation({
+  args: {
+    clerkUserId: v.string(),
+  },
+  returns: v.union(v.id("users"), v.null()),
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) =>
+        q.eq("clerkUserId", args.clerkUserId),
+      )
+      .first();
+
+    if (!user) {
+      console.warn(
+        `Clerk webhook: Can't delete user, none found for Clerk ID: ${args.clerkUserId}`,
+      );
+      return null;
+    }
+
+    // Delete all vehicles associated with this user
+    const vehicles = await ctx.db
+      .query("vehicles")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+
+    for (const vehicle of vehicles) {
+      await ctx.db.delete(vehicle._id);
+    }
+
+    // Delete the user
+    await ctx.db.delete(user._id);
+
+    return user._id;
+  },
+});
+
 // Update user
 export const update = mutation({
   args: {

@@ -34,7 +34,7 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   // This ensures onboarding checks happen before any redirect
   if (url.pathname.startsWith("/sign-in")) {
     try {
-      const token = await getToken();
+      const token = await getToken({ template: "convex" });
 
       if (!token) {
         // No token, let them stay on sign-in page
@@ -89,17 +89,6 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     }
   }
 
-  // Allow public routes (including sign-in and sign-up) for unauthenticated users
-  // This comes AFTER the authenticated sign-in check above
-  if (isPublicRoute(req)) {
-    return NextResponse.next();
-  }
-
-  // Redirect unauthenticated users trying to access protected routes
-  if (!isAuthenticated) {
-    return redirectToSignIn({ returnBackUrl: req.url });
-  }
-
   // For users visiting /onboarding, don't try to redirect
   if (isAuthenticated && isOnboardingRoute(req)) {
     return NextResponse.next();
@@ -109,7 +98,7 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   // This prevents infinite redirect loops when Clerk metadata says onboarding is complete
   // but Convex user record doesn't exist
   try {
-    const token = await getToken();
+    const token = await getToken({ template: "convex" });
 
     if (!token) {
       const signInUrl = new URL("/sign-in", req.url);
