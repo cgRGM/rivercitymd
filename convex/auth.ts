@@ -14,9 +14,8 @@ if (!stripeSecretKey) {
 }
 
 const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2025-10-29.clover",
+  apiVersion: "2025-12-15.clover",
 });
-
 
 // Get the current user's role
 // Role is determined by Clerk organization membership:
@@ -50,12 +49,9 @@ export const getUserRole = query({
       return null;
     }
 
-    // Determine role based on Clerk organization membership
-    // If user is in an organization, they're an admin
-    // Otherwise, they're a client
-    // Check both the stored role and current organization membership
-    const isInOrganization = !!identity.orgId;
-    const role = isInOrganization ? "admin" : (user.role || "client");
+    // Use stored role as source of truth (no organization check)
+    // Role is manually set in Convex dashboard
+    const role = user.role || "client";
 
     return {
       type: role as "admin" | "client",
@@ -96,12 +92,16 @@ export const getCurrentUser = query({
       return null;
     }
 
+    // Use stored role as source of truth (no organization check)
+    // Role is manually set in Convex dashboard
+    const role = user.role || "client";
+
     return {
       userId: user._id,
       email: user.email || identity.email,
       name: user.name || identity.name || null,
       phone: user.phone || null,
-      role: (user.role || "client") as "admin" | "client",
+      role: role as "admin" | "client",
     };
   },
 });
@@ -119,6 +119,100 @@ export const getUserIdByEmail = internalQuery({
       .first();
 
     return user?._id || null;
+  },
+});
+
+// Check if user is admin based on stored role in Convex
+// Role is determined during onboarding based on Clerk organization membership:
+// - Users in an organization → role set to "admin"
+// - Users not in an organization → role set to "client"
+// The stored role is the primary source of truth since identity.orgId
+// is not available in Convex's getUserIdentity() response
+export async function isAdmin(
+  ctx: QueryCtx | MutationCtx | ActionCtx,
+): Promise<boolean> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity || !identity.email) return false;
+
+  // Try to get user from Convex database
+  if ("db" in ctx) {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
+      .first();
+
+    // Primary source of truth: stored role in Convex
+    if (user?.role === "admin") return true;
+
+    // Fallback: check identity.orgId if available (for future-proofing)
+    if (identity.orgId) return true;
+
+    return false;
+  }
+
+  // For actions, we can't query directly - use identity.orgId as fallback
+  // or return false (actions should use queries/mutations for role checks)
+  return !!identity.orgId;
+}
+
+// Require admin access - throws error if not admin
+// Admin status is determined by stored role in Convex
+export async function requireAdmin(
+  ctx: QueryCtx | MutationCtx | ActionCtx,
+): Promise<void> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity || !identity.email) {
+    throw new Error("Not authenticated");
+  }
+
+  // Try to get user from Convex database
+  if ("db" in ctx) {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
+      .first();
+
+    // Primary source of truth: stored role in Convex
+    if (user?.role === "admin") return;
+
+    // Fallback: check identity.orgId if available
+    if (identity.orgId) return;
+
+    throw new Error("Admin access required");
+  }
+
+  // For actions, check identity.orgId as fallback
+  if (!identity.orgId) {
+    throw new Error("Admin access required");
+  }
+}
+
+// Diagnostic query to inspect identity object (for debugging)
+export const debugIdentity = query({
+  args: {},
+  returns: v.any(),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { error: "No identity" };
+
+    // Get user from Convex to show stored role
+    let storedRole = null;
+    if (identity.email) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
+        .first();
+      storedRole = user?.role || null;
+    }
+
+    // Return sanitized identity info (no sensitive data)
+    return {
+      email: identity.email,
+      hasOrgId: !!identity.orgId,
+      orgId: identity.orgId || null,
+      tokenIdentifier: identity.tokenIdentifier,
+      storedRole,
+    };
   },
 });
 

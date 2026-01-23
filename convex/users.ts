@@ -9,26 +9,23 @@ import {
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 
 // Get count of new customers (created in last 30 days, admin only)
 export const getNewCustomersCount = query({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const users = await ctx.db.query("users").collect();
 
     // Filter for customers (not admins) created in last 30 days
-    const newCustomers = users.filter(
-      (user) => user.role !== "admin" && user._creationTime >= thirtyDaysAgo,
-    );
+    // Admin status is determined by stored role field
+    const newCustomers = users.filter((user) => {
+      return user.role !== "admin" && user._creationTime >= thirtyDaysAgo;
+    });
 
     return newCustomers.length;
   },
@@ -38,11 +35,7 @@ export const getNewCustomersCount = query({
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     return await ctx.db.query("users").collect();
   },
@@ -56,8 +49,8 @@ export const getById = query({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own data, admins can see all
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
@@ -216,11 +209,7 @@ export const create = mutation({
     color: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const authUserId = await getUserIdFromIdentity(ctx);
-    if (!authUserId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     const existingUser = await ctx.db
       .query("users")
@@ -287,13 +276,14 @@ export const createUserProfile = mutation({
       throw new Error("Not authenticated");
     }
 
+    // Get Clerk user ID from identity (needed for user creation and updates)
+    const clerkUserId = identity.subject;
+
     // Check if user exists, create if not
     let userId = await getUserIdFromIdentity(ctx);
 
     if (!userId) {
       // User doesn't exist - create them first
-      // Get Clerk user ID from identity
-      const clerkUserId = identity.subject;
 
       // Check if user exists by clerkUserId (in case they were created manually)
       // This preserves admin roles if an admin was created in Clerk but not in Convex
@@ -307,68 +297,72 @@ export const createUserProfile = mutation({
         userId = existingUserByClerkId._id;
       } else {
         // User doesn't exist at all - create new user
-        // Role is determined by Clerk organization membership:
-        // - Users in an organization → admin
-        // - Users not in an organization → client
-        const isInOrganization = !!identity.orgId;
-        const userRole = isInOrganization ? "admin" : "client";
+        // Default to client role (admin must be set manually in Convex dashboard)
+        const userRole = "client"; // Always default to client for new users
 
-        // Create Stripe customer for new users
-        let stripeCustomerId: string | undefined;
-        const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-        if (stripeSecretKey) {
-          try {
-            const Stripe = (await import("stripe")).default;
-            const stripe = new Stripe(stripeSecretKey, {
-              apiVersion: "2025-10-29.clover",
-            });
-            const customer = await stripe.customers.create({
-              email: identity.email,
-              name: args.name,
-              metadata: {
-                clerkUserId: clerkUserId,
-              },
-            });
-            stripeCustomerId = customer.id;
-          } catch (error) {
-            console.error("Failed to create Stripe customer:", error);
-            // Continue with user creation even if Stripe customer creation fails
-          }
-        }
-
-        // Create new user with role based on organization membership
+        // Create new user with role (Stripe customer will be created on-demand via ensureStripeCustomer)
         const userData: any = {
           email: identity.email,
           name: args.name,
           clerkUserId: clerkUserId,
-          role: userRole,
+          role: userRole, // Always "client" for new users
           timesServiced: 0,
           totalSpent: 0,
           status: "active",
+          // stripeCustomerId will be set when ensureStripeCustomer is called
         };
-
-        if (stripeCustomerId) {
-          userData.stripeCustomerId = stripeCustomerId;
-        }
 
         userId = await ctx.db.insert("users", userData);
       }
     }
 
+    // Get existing user to check if onboarding is already complete (idempotent check)
+    const existingUser = await ctx.db.get(userId);
+    const hasExistingAddress = !!existingUser?.address;
+    const existingVehicles = await ctx.db
+      .query("vehicles")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const hasExistingVehicles = existingVehicles.length > 0;
+
+    // If user already has onboarding data (address and vehicles), don't overwrite
+    // This makes the mutation idempotent and prevents data loss
+    if (hasExistingAddress && hasExistingVehicles) {
+      // Onboarding already complete - preserve existing role, don't overwrite
+      // Only update role if it's currently undefined
+      if (existingUser.role === undefined) {
+        // Default to client if no role set
+        await ctx.db.patch(userId, {
+          role: "client",
+        });
+      }
+      // If role is already set (including "admin"), preserve it
+      return { userId };
+    }
+
     // Update user with onboarding data
-    // Also update role based on current organization membership
-    const isInOrganization = !!identity.orgId;
-    const userRole = isInOrganization ? "admin" : "client";
+    // IMPORTANT: Preserve existing admin role, only set if undefined
+    const shouldPreserveAdminRole = existingUser?.role === "admin";
+    const userRole = shouldPreserveAdminRole ? "admin" : (existingUser?.role || "client");
 
     await ctx.db.patch(userId, {
       name: args.name,
       phone: args.phone,
       address: args.address,
-      role: userRole, // Update role based on organization membership
+      clerkUserId: clerkUserId, // Ensure clerkUserId is set
+      role: userRole, // Preserve admin, default to client for new users
       timesServiced: 0,
       totalSpent: 0,
       status: "active",
     });
+
+    // Only create vehicles if they don't already exist (idempotent)
+    // Delete existing vehicles first if we're re-running onboarding
+    if (hasExistingVehicles) {
+      for (const vehicle of existingVehicles) {
+        await ctx.db.delete(vehicle._id);
+      }
+    }
 
     // Create vehicles
     for (const vehicle of args.vehicles) {
@@ -378,6 +372,14 @@ export const createUserProfile = mutation({
         make: vehicle.make,
         model: vehicle.model,
         color: vehicle.color,
+      });
+    }
+
+    // Send admin notification email for new customer (after onboarding complete)
+    // Only send if this is a new user (not updating existing)
+    if (!hasExistingAddress || !hasExistingVehicles) {
+      await ctx.scheduler.runAfter(0, internal.emails.sendAdminNewCustomerNotification, {
+        userId,
       });
     }
 
@@ -428,20 +430,20 @@ export const upsertFromClerk = internalMutation({
       .first();
 
     if (existingUserByClerkId || existingUserByEmail) {
-      // User exists - update basic info but preserve onboarding data
+      // User exists - update basic info but preserve ALL existing data
       const userId = existingUserByClerkId?._id || existingUserByEmail!._id;
       const existingUser = await ctx.db.get(userId);
 
-      // Preserve onboarding data (address, phone, vehicles) and other important fields
+      // Update only basic user data from Clerk (name, email, image, clerkUserId)
+      // IMPORTANT: Preserve ALL other fields including role, address, phone, vehicles, etc.
+      // Role is manually managed in Convex dashboard - webhook never touches it
       await ctx.db.patch(userId, {
         email: email,
         name: name,
         clerkUserId: clerkUserId, // Ensure clerkUserId is set
         image: clerkData.image_url || existingUser?.image || undefined,
-        // Preserve: address, phone, role, vehicles, stripeCustomerId, etc.
-        // Only update if fields are missing
-        ...(existingUser?.role === undefined && { role: "client" }),
-        ...(existingUser?.status === undefined && { status: "active" }),
+        // DO NOT update: role, address, phone, vehicles, stripeCustomerId, status, etc.
+        // These are managed separately and should never be overwritten by webhook
       });
 
       return userId;
@@ -449,13 +451,13 @@ export const upsertFromClerk = internalMutation({
 
     // New user - create with default values
     // Don't create Stripe customer here - it will be created during onboarding or first payment
-    // Role will be determined by organization membership when they sign in
+    // Role defaults to "client" - admin role must be set manually in Convex dashboard
     const userId = await ctx.db.insert("users", {
       email: email,
       name: name,
       clerkUserId: clerkUserId,
       image: clerkData.image_url || undefined,
-      role: "client", // Default role, will be updated based on org membership
+      role: "client", // Default role for new users - admin must be set manually in Convex dashboard
       timesServiced: 0,
       totalSpent: 0,
       status: "active",
@@ -526,12 +528,11 @@ export const update = mutation({
     const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
 
-    const currentUser = await ctx.db.get(authUserId);
-    const isAdmin = currentUser?.role === "admin";
+    const isAdminUser = await isAdmin(ctx);
     const isOwnProfile = authUserId === args.userId;
 
     // Users can update their own profile, admins can update any profile
-    if (!isAdmin && !isOwnProfile) {
+    if (!isAdminUser && !isOwnProfile) {
       throw new Error("Access denied");
     }
 
@@ -544,10 +545,10 @@ export const update = mutation({
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.email !== undefined) updateData.email = updates.email;
     if (updates.phone !== undefined) updateData.phone = updates.phone;
-    if (updates.role !== undefined && isAdmin) updateData.role = updates.role;
+    if (updates.role !== undefined && isAdminUser) updateData.role = updates.role;
     if (updates.address !== undefined) updateData.address = updates.address;
     if (updates.notes !== undefined) updateData.notes = updates.notes;
-    if (updates.status !== undefined && isAdmin)
+    if (updates.status !== undefined && isAdminUser)
       updateData.status = updates.status;
 
     await ctx.db.patch(userId, updateData);
@@ -634,8 +635,8 @@ export const removeVehicle = mutation({
     }
 
     if (vehicle.userId !== userId) {
-      const currentUser = await ctx.db.get(userId);
-      if (currentUser?.role !== "admin") {
+      const isAdminUser = await isAdmin(ctx);
+      if (!isAdminUser) {
         throw new Error("Access denied");
       }
     }
@@ -649,11 +650,7 @@ export const removeVehicle = mutation({
 export const deleteUser = mutation({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
-    const authUserId = await getUserIdFromIdentity(ctx);
-    if (!authUserId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     // Delete associated vehicles
     const vehicles = await ctx.db
@@ -701,10 +698,7 @@ export const getByIdWithDetails = query({
   ),
   handler: async (ctx, args) => {
     const authUserId = await getUserIdFromIdentity(ctx);
-    if (!authUserId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     const user = await ctx.db.get(args.userId);
     if (!user) return null;
@@ -758,13 +752,11 @@ export const listWithStats = query({
   args: {},
   handler: async (ctx) => {
     const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     const users = await ctx.db.query("users").collect();
     // Filter out admin users from customer list
+    // Note: This filter uses stored role, but actual admin status comes from Clerk org membership
     const clientUsers = users.filter((user) => user.role !== "admin");
 
     const usersWithStats = await Promise.all(
@@ -1036,6 +1028,7 @@ export const updateStripeCustomerId = mutation({
 });
 
 // Internal action to ensure Stripe customer exists (for use by mutations)
+// Now uses the @convex-dev/stripe component for customer management
 export const ensureStripeCustomer = internalAction({
   args: {
     userId: v.id("users"),
@@ -1052,55 +1045,26 @@ export const ensureStripeCustomer = internalAction({
       return user.stripeCustomerId;
     }
 
-    // Create Stripe customer
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeSecretKey) {
-      // Throw error to maintain function contract and detect configuration issues
-      // In test environments, this error will be caught by test setup error handlers
-      throw new Error(
-        `STRIPE_SECRET_KEY environment variable is not set for user ${args.userId}`,
-      );
-    }
-
-    const customerResponse = await fetch(
-      "https://api.stripe.com/v1/customers",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${stripeSecretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          email: user.email || "",
-          name: user.name || "",
-          phone: user.phone || "",
-          "address[line1]": user.address?.street || "",
-          "address[city]": user.address?.city || "",
-          "address[state]": user.address?.state || "",
-          "address[postal_code]": user.address?.zip || "",
-          "address[country]": "US",
-          "metadata[convexUserId]": args.userId,
-        }),
-      },
-    );
-
-    if (!customerResponse.ok) {
-      const error = await customerResponse.json();
-      throw new Error(
-        `Failed to create Stripe customer: ${JSON.stringify(error)}`,
-      );
-    }
-
-    const stripeCustomer: any = await customerResponse.json();
-    const stripeCustomerId = stripeCustomer.id;
+    // Use Stripe component to get or create customer
+    // Component's userId should be the auth provider's user ID (Clerk subject)
+    // We use clerkUserId if available, otherwise fall back to Convex userId as string
+    const { stripeClient } = await import("./stripeClient");
+    const authUserId = user.clerkUserId || args.userId;
+    const customer = await stripeClient.getOrCreateCustomer(ctx, {
+      userId: authUserId, // Component expects auth provider's user ID (string)
+      email: user.email,
+      name: user.name,
+      // Note: Component doesn't support metadata in getOrCreateCustomer
+      // Customer metadata can be updated separately if needed via Stripe API
+    });
 
     // Update user with Stripe customer ID
     await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
       userId: args.userId,
-      stripeCustomerId,
+      stripeCustomerId: customer.customerId,
     });
 
-    return stripeCustomerId;
+    return customer.customerId;
   },
 });
 

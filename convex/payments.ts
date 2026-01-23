@@ -1,8 +1,9 @@
-import { action, mutation, query } from "./_generated/server";
+import { action, internalAction, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { stripeClient } from "./stripeClient";
 
 // Helper function to get Stripe secret key from environment
 function getStripeSecretKey(): string {
@@ -148,8 +149,8 @@ export const getPaymentMethods = query({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own payment methods, admins can see all
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
@@ -337,22 +338,48 @@ export const createDepositCheckoutSession = action({
     const vehicleCount = appointment.vehicleIds.length;
 
     // Create Stripe checkout session for deposit
-    const sessionData = new URLSearchParams({
-      mode: "payment",
-      customer: stripeCustomerId,
-      success_url: args.successUrl,
-      cancel_url: args.cancelUrl,
-      "metadata[appointmentId]": args.appointmentId,
-      "metadata[invoiceId]": args.invoiceId,
-      "metadata[type]": "deposit",
-    });
-
     if (depositPriceId) {
-      // Use Stripe price ID with quantity (deposit per vehicle)
-      sessionData.append("line_items[0][price]", depositPriceId);
-      sessionData.append("line_items[0][quantity]", vehicleCount.toString());
+      // Use Stripe component when we have a priceId
+      const session = await stripeClient.createCheckoutSession(ctx, {
+        priceId: depositPriceId,
+        customerId: stripeCustomerId,
+        mode: "payment",
+        successUrl: args.successUrl,
+        cancelUrl: args.cancelUrl,
+        quantity: vehicleCount,
+        metadata: {
+          appointmentId: args.appointmentId,
+          invoiceId: args.invoiceId,
+          type: "deposit",
+        },
+        paymentIntentMetadata: {
+          appointmentId: args.appointmentId,
+          invoiceId: args.invoiceId,
+          type: "deposit",
+        },
+      });
+
+      if (!session.url) {
+        throw new Error("Failed to create checkout session URL");
+      }
+
+      return {
+        sessionId: session.sessionId,
+        url: session.url,
+      };
     } else {
-      // Fallback: use amount directly
+      // Fallback: use manual approach for dynamic amounts (price_data)
+      // Component doesn't support price_data, so we use manual API call
+      const sessionData = new URLSearchParams({
+        mode: "payment",
+        customer: stripeCustomerId,
+        success_url: args.successUrl,
+        cancel_url: args.cancelUrl,
+        "metadata[appointmentId]": args.appointmentId,
+        "metadata[invoiceId]": args.invoiceId,
+        "metadata[type]": "deposit",
+      });
+
       // invoice.depositAmount is already the total (deposit per vehicle × vehicle count)
       const depositAmountInCents = Math.round(invoice.depositAmount * 100);
       sessionData.append("line_items[0][price_data][currency]", "usd");
@@ -365,120 +392,23 @@ export const createDepositCheckoutSession = action({
         `Deposit (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
       );
       sessionData.append("line_items[0][quantity]", "1");
+
+      const session = await stripeApiCall("checkout/sessions", {
+        method: "POST",
+        body: sessionData,
+      });
+
+      return {
+        sessionId: session.id,
+        url: session.url,
+      };
     }
-
-    const session = await stripeApiCall("checkout/sessions", {
-      method: "POST",
-      body: sessionData,
-    });
-
-    return {
-      sessionId: session.id,
-      url: session.url,
-    };
   },
 });
 
-// Create checkout session for remaining balance payment
-export const createRemainingBalanceCheckoutSession = action({
-  args: {
-    appointmentId: v.id("appointments"),
-    invoiceId: v.id("invoices"),
-    successUrl: v.string(),
-    cancelUrl: v.string(),
-  },
-  returns: v.object({
-    sessionId: v.string(),
-    url: v.string(),
-  }),
-  handler: async (
-    ctx: any,
-    args: any,
-  ): Promise<{ sessionId: string; url: string }> => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    // Get invoice and appointment details
-    const invoice: any = await ctx.runQuery(api.invoices.getById, {
-      invoiceId: args.invoiceId,
-    });
-    if (!invoice) throw new Error("Invoice not found");
-    if (invoice.userId !== userId) throw new Error("Access denied");
-
-    const appointment: any = await ctx.runQuery(api.appointments.getById, {
-      appointmentId: args.appointmentId,
-    });
-    if (!appointment) throw new Error("Appointment not found");
-    if (appointment.userId !== userId) throw new Error("Access denied");
-
-    // Get user details
-    const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!user) throw new Error("User not found");
-
-    // Ensure Stripe customer exists (create if needed)
-    // This handles cases where user was created but Stripe customer wasn't created yet
-    let stripeCustomerId = user.stripeCustomerId;
-    if (!stripeCustomerId) {
-      // Create Stripe customer on the fly
-      stripeCustomerId = await ctx.runAction(
-        internal.users.ensureStripeCustomer,
-        {
-          userId: user._id,
-        },
-      );
-    }
-
-    if (!invoice.depositPaid) {
-      throw new Error("Deposit must be paid before paying remaining balance");
-    }
-
-    const remainingBalance = Math.max(
-      0,
-      invoice.remainingBalance || invoice.total - (invoice.depositAmount || 0),
-    );
-    if (remainingBalance <= 0) {
-      throw new Error("No remaining balance to pay");
-    }
-
-    // Create Stripe checkout session for remaining balance
-    const sessionData = new URLSearchParams({
-      mode: "payment",
-      customer: stripeCustomerId,
-      success_url: args.successUrl,
-      cancel_url: args.cancelUrl,
-      "metadata[appointmentId]": args.appointmentId,
-      "metadata[invoiceId]": args.invoiceId,
-      "metadata[type]": "remaining_balance",
-    });
-
-    // Use amount directly for remaining balance
-    const remainingBalanceInCents = Math.round(remainingBalance * 100);
-    sessionData.append("line_items[0][price_data][currency]", "usd");
-    sessionData.append(
-      "line_items[0][price_data][unit_amount]",
-      remainingBalanceInCents.toString(),
-    );
-    sessionData.append(
-      "line_items[0][price_data][product_data][name]",
-      `Remaining Balance - Invoice ${invoice.invoiceNumber}`,
-    );
-    sessionData.append(
-      "line_items[0][price_data][product_data][description]",
-      "Payment for remaining balance after deposit",
-    );
-    sessionData.append("line_items[0][quantity]", "1");
-
-    const session = await stripeApiCall("checkout/sessions", {
-      method: "POST",
-      body: sessionData,
-    });
-
-    return {
-      sessionId: session.id,
-      url: session.url,
-    };
-  },
-});
+// Note: Remaining balance payments are now handled via Stripe Invoices
+// Customers can pay via the hosted invoice URL (stripeInvoiceUrl)
+// or the invoice will be automatically charged if they have a card on file
 
 // Create a checkout session for an invoice
 export const createCheckoutSession = action({
@@ -540,6 +470,194 @@ export const createCheckoutSession = action({
   },
 });
 
+// === Internal Helper: Create Stripe Invoice After Deposit ===
+
+// Internal action to create Stripe Invoice with all service line items after deposit is paid
+export const createStripeInvoiceAfterDeposit = internalAction({
+  args: {
+    invoiceId: v.id("invoices"),
+    appointmentId: v.id("appointments"),
+  },
+  returns: v.object({
+    stripeInvoiceId: v.string(),
+    stripeInvoiceUrl: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const stripeSecretKey = getStripeSecretKey();
+
+    // Get invoice and appointment
+    const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
+      invoiceId: args.invoiceId,
+    });
+    const appointment = await ctx.runQuery(
+      internal.appointments.getByIdInternal,
+      {
+        appointmentId: args.appointmentId,
+      },
+    );
+
+    if (!invoice || !appointment) {
+      throw new Error("Invoice or appointment not found");
+    }
+
+    // Get user and ensure Stripe customer exists
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: appointment.userId,
+    });
+    if (!user || !user.stripeCustomerId) {
+      throw new Error("User not found or missing Stripe customer ID");
+    }
+
+    // Get services with Stripe price IDs
+    // Use internal queries to get services and vehicles
+    const services = await Promise.all(
+      appointment.serviceIds.map(async (id) => {
+        // Use internal query or direct db access - since this is an internal action,
+        // we can use ctx.runQuery with internal queries or access db directly
+        // For now, use the public API since we need the full service data
+        return await ctx.runQuery(api.services.getById, { serviceId: id });
+      }),
+    );
+    const validServices = services.filter(
+      (s): s is NonNullable<typeof s> => s !== null && s !== undefined,
+    );
+
+    if (validServices.length === 0) {
+      throw new Error("No services found for appointment");
+    }
+
+    // Get vehicles to determine size
+    const vehicles = await Promise.all(
+      appointment.vehicleIds.map((id) =>
+        ctx.runQuery(internal.vehicles.getByIdInternal, { vehicleId: id }),
+      ),
+    );
+    const validVehicles = vehicles.filter(
+      (v): v is NonNullable<typeof v> => v !== null && v !== undefined,
+    );
+    const vehicleSize: "small" | "medium" | "large" =
+      (validVehicles[0]?.size as "small" | "medium" | "large" | undefined) ||
+      "medium";
+
+    // Check if customer has a default payment method for automatic charging
+    let hasDefaultPaymentMethod = false;
+    try {
+      const customer = await stripeApiCall(
+        `customers/${user.stripeCustomerId}`,
+        { method: "GET" },
+      );
+      hasDefaultPaymentMethod =
+        !!customer.invoice_settings?.default_payment_method;
+    } catch (error) {
+      console.warn("Could not check customer payment method:", error);
+    }
+
+    // Create invoice items for all services
+    for (const service of validServices) {
+      if (!service.stripePriceIds || service.stripePriceIds.length === 0) {
+        throw new Error(`Service ${service.name} has no Stripe price IDs`);
+      }
+
+      // Find the appropriate price ID based on vehicle size
+      // stripePriceIds array: [small, medium, large]
+      let priceIndex = 1; // Default to medium
+      if (vehicleSize === "small") priceIndex = 0;
+      else if (vehicleSize === "large") priceIndex = 2;
+
+      const stripePriceId =
+        service.stripePriceIds[priceIndex] ||
+        service.stripePriceIds[1] ||
+        service.stripePriceIds[0];
+
+      if (!stripePriceId) {
+        throw new Error(
+          `No Stripe price found for service ${service.name} and size ${vehicleSize}`,
+        );
+      }
+
+      // Create invoice item
+      await stripeApiCall("invoiceitems", {
+        method: "POST",
+        body: new URLSearchParams({
+          customer: user.stripeCustomerId,
+          price: stripePriceId,
+          quantity: appointment.vehicleIds.length.toString(),
+        }),
+      });
+    }
+
+    // Add deposit as a credit/adjustment line item (negative amount)
+    // This subtracts the deposit from the invoice total
+    if (invoice.depositAmount && invoice.depositAmount > 0) {
+      const depositAmountInCents = Math.round(invoice.depositAmount * 100);
+      await stripeApiCall("invoiceitems", {
+        method: "POST",
+        body: new URLSearchParams({
+          customer: user.stripeCustomerId,
+          amount: `-${depositAmountInCents}`, // Negative amount = credit
+          currency: "usd",
+          description: `Deposit payment (${invoice.invoiceNumber})`,
+        }),
+      });
+    }
+
+    // Create the invoice
+    const appointmentDate = new Date(appointment.scheduledDate);
+    const dueDate = new Date(appointmentDate);
+    dueDate.setDate(dueDate.getDate() + 30);
+
+    // Use automatic charging if customer has a default payment method
+    // Otherwise, send invoice for manual payment
+    const collectionMethod = hasDefaultPaymentMethod
+      ? "charge_automatically"
+      : "send_invoice";
+
+    const invoiceResponse = await stripeApiCall("invoices", {
+      method: "POST",
+      body: new URLSearchParams({
+        customer: user.stripeCustomerId,
+        collection_method: collectionMethod,
+        days_until_due: "30",
+        auto_advance: "true", // Automatically finalize and attempt payment
+        description: `Mobile detailing service - ${appointment.scheduledDate}`,
+        metadata: JSON.stringify({
+          invoiceId: args.invoiceId,
+          appointmentId: args.appointmentId,
+        }),
+      }),
+    });
+
+    // Finalize the invoice (this will attempt automatic payment if collection_method is charge_automatically)
+    const finalizedInvoice = await stripeApiCall(
+      `invoices/${invoiceResponse.id}/finalize`,
+      {
+        method: "POST",
+      },
+    );
+
+    // Send the invoice (Stripe will email it automatically)
+    const sentInvoice = await stripeApiCall(
+      `invoices/${finalizedInvoice.id}/send`,
+      {
+        method: "POST",
+      },
+    );
+
+    // Update Convex invoice with Stripe data
+    await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
+      invoiceId: args.invoiceId,
+      stripeInvoiceId: sentInvoice.id,
+      stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
+      status: "sent",
+    });
+
+    return {
+      stripeInvoiceId: sentInvoice.id,
+      stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
+    };
+  },
+});
+
 // === Webhook Handler ===
 
 // Handle Stripe webhooks
@@ -592,21 +710,41 @@ export const handleWebhook = action({
       }
 
       case "invoice.paid": {
-        const invoice = event.data.object;
-        console.log(`Invoice paid: ${invoice.id}`);
+        const stripeInvoice = event.data.object;
+        console.log(`Invoice paid: ${stripeInvoice.id}`);
 
         // Find our invoice by Stripe invoice ID
         const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
-          stripeInvoiceId: invoice.id,
+          stripeInvoiceId: stripeInvoice.id,
         });
 
-        if (ourInvoice) {
-          await ctx.runMutation(api.invoices.updateStatus, {
+        if (ourInvoice && ourInvoice.status !== "paid") {
+          // Update invoice status to paid
+          await ctx.runMutation(internal.invoices.updateStatusInternal, {
             invoiceId: ourInvoice._id,
             status: "paid",
             paidDate: new Date().toISOString().split("T")[0],
           });
-          // User stats are automatically updated in appointment creation
+
+          // Update user stats when invoice is fully paid
+          const appointment = await ctx.runQuery(
+            internal.appointments.getByIdInternal,
+            {
+              appointmentId: ourInvoice.appointmentId,
+            },
+          );
+          if (appointment) {
+            const user = await ctx.runQuery(internal.users.getByIdInternal, {
+              userId: appointment.userId,
+            });
+            if (user) {
+              await ctx.runMutation(internal.users.updateStats, {
+                userId: appointment.userId,
+                timesServiced: (user.timesServiced || 0) + 1,
+                totalSpent: (user.totalSpent || 0) + ourInvoice.total,
+              });
+            }
+          }
         }
         break;
       }
@@ -653,99 +791,70 @@ export const handleWebhook = action({
         break;
       }
 
-      // Payment intent events (for checkout sessions or direct payments)
+      // Checkout session completed - handle deposit payments
       case "checkout.session.completed": {
         const session = event.data.object;
         const invoiceIdString = session.metadata?.invoiceId;
-        const paymentType = session.metadata?.type; // "deposit" or undefined (legacy)
-        const paymentIntentId = session.payment_intent as string | undefined;
+        const paymentType = session.metadata?.type; // "deposit" or undefined
 
-        if (invoiceIdString) {
+        if (invoiceIdString && paymentType === "deposit") {
           const invoiceId = invoiceIdString as Id<"invoices">;
-          const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
-            invoiceId,
-          });
+          const invoice = await ctx.runQuery(
+            internal.invoices.getByIdInternal,
+            {
+              invoiceId,
+            },
+          );
 
-          if (invoice) {
-            if (paymentType === "deposit") {
-              // Deposit payment completed via checkout
-              // Store payment intent ID and mark deposit as paid
+          if (invoice && !invoice.depositPaid) {
+            const paymentIntentId = session.payment_intent as
+              | string
+              | undefined;
+
+            // Mark deposit as paid
+            await ctx.runMutation(
+              internal.invoices.updateDepositStatusInternal,
+              {
+                invoiceId,
+                depositPaid: true,
+                depositPaymentIntentId: paymentIntentId,
+                status: "draft", // Will be updated to "sent" after Stripe invoice is created
+              },
+            );
+
+            // Auto-confirm appointment when deposit is paid
+            const appointment = await ctx.runQuery(
+              internal.appointments.getByIdInternal,
+              {
+                appointmentId: invoice.appointmentId,
+              },
+            );
+            if (appointment && appointment.status === "pending") {
               await ctx.runMutation(
-                internal.invoices.updateDepositStatusInternal,
+                internal.appointments.updateStatusInternal,
+                {
+                  appointmentId: invoice.appointmentId,
+                  status: "confirmed",
+                },
+              );
+            }
+
+            // Create Stripe Invoice with all service line items
+            // This will automatically charge if customer has card on file
+            try {
+              await ctx.runAction(
+                internal.payments.createStripeInvoiceAfterDeposit,
                 {
                   invoiceId,
-                  depositPaid: true,
-                  depositPaymentIntentId: paymentIntentId,
-                  status: "draft", // Keep as draft until admin confirms and generates invoice
-                },
-              );
-
-              // Auto-confirm appointment when deposit is paid
-              const appointment = await ctx.runQuery(
-                internal.appointments.getByIdInternal,
-                {
                   appointmentId: invoice.appointmentId,
                 },
               );
-              if (appointment && appointment.status === "pending") {
-                await ctx.runMutation(
-                  internal.appointments.updateStatusInternal,
-                  {
-                    appointmentId: invoice.appointmentId,
-                    status: "confirmed",
-                  },
-                );
-              }
-            } else if (
-              paymentType === "final_payment" ||
-              paymentType === "remaining_balance"
-            ) {
-              // Final payment or remaining balance completed
-              await ctx.runMutation(internal.invoices.updateStatusInternal, {
-                invoiceId,
-                status: "paid",
-                paidDate: new Date().toISOString().split("T")[0],
-              });
-              if (paymentIntentId) {
-                await ctx.runMutation(
-                  internal.invoices.updateFinalPaymentInternal,
-                  {
-                    invoiceId,
-                    finalPaymentIntentId: paymentIntentId,
-                  },
-                );
-              }
-
-              // Update user stats only when payment actually succeeds
-              // Get appointment to find the user
-              const appointment = await ctx.runQuery(
-                internal.appointments.getByIdInternal,
-                {
-                  appointmentId: invoice.appointmentId,
-                },
+            } catch (error) {
+              console.error(
+                "Failed to create Stripe invoice after deposit:",
+                error,
               );
-              if (appointment) {
-                const user = await ctx.runQuery(
-                  internal.users.getByIdInternal,
-                  {
-                    userId: appointment.userId,
-                  },
-                );
-                if (user) {
-                  await ctx.runMutation(internal.users.updateStats, {
-                    userId: appointment.userId,
-                    timesServiced: (user.timesServiced || 0) + 1,
-                    totalSpent: (user.totalSpent || 0) + invoice.total,
-                  });
-                }
-              }
-            } else {
-              // Legacy: treat as full payment
-              await ctx.runMutation(internal.invoices.updateStatusInternal, {
-                invoiceId,
-                status: "paid",
-                paidDate: new Date().toISOString().split("T")[0],
-              });
+              // Don't throw - deposit is paid, invoice creation can be retried
             }
           }
         }
@@ -755,96 +864,65 @@ export const handleWebhook = action({
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object;
         const invoiceIdString = paymentIntent.metadata?.invoiceId;
-        const paymentType = paymentIntent.metadata?.type; // "deposit" or "final_payment"
+        const paymentType = paymentIntent.metadata?.type;
 
-        // Note: checkout.session.completed should handle most cases
-        // This handler is a backup for direct payment intents or if checkout handler missed it
-        if (invoiceIdString) {
-          // Convert string ID from metadata to Convex Id type
+        // Only handle deposit payments here (final payments are handled via invoice.paid)
+        if (invoiceIdString && paymentType === "deposit") {
           const invoiceId = invoiceIdString as Id<"invoices">;
-          const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
-            invoiceId,
-          });
+          const invoice = await ctx.runQuery(
+            internal.invoices.getByIdInternal,
+            {
+              invoiceId,
+            },
+          );
 
-          if (invoice) {
-            if (paymentType === "deposit") {
-              // Deposit payment succeeded
-              // Only update if not already marked as paid (avoid duplicate updates)
-              if (!invoice.depositPaid) {
-                await ctx.runMutation(
-                  internal.invoices.updateDepositStatusInternal,
-                  {
-                    invoiceId,
-                    depositPaid: true,
-                    depositPaymentIntentId: paymentIntent.id,
-                    status: "draft", // Keep as draft until admin confirms
-                  },
-                );
-              } else if (!invoice.depositPaymentIntentId) {
-                // Update payment intent ID if missing
-                await ctx.runMutation(
-                  internal.invoices.updateDepositStatusInternal,
-                  {
-                    invoiceId,
-                    depositPaid: true,
-                    depositPaymentIntentId: paymentIntent.id,
-                  },
-                );
-              }
-            } else if (
-              paymentType === "final_payment" ||
-              paymentType === "remaining_balance"
-            ) {
-              // Final payment succeeded
-              await ctx.runMutation(internal.invoices.updateStatusInternal, {
+          if (invoice && !invoice.depositPaid) {
+            // Deposit payment succeeded via direct payment intent
+            // This is a backup handler in case checkout.session.completed didn't fire
+            await ctx.runMutation(
+              internal.invoices.updateDepositStatusInternal,
+              {
                 invoiceId,
-                status: "paid",
-                paidDate: new Date().toISOString().split("T")[0],
-              });
+                depositPaid: true,
+                depositPaymentIntentId: paymentIntent.id,
+                status: "draft",
+              },
+            );
 
-              // Update final payment intent ID
+            // Auto-confirm appointment
+            const appointment = await ctx.runQuery(
+              internal.appointments.getByIdInternal,
+              {
+                appointmentId: invoice.appointmentId,
+              },
+            );
+            if (appointment && appointment.status === "pending") {
               await ctx.runMutation(
-                internal.invoices.updateFinalPaymentInternal,
+                internal.appointments.updateStatusInternal,
                 {
-                  invoiceId,
-                  finalPaymentIntentId: paymentIntent.id,
+                  appointmentId: invoice.appointmentId,
+                  status: "confirmed",
                 },
               );
+            }
 
-              // Update user stats only when payment actually succeeds
-              // Get appointment to find the user
-              const appointment = await ctx.runQuery(
-                internal.appointments.getByIdInternal,
+            // Create Stripe Invoice after deposit
+            try {
+              await ctx.runAction(
+                internal.payments.createStripeInvoiceAfterDeposit,
                 {
+                  invoiceId,
                   appointmentId: invoice.appointmentId,
                 },
               );
-              if (appointment) {
-                const user = await ctx.runQuery(
-                  internal.users.getByIdInternal,
-                  {
-                    userId: appointment.userId,
-                  },
-                );
-                if (user) {
-                  await ctx.runMutation(internal.users.updateStats, {
-                    userId: appointment.userId,
-                    timesServiced: (user.timesServiced || 0) + 1,
-                    totalSpent: (user.totalSpent || 0) + invoice.total,
-                  });
-                }
-              }
-            } else {
-              // Legacy: treat as full payment
-              await ctx.runMutation(internal.invoices.updateStatusInternal, {
-                invoiceId,
-                status: "paid",
-                paidDate: new Date().toISOString().split("T")[0],
-              });
+            } catch (error) {
+              console.error(
+                "Failed to create Stripe invoice after deposit:",
+                error,
+              );
             }
           }
         }
-        // If metadata is missing, checkout.session.completed should have already handled it
         break;
       }
 

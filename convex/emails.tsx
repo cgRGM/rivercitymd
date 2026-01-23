@@ -37,9 +37,8 @@ import {
   Heading,
   Hr,
 } from "@react-email/components";
-import { components } from "./_generated/api";
+import { components, api, internal } from "./_generated/api";
 import { Resend } from "@convex-dev/resend";
-import { api } from "./_generated/api";
 
 // Initialize Resend component
 // Use test mode for development, production mode when env vars are set
@@ -367,12 +366,12 @@ export const sendAppointmentConfirmationEmail = internalAction({
     appointmentId: v.id("appointments"),
   },
   handler: async (ctx, args) => {
-    const appointment = await ctx.runQuery(api.appointments.getById, {
+    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
       appointmentId: args.appointmentId,
     });
     if (!appointment) return;
 
-    const user = await ctx.runQuery(api.users.getById, {
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: appointment.userId,
     });
     if (!user || !user.email) return;
@@ -414,6 +413,197 @@ export const sendAppointmentConfirmationEmail = internalAction({
 
 // Send Invoice Email
 
+// Send Admin Notification for New Customer (after onboarding complete)
+export const sendAdminNewCustomerNotification = internalAction({
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: args.userId,
+    });
+    if (!user || !user.email) return;
+
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    // Get user's vehicles count (query directly since we're in an internalAction)
+    const vehicles = await ctx.runQuery(internal.vehicles.listByUserInternal, {
+      userId: args.userId,
+    });
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">New Customer Signed Up</h2>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0;">
+          <h3 style="color: #333; margin-top: 0;">Customer Details</h3>
+          <p style="margin: 5px 0;"><strong>Name:</strong> ${user.name || "N/A"}</p>
+          <p style="margin: 5px 0;"><strong>Email:</strong> ${user.email || "N/A"}</p>
+          <p style="margin: 5px 0;"><strong>Phone:</strong> ${user.phone || "N/A"}</p>
+          ${user.address ? `<p style="margin: 5px 0;"><strong>Address:</strong> ${user.address.street}, ${user.address.city}, ${user.address.state} ${user.address.zip}</p>` : ""}
+          <p style="margin: 5px 0;"><strong>Vehicles:</strong> ${vehicles.length} vehicle${vehicles.length !== 1 ? "s" : ""}</p>
+          <p style="margin: 5px 0;"><strong>Signup Date:</strong> ${new Date().toLocaleDateString()}</p>
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.CONVEX_SITE_URL || "https://patient-wombat-877.convex.site"}/admin/customers"
+             style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+            View Customer in Admin Dashboard
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">
+          This is an automated notification from ${business.name}.
+        </p>
+      </div>
+    `;
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <notifications@rivercitymd.com>`,
+      to: "dustin@rivercitymd.com",
+      subject: `New Customer: ${user.name || user.email}`,
+      html,
+    });
+  },
+});
+
+// Send Admin Notification for Review Submitted
+export const sendAdminReviewSubmittedNotification = internalAction({
+  args: {
+    reviewId: v.id("reviews"),
+  },
+  handler: async (ctx, args) => {
+    // Use internal query or direct db access since this is an internalAction
+    const review = await ctx.runQuery(internal.reviews.getByIdInternal, {
+      reviewId: args.reviewId,
+    });
+    if (!review) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: review.userId,
+    });
+    if (!user) return;
+
+    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
+      appointmentId: review.appointmentId,
+    });
+    if (!appointment) return;
+
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    // Get services
+    const services = await Promise.all(
+      appointment.serviceIds.map((id: any) =>
+        ctx.runQuery(api.services.getById, { serviceId: id }),
+      ),
+    );
+    const serviceNames = services
+      .filter((s: any) => s !== null)
+      .map((s: any) => s.name);
+
+    const stars = "⭐".repeat(review.rating);
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">New Review Submitted</h2>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0;">
+          <h3 style="color: #333; margin-top: 0;">Review Details</h3>
+          <p style="margin: 5px 0;"><strong>Customer:</strong> ${user.name || "N/A"} (${user.email || "N/A"})</p>
+          <p style="margin: 5px 0;"><strong>Rating:</strong> ${stars} (${review.rating}/5)</p>
+          ${review.comment ? `<p style="margin: 5px 0;"><strong>Comment:</strong> ${review.comment}</p>` : `<p style="margin: 5px 0;"><strong>Comment:</strong> No comment provided</p>`}
+          <p style="margin: 5px 0;"><strong>Public:</strong> ${review.isPublic ? "Yes" : "No"}</p>
+          <p style="margin: 5px 0;"><strong>Appointment Date:</strong> ${appointment.scheduledDate}</p>
+          <p style="margin: 5px 0;"><strong>Services:</strong> ${serviceNames.join(", ")}</p>
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.CONVEX_SITE_URL || "https://patient-wombat-877.convex.site"}/admin/reviews"
+             style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+            View Review in Admin Dashboard
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">
+          This is an automated notification from ${business.name}.
+        </p>
+      </div>
+    `;
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <notifications@rivercitymd.com>`,
+      to: "dustin@rivercitymd.com",
+      subject: `New Review: ${stars} from ${user.name || user.email}`,
+      html,
+    });
+  },
+});
+
+// Send Customer Review Request Email (after appointment completed)
+export const sendCustomerReviewRequestEmail = internalAction({
+  args: {
+    appointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
+      appointmentId: args.appointmentId,
+    });
+    if (!appointment) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: appointment.userId,
+    });
+    if (!user || !user.email) return;
+
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    // Get services
+    const services = await Promise.all(
+      appointment.serviceIds.map((id: any) =>
+        ctx.runQuery(api.services.getById, { serviceId: id }),
+      ),
+    );
+    const serviceNames = services
+      .filter((s: any) => s !== null)
+      .map((s: any) => s.name);
+
+    const reviewUrl = `${process.env.CONVEX_SITE_URL || "https://patient-wombat-877.convex.site"}/dashboard/reviews`;
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">Thank You for Choosing ${business.name}!</h2>
+        <p style="color: #666; font-size: 16px; line-height: 1.6;">
+          We hope you enjoyed your service on <strong>${appointment.scheduledDate}</strong>!
+        </p>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0;">
+          <h3 style="color: #333; margin-top: 0;">Service Details</h3>
+          <p style="margin: 5px 0;"><strong>Services:</strong> ${serviceNames.join(", ")}</p>
+          <p style="margin: 5px 0;"><strong>Date:</strong> ${appointment.scheduledDate}</p>
+        </div>
+        <p style="color: #666; font-size: 16px; line-height: 1.6;">
+          Your feedback helps us improve our services. We'd love to hear about your experience!
+        </p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${reviewUrl}"
+             style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;">
+            Leave a Review
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">
+          This is an automated email from ${business.name}.
+        </p>
+      </div>
+    `;
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <notifications@rivercitymd.com>`,
+      to: user.email,
+      subject: `How was your service? - ${business.name}`,
+      html,
+    });
+  },
+});
+
 // Send Admin Notification for New Appointment
 export const sendAdminAppointmentNotification = internalAction({
   args: {
@@ -425,12 +615,12 @@ export const sendAdminAppointmentNotification = internalAction({
     ),
   },
   handler: async (ctx, args) => {
-    const appointment = await ctx.runQuery(api.appointments.getById, {
+    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
       appointmentId: args.appointmentId,
     });
     if (!appointment) return;
 
-    const user = await ctx.runQuery(api.users.getById, {
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: appointment.userId,
     });
     if (!user) return;

@@ -74,7 +74,7 @@ Alternatively, create a new user account in your app and verify they appear in C
 When a user signs up with Clerk:
 1. Clerk sends a webhook to your Convex endpoint
 2. `upsertFromClerk` mutation creates a new user record in Convex
-3. User is created with default role "client" (can be updated based on organization membership)
+3. User is created with default role "client" (admin role must be set manually in Convex dashboard)
 4. User can now sign in and will be redirected to onboarding if needed
 
 ### User Updated (`user.updated`)
@@ -82,7 +82,8 @@ When a user updates their profile in Clerk:
 1. Clerk sends a webhook with updated data
 2. `upsertFromClerk` mutation updates the user record
 3. **Important**: Onboarding data (address, phone, vehicles) is preserved
-4. Only basic fields (name, email, image) are updated
+4. **Important**: Role is NEVER updated by webhook (completely preserved)
+5. Only basic fields (name, email, image, clerkUserId) are updated
 
 ### User Deleted (`user.deleted`)
 When a user deletes their account in Clerk:
@@ -91,14 +92,29 @@ When a user deletes their account in Clerk:
    - Deletes all vehicles associated with the user
    - Deletes the user record from Convex
 
+## Role Management
+
+**Important**: The webhook does NOT manage user roles. Roles are manually set in the Convex dashboard.
+
+- **New users**: Created with default role "client"
+- **Existing users**: Role is NEVER updated by webhook (completely preserved)
+- **Admin users**: Admin role must be set manually in Convex dashboard and will never be overwritten
+
+The webhook only syncs:
+- `name` (from Clerk)
+- `email` (from Clerk)  
+- `image` (from Clerk)
+- `clerkUserId` (from Clerk)
+
+All other fields (role, address, phone, vehicles, stripeCustomerId, status, etc.) are preserved and never touched by the webhook.
+
 ## Onboarding Status Preservation
 
 The webhook implementation is designed to preserve onboarding data:
 
 - **New users**: Created with basic info, role defaults to "client"
-- **Existing users**: Only name, email, and image are updated
-- **Onboarding data preserved**: Address, phone, vehicles, and role are not overwritten
-- **Role determination**: Role is determined by organization membership when users sign in
+- **Existing users**: Only name, email, image, and clerkUserId are updated
+- **Onboarding data preserved**: Address, phone, vehicles, role, and all other fields are never overwritten
 
 ## Troubleshooting
 
@@ -129,7 +145,11 @@ This should not happen with the current implementation. The webhook only updates
 - `image` (from Clerk)
 - `clerkUserId` (from Clerk)
 
-All other fields (address, phone, vehicles, role, etc.) are preserved.
+All other fields (address, phone, vehicles, role, stripeCustomerId, status, etc.) are preserved and never touched by the webhook.
+
+### Role Overwritten
+
+This should never happen. The webhook explicitly does NOT update the role field for existing users. If you set a user to "admin" in Convex, the webhook will never change it, even if the user updates their profile in Clerk.
 
 ## Environment Variables Summary
 

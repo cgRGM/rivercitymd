@@ -33,6 +33,46 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   // If user is authenticated and on sign-in page, check onboarding and redirect appropriately
   // This ensures onboarding checks happen before any redirect
   if (url.pathname.startsWith("/sign-in")) {
+    // Fast path: Check session claims first (no API call)
+    if (sessionClaims?.metadata?.onboardingComplete) {
+      // Onboarding is complete according to Clerk - redirect based on organization membership
+      const isInOrganization = !!orgId;
+      if (isInOrganization) {
+        return NextResponse.redirect(new URL("/admin", req.url));
+      } else {
+        // Need to get role from Convex for client users
+        try {
+          const token = await getToken({ template: "convex" });
+          if (token) {
+            const userRole = await fetchQuery(
+              api.auth.getUserRole,
+              {},
+              {
+                url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+                token: token,
+              },
+            );
+            if (userRole) {
+              const role = userRole.type;
+              if (role === "admin") {
+                return NextResponse.redirect(new URL("/admin", req.url));
+              } else {
+                return NextResponse.redirect(new URL("/dashboard", req.url));
+              }
+            }
+          }
+        } catch (error) {
+          console.error(
+            "Error getting user role in sign-in middleware:",
+            error,
+          );
+        }
+        // Fallback to dashboard if we can't determine role
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+    }
+
+    // Fallback: Onboarding not complete or missing - check Convex
     try {
       const token = await getToken({ template: "convex" });
 
@@ -41,47 +81,61 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
         return NextResponse.next();
       }
 
-      // Check if user exists in Convex
-      const userRole = await fetchQuery(
-        api.auth.getUserRole,
-        {},
-        {
-          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
-          token: token,
-        },
-      );
+      // Check if user exists in Convex and has completed onboarding
+    const userRole = await fetchQuery(
+      api.auth.getUserRole,
+      {},
+      {
+        url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+        token: token,
+      },
+    );
 
-      // If user doesn't exist in Convex, redirect to onboarding
-      if (!userRole) {
-        const onboardingUrl = new URL("/onboarding", req.url);
-        return NextResponse.redirect(onboardingUrl);
+    // If user doesn't exist in Convex, redirect to onboarding
+    if (!userRole) {
+      const onboardingUrl = new URL("/onboarding", req.url);
+      return NextResponse.redirect(onboardingUrl);
+    }
+
+    // Check if user has completed onboarding in Convex (has address and vehicles)
+    const hasCompleted = await fetchQuery(
+      api.users.hasCompletedOnboarding,
+      {},
+      {
+        url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+        token: token,
+      },
+    );
+
+    // If onboarding is complete in Convex, handle role-based routing
+    if (hasCompleted) {
+      const role = userRole.type;
+      
+      // Check admin route access
+      if (isAdminRoute(req)) {
+        if (role === "admin") {
+          return NextResponse.next(); // Allow admin access
+        } else {
+          return NextResponse.redirect(new URL("/dashboard", req.url));
+        }
       }
-
-      // User exists - check onboarding completion status
-      const onboardingStatus = await fetchQuery(
-        api.users.getOnboardingStatus,
-        {},
-        {
-          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
-          token: token,
-        },
-      );
-
-      // If onboarding is not complete, redirect to onboarding
-      if (!onboardingStatus.isComplete) {
-        const onboardingUrl = new URL("/onboarding", req.url);
-        return NextResponse.redirect(onboardingUrl);
+      
+      // Check customer route access
+      if (isCustomerRoute(req)) {
+        if (role === "admin") {
+          return NextResponse.redirect(new URL("/admin", req.url));
+        } else {
+          return NextResponse.next(); // Allow client access
+        }
       }
+      
+      // For other routes, allow access
+      return NextResponse.next();
+    }
 
-      // Onboarding is complete - redirect based on organization membership
-      const isInOrganization = !!orgId;
-      const role = isInOrganization ? "admin" : userRole.type;
-
-      if (role === "admin") {
-        return NextResponse.redirect(new URL("/admin", req.url));
-      } else {
-        return NextResponse.redirect(new URL("/dashboard", req.url));
-      }
+      // User exists but onboarding incomplete - redirect to onboarding
+      const onboardingUrl = new URL("/onboarding", req.url);
+      return NextResponse.redirect(onboardingUrl);
     } catch (error) {
       // If there's an error, let them stay on sign-in page
       console.error("Error checking user status in sign-in middleware:", error);
@@ -94,9 +148,61 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     return NextResponse.next();
   }
 
-  // First, check if Convex user exists (required before checking onboarding status)
-  // This prevents infinite redirect loops when Clerk metadata says onboarding is complete
-  // but Convex user record doesn't exist
+  // Fast path: Check session claims first (no API call)
+  // If onboarding is complete according to Clerk, allow access and handle role-based routing
+  if (sessionClaims?.metadata?.onboardingComplete) {
+    // Onboarding is complete - proceed with role-based routing
+    // Role is determined by Convex role field (manually set in dashboard)
+    // Check Convex role for admin access
+    try {
+      const token = await getToken({ template: "convex" });
+      if (token) {
+        const userRole = await fetchQuery(
+          api.auth.getUserRole,
+          {},
+          {
+            url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+            token: token,
+          },
+        );
+        
+        if (userRole) {
+          const role = userRole.type;
+          
+          // ADMIN - Full access to /admin, redirect from /dashboard to /admin
+          if (role === "admin") {
+            if (isCustomerRoute(req)) {
+              return NextResponse.redirect(new URL("/admin", req.url));
+            }
+            if (isAdminRoute(req)) {
+              return NextResponse.next(); // Allow
+            }
+          } else {
+            // CLIENT - Access to /dashboard only, no /admin access
+            if (isAdminRoute(req)) {
+              return NextResponse.redirect(new URL("/dashboard", req.url));
+            }
+            if (isCustomerRoute(req)) {
+              return NextResponse.next(); // Allow
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error checking admin role:", error);
+      // On error, deny admin access but allow dashboard
+      if (isAdminRoute(req)) {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+    }
+
+    // If we have a valid onboarding status but the route doesn't match, allow access
+    // (handles other protected routes that aren't admin/dashboard specific)
+    return NextResponse.next();
+  }
+
+  // Fallback: Onboarding not complete or missing - check Convex
+  // This handles new users who haven't completed onboarding yet
   try {
     const token = await getToken({ template: "convex" });
 
@@ -115,17 +221,16 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     );
 
     // If userRole is null, the user doesn't exist in Convex
-    // Redirect to onboarding to create the user record, regardless of Clerk metadata
+    // Redirect to onboarding to create the user record
     if (!userRole) {
       const onboardingUrl = new URL("/onboarding", req.url);
       return NextResponse.redirect(onboardingUrl);
     }
 
-    // User exists in Convex - now check onboarding completion status
-    // Check both Clerk metadata AND Convex user record to handle race conditions
-    // where Clerk metadata might be stale but Convex record is up-to-date
-    const onboardingStatus = await fetchQuery(
-      api.users.getOnboardingStatus,
+    // Check if user has completed onboarding in Convex (has address and vehicles)
+    // This prevents existing admins from being re-onboarded
+    const hasCompleted = await fetchQuery(
+      api.users.hasCompletedOnboarding,
       {},
       {
         url: process.env.NEXT_PUBLIC_CONVEX_URL!,
@@ -133,50 +238,14 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
       },
     );
 
-    // If onboarding is not complete in Convex, redirect to onboarding
-    // This is the source of truth - if Convex says incomplete, user needs to complete it
-    if (!onboardingStatus.isComplete) {
-      const onboardingUrl = new URL("/onboarding", req.url);
-      return NextResponse.redirect(onboardingUrl);
+    // If onboarding is complete in Convex, allow access (middleware will handle routing)
+    if (hasCompleted) {
+      return NextResponse.next();
     }
 
-    // Onboarding is complete in Convex - allow access
-    // Note: We don't strictly require Clerk metadata to be updated because:
-    // 1. Convex record is the source of truth
-    // 2. Clerk metadata update is eventually consistent
-    // 3. This prevents race conditions where metadata is stale but onboarding is actually complete
-
-    // User exists and onboarding is complete - proceed with role-based routing
-    // Role is determined by organization membership:
-    // - Users in an organization (orgId exists) → admin
-    // - Users not in an organization → client
-    // Check both Convex role and current organization membership
-    const isInOrganization = !!orgId;
-    const role = isInOrganization ? "admin" : userRole.type;
-
-    // ADMIN - Full access to /admin, redirect from /dashboard to /admin
-    if (role === "admin") {
-      if (isCustomerRoute(req)) {
-        return NextResponse.redirect(new URL("/admin", req.url));
-      }
-      if (isAdminRoute(req)) {
-        return NextResponse.next(); // Allow
-      }
-    }
-
-    // CLIENT - Access to /dashboard only, no /admin access
-    if (role === "client") {
-      if (isAdminRoute(req)) {
-        return NextResponse.redirect(new URL("/dashboard", req.url));
-      }
-      if (isCustomerRoute(req)) {
-        return NextResponse.next(); // Allow
-      }
-    }
-
-    // If we have a valid role but the route doesn't match, allow access
-    // (handles other protected routes that aren't admin/dashboard specific)
-    return NextResponse.next();
+    // User exists but onboarding incomplete - redirect to onboarding
+    const onboardingUrl = new URL("/onboarding", req.url);
+    return NextResponse.redirect(onboardingUrl);
   } catch (error) {
     console.error("Error checking user role:", error);
     const signInUrl = new URL("/sign-in", req.url);

@@ -1,6 +1,11 @@
-import { query, mutation } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
+import { internal, api } from "./_generated/api";
 
 // Get all reviews for admin (with customer and appointment details)
 export const listForAdmin = query({
@@ -41,11 +46,7 @@ export const listForAdmin = query({
     }),
   ),
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     const reviews = await ctx.db.query("reviews").collect();
 
@@ -105,8 +106,8 @@ export const getByUser = query({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own reviews, admins can see all
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
@@ -154,6 +155,57 @@ export const getUserReviewsWithDetails = query({
     );
 
     return enrichedReviews.filter((r) => r !== null);
+  },
+});
+
+// Get count of pending reviews (completed appointments without reviews)
+export const getPendingReviewsCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) return 0;
+
+    // Get all completed appointments for this user
+    const completedAppointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("status"), "completed"))
+      .collect();
+
+    // Get existing reviews
+    const existingReviews = await ctx.db
+      .query("reviews")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    const reviewedAppointmentIds = new Set(
+      existingReviews.map((r) => r.appointmentId),
+    );
+
+    // Filter out appointments that already have reviews
+    const pendingAppointments = completedAppointments.filter(
+      (apt) => !reviewedAppointmentIds.has(apt._id),
+    );
+
+    return pendingAppointments.length;
+  },
+});
+
+// Get count of new reviews (last 7 days, admin only)
+export const getNewReviewsCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const reviews = await ctx.db
+      .query("reviews")
+      .filter((q) => q.gte(q.field("_creationTime"), sevenDaysAgo))
+      .collect();
+
+    return reviews.length;
   },
 });
 
@@ -236,6 +288,14 @@ export const requestReview = mutation({
   },
 });
 
+// Internal query to get review by ID (for use by internal actions)
+export const getByIdInternal = internalQuery({
+  args: { reviewId: v.id("reviews") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.reviewId);
+  },
+});
+
 // Submit review (would typically be called by client)
 export const submit = mutation({
   args: {
@@ -248,7 +308,7 @@ export const submit = mutation({
     const appointment = await ctx.db.get(args.appointmentId);
     if (!appointment) throw new Error("Appointment not found");
 
-    return await ctx.db.insert("reviews", {
+    const reviewId = await ctx.db.insert("reviews", {
       userId: appointment.userId,
       appointmentId: args.appointmentId,
       rating: args.rating,
@@ -256,5 +316,12 @@ export const submit = mutation({
       isPublic: args.isPublic,
       reviewDate: new Date().toISOString(),
     });
+
+    // Send admin notification email (schedule action to avoid blocking)
+    await ctx.scheduler.runAfter(0, internal.emails.sendAdminReviewSubmittedNotification, {
+      reviewId,
+    });
+
+    return reviewId;
   },
 });

@@ -6,7 +6,8 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, requireAdmin } from "./auth";
+import { components } from "./_generated/api";
 
 // Get all invoices
 export const list = query({
@@ -315,7 +316,7 @@ export const updateStripeInvoiceData = internalMutation({
   },
 });
 
-// Get invoices with full details (customer name, service name, etc.)
+// Get invoices with full details (customer name, service name, etc.) - Admin only
 export const listWithDetails = query({
   args: {
     status: v.optional(
@@ -328,8 +329,7 @@ export const listWithDetails = query({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     let invoices = await ctx.db.query("invoices").collect();
 
@@ -352,6 +352,71 @@ export const listWithDetails = query({
     );
 
     return enrichedInvoices.sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+  },
+});
+
+// Get count of unpaid invoices with deposit paid (for customer)
+export const getUnpaidInvoicesCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) return 0;
+
+    const invoices = await ctx.db
+      .query("invoices")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    return invoices.filter(
+      (invoice) =>
+        invoice.status !== "paid" &&
+        invoice.depositPaid === true &&
+        invoice.remainingBalance &&
+        invoice.remainingBalance > 0,
+    ).length;
+  },
+});
+
+// Get count of unpaid invoices (admin only)
+export const getUnpaidInvoicesCountAdmin = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const invoices = await ctx.db
+      .query("invoices")
+      .filter((q) => q.neq(q.field("status"), "paid"))
+      .collect();
+
+    return invoices.length;
+  },
+});
+
+// Get Stripe invoices from component (admin only)
+// This provides the source of truth for payment data
+// Note: The component's listInvoices requires stripeCustomerId, so we'd need to
+// query all customers first. For now, use listWithDetails which shows custom invoices.
+// TODO: Enhance this to query Stripe invoices by iterating through customers
+export const getStripeInvoices = query({
+  args: {
+    stripeCustomerId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    // If customer ID provided, get invoices for that customer
+    if (args.stripeCustomerId) {
+      return await ctx.runQuery(
+        components.stripe.public.listInvoices,
+        { stripeCustomerId: args.stripeCustomerId },
+      );
+    }
+
+    // For now, return empty array - admin can use listWithDetails for custom invoices
+    // TODO: Query all customers and aggregate their invoices
+    return [];
   },
 });
 
@@ -393,12 +458,11 @@ export const getUserInvoices = query({
   },
 });
 
-// Get summary statistics for invoices
+// Get summary statistics for invoices (admin only)
 export const getSummaryStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const invoices = await ctx.db.query("invoices").collect();
 

@@ -32,6 +32,7 @@ type Vehicle = {
 export default function OnboardingPage() {
   const router = useRouter();
   const { user, isLoaded: isUserLoaded } = useUser();
+  const userRole = useQuery(api.auth.getUserRole);
   const createUserProfile = useMutation(api.users.createUserProfile);
   const currentUser = useQuery(api.auth.getCurrentUser);
 
@@ -55,11 +56,14 @@ export default function OnboardingPage() {
   const [phone, setPhone] = useState("");
 
   // Auto-populate email from auth system
+  // Use Clerk's useUser hook first (works for new users), fallback to Convex query
   useEffect(() => {
-    if (currentUser?.email) {
+    if (user?.emailAddresses?.[0]?.emailAddress) {
+      setEmail(user.emailAddresses[0].emailAddress);
+    } else if (currentUser?.email) {
       setEmail(currentUser.email);
     }
-  }, [currentUser]);
+  }, [user, currentUser]);
 
   // Step 2: Service Address
   const [street, setStreet] = useState("");
@@ -169,16 +173,33 @@ export default function OnboardingPage() {
       });
 
       // Then, update Clerk's publicMetadata to mark onboarding as complete
-      // This is done asynchronously and doesn't block navigation
-      // The middleware uses Convex user record as the source of truth, not Clerk metadata
-      completeOnboarding().catch((err) => {
-        // Log error but don't block navigation - Convex record is the source of truth
-        console.error("Failed to update Clerk metadata:", err);
-      });
+      // Wait for it to complete so we can reload the user token immediately
+      const result = await completeOnboarding();
+      if (result?.error) {
+        console.error("Failed to update Clerk metadata:", result.error);
+        // Still allow navigation - Convex record is updated
+      }
 
-      // Navigate immediately - middleware will check Convex user record
-      // which was just updated by createUserProfile, so it will be accurate
-      router.push("/dashboard");
+      // Force a token refresh to get the updated onboardingComplete claim immediately
+      // This ensures the middleware sees the updated claim on the next request
+      await user.reload();
+
+      // Check user role from Convex (not organization) and navigate accordingly
+      // Use window.location.href to force full reload so middleware can redirect properly
+      // This ensures proper role-based routing after onboarding
+      // Refetch the role query to get the latest role after profile creation
+      router.refresh();
+      
+      // Small delay to allow query to refetch, then check role
+      setTimeout(() => {
+        // Re-query the role (the query should have updated by now)
+        const currentRole = userRole?.type;
+        if (currentRole === "admin") {
+          window.location.href = "/admin";
+        } else {
+          window.location.href = "/dashboard";
+        }
+      }, 200);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to complete onboarding",

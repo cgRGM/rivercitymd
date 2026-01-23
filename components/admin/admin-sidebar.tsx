@@ -83,6 +83,8 @@ export default function AdminSidebar() {
   const { isSignedIn } = useAuth();
   const pendingAppointmentsCount = useQuery(api.appointments.getPendingCount) ?? 0;
   const newCustomersCount = useQuery(api.users.getNewCustomersCount) ?? 0;
+  const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin) ?? 0;
+  const newReviewsCount = useQuery(api.reviews.getNewReviewsCount) ?? 0;
 
   return (
     <Sidebar>
@@ -119,6 +121,10 @@ export default function AdminSidebar() {
                   count = pendingAppointmentsCount;
                 } else if (item.href === "/admin/customers") {
                   count = newCustomersCount;
+                } else if (item.href === "/admin/payments") {
+                  count = unpaidInvoicesCount;
+                } else if (item.href === "/admin/reviews") {
+                  count = newReviewsCount;
                 }
 
                 return (

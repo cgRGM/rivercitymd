@@ -251,7 +251,7 @@ export default function InvoicesClient() {
   const { isAuthenticated } = useConvexAuth();
   const invoicesQuery = useQuery(api.invoices.getUserInvoices);
   const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
-  const createRemainingBalanceCheckout = useAction(api.payments.createRemainingBalanceCheckoutSession);
+  // Remaining balance payments are now handled via Stripe Invoice hosted page
   const syncPaymentStatus = useAction(api.payments.syncPaymentStatus);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [syncingInvoiceId, setSyncingInvoiceId] = useState<Id<"invoices"> | null>(null);
@@ -567,23 +567,8 @@ export default function InvoicesClient() {
                                 <Button
                                   variant="default"
                                   size="sm"
-                                  onClick={async () => {
-                                    try {
-                                      const { url } = await createRemainingBalanceCheckout({
-                                        appointmentId: invoice.appointmentId,
-                                        invoiceId: invoice._id,
-                                        successUrl: `${window.location.origin}/dashboard/invoices?payment=success`,
-                                        cancelUrl: `${window.location.origin}/dashboard/invoices?payment=cancelled`,
-                                      });
-                                      window.location.href = url;
-                                    } catch (error) {
-                                      toast.error(
-                                        error instanceof Error
-                                          ? error.message
-                                          : "Failed to create payment",
-                                      );
-                                    }
-                                  }}
+                                  disabled
+                                  title="Invoice is being prepared. Please check back soon."
                                 >
                                   Pay Balance
                                 </Button>
@@ -634,6 +619,18 @@ export default function InvoicesClient() {
                               }
                             >
                               Pay Invoice
+                            </Button>
+                          ) : invoice.depositPaid &&
+                            invoice.remainingBalance &&
+                            invoice.remainingBalance > 0 ? (
+                            // Deposit paid but no Stripe invoice URL yet - invoice being prepared
+                            <Button
+                              variant="default"
+                              size="sm"
+                              disabled
+                              title="Invoice is being prepared. Please check back soon."
+                            >
+                              Pay Balance
                             </Button>
                           ) : null}
                         </>

@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, isAdmin } from "./auth";
 
 export const list = query({
   args: {
@@ -11,8 +11,8 @@ export const list = query({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own messages, admins can see all
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
@@ -34,15 +34,15 @@ export const send = mutation({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only send messages to themselves, admins can send to anyone
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
     await ctx.db.insert("chatMessages", {
       userId: args.userId,
       senderId: authUserId,
-      senderType: currentUser?.role === "admin" ? "admin" : "client",
+      senderType: isAdminUser ? "admin" : "client",
       message: args.message,
       messageType: "text",
       isRead: false,

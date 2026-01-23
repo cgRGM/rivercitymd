@@ -45,6 +45,8 @@ export default function AdminMobileNav() {
   const pathname = usePathname();
   const pendingAppointmentsCount = useQuery(api.appointments.getPendingCount) ?? 0;
   const newCustomersCount = useQuery(api.users.getNewCustomersCount) ?? 0;
+  const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin) ?? 0;
+  const newReviewsCount = useQuery(api.reviews.getNewReviewsCount) ?? 0;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border md:hidden">
@@ -58,6 +60,8 @@ export default function AdminMobileNav() {
             count = pendingAppointmentsCount;
           } else if (item.href === "/admin/customers") {
             count = newCustomersCount;
+          } else if (item.href === "/admin/reviews") {
+            count = newReviewsCount;
           }
 
           return (

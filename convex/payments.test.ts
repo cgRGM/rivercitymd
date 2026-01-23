@@ -297,20 +297,9 @@ describe("payments", () => {
       }),
     );
 
-    const asUser = t.withIdentity({ subject: userId });
-    const result = await asUser.action(
-      api.payments.createRemainingBalanceCheckoutSession,
-      {
-        appointmentId,
-        invoiceId,
-        successUrl: "https://example.com/success",
-        cancelUrl: "https://example.com/cancel",
-      },
-    );
-
-    expect(result.sessionId).toBe("cs_remaining_123");
-    expect(result.url).toBe("https://checkout.stripe.com/remaining");
-
+    // Note: createRemainingBalanceCheckoutSession was removed
+    // Remaining balance payments are now handled via Stripe Invoice hosted pages
+    // This test is no longer applicable - customers pay via stripeInvoiceUrl
     vi.unstubAllGlobals();
   });
 

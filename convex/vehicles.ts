@@ -1,6 +1,11 @@
-import { query, mutation } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, isAdmin } from "./auth";
+import type { Doc } from "./_generated/dataModel";
 
 export const list = query({
   args: {},
@@ -18,11 +23,22 @@ export const getByUser = query({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own vehicles, admins can see all
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
+    return await ctx.db
+      .query("vehicles")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+  },
+});
+
+// Internal query to get vehicles by user (for use by internal actions)
+export const listByUserInternal = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
     return await ctx.db
       .query("vehicles")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
@@ -48,8 +64,8 @@ export const create = mutation({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only create vehicles for themselves, admins can create for anyone
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
@@ -89,5 +105,30 @@ export const deleteVehicle = mutation({
     // Optional: Check if the user has permission to delete this vehicle
 
     await ctx.db.delete(args.id);
+  },
+});
+
+// Internal query to get vehicle by ID (for use by internal actions)
+export const getByIdInternal = internalQuery({
+  args: { vehicleId: v.id("vehicles") },
+  returns: v.union(
+    v.object({
+      _id: v.id("vehicles"),
+      _creationTime: v.number(),
+      userId: v.id("users"),
+      year: v.number(),
+      make: v.string(),
+      model: v.string(),
+      size: v.optional(
+        v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+      ),
+      color: v.optional(v.string()),
+      licensePlate: v.optional(v.string()),
+      notes: v.optional(v.string()),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.vehicleId);
   },
 });

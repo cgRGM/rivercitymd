@@ -7,7 +7,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -16,15 +16,29 @@ export const getPendingCount = query({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (currentUser?.role !== "admin") throw new Error("Admin access required");
+    await requireAdmin(ctx);
 
     const appointments = await ctx.db
       .query("appointments")
       .filter((q) => q.eq(q.field("status"), "pending"))
+      .collect();
+
+    return appointments.length;
+  },
+});
+
+// Get count of confirmed appointments for current user
+export const getConfirmedAppointmentsCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) return 0;
+
+    const appointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("status"), "confirmed"))
       .collect();
 
     return appointments.length;
@@ -95,8 +109,8 @@ export const getByUser = query({
     if (!authUserId) throw new Error("Not authenticated");
 
     // Users can only see their own appointments, admins can see all
-    const currentUser = await ctx.db.get(authUserId);
-    if (currentUser?.role !== "admin" && authUserId !== args.userId) {
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
 
@@ -478,6 +492,11 @@ export const updateStatus = mutation({
 
     // When confirming an appointment with paid deposit, generate and send invoice
     if (args.status === "confirmed" && oldStatus !== "confirmed") {
+      // Send appointment confirmation email to customer
+      await ctx.scheduler.runAfter(0, internal.emails.sendAppointmentConfirmationEmail, {
+        appointmentId: args.appointmentId,
+      });
+
       // Get invoice for this appointment
       const invoice = await ctx.db
         .query("invoices")
@@ -526,6 +545,11 @@ export const updateStatus = mutation({
           },
         );
       }
+
+      // Send review request email to customer
+      await ctx.scheduler.runAfter(0, internal.emails.sendCustomerReviewRequestEmail, {
+        appointmentId: args.appointmentId,
+      });
     }
 
     return args.appointmentId;
@@ -570,6 +594,11 @@ export const updateStatusInternal = internalMutation({
 
     // When confirming an appointment with paid deposit, generate and send invoice
     if (args.status === "confirmed" && oldStatus !== "confirmed") {
+      // Send appointment confirmation email to customer
+      await ctx.scheduler.runAfter(0, internal.emails.sendAppointmentConfirmationEmail, {
+        appointmentId: args.appointmentId,
+      });
+
       // Get invoice for this appointment
       const invoice = await ctx.db
         .query("invoices")
@@ -589,6 +618,14 @@ export const updateStatusInternal = internalMutation({
           },
         );
       }
+    }
+
+    // When appointment is completed, send review request email
+    if (args.status === "completed" && oldStatus !== "completed") {
+      // Send review request email to customer
+      await ctx.scheduler.runAfter(0, internal.emails.sendCustomerReviewRequestEmail, {
+        appointmentId: args.appointmentId,
+      });
     }
 
     return args.appointmentId;
@@ -1085,10 +1122,13 @@ export const chargeDeposit = internalAction({
     if (!invoice || !appointment) return;
     if (!invoice.depositAmount || invoice.depositPaid) return;
 
-    // Get user
-    const user: Doc<"users"> | null = await ctx.runQuery(api.users.getById, {
-      userId: appointment.userId,
-    });
+    // Get user (use internal query since this is an internalAction)
+    const user: Doc<"users"> | null = await ctx.runQuery(
+      internal.users.getByIdInternal,
+      {
+        userId: appointment.userId,
+      },
+    );
     if (!user || !user.stripeCustomerId) {
       console.error("User not found or missing Stripe customer ID");
       return;
@@ -1207,40 +1247,21 @@ export const chargeFinalPayment = internalAction({
       return;
     }
 
-    // Get user
-    const user: Doc<"users"> | null = await ctx.runQuery(api.users.getById, {
-      userId: appointment.userId,
-    });
-    if (!user || !user.stripeCustomerId) {
-      console.error("User not found or missing Stripe customer ID");
-      return;
-    }
-
-    // Create Payment Intent for final payment
-    try {
-      const paymentIntent: any = await ctx.runAction(
-        api.payments.createPaymentIntent,
-        {
-          amount: invoice.remainingBalance,
-          currency: "usd",
-          customerId: user.stripeCustomerId,
-          invoiceId: args.invoiceId,
-          paymentType: "final_payment",
-        },
+    // Final payment is handled via Stripe Invoice (created after deposit)
+    // No need to create Payment Intent - customer can pay via stripeInvoiceUrl
+    // or Stripe will automatically charge if customer has card on file
+    if (invoice.stripeInvoiceUrl) {
+      console.log(
+        `Invoice ${invoice.invoiceNumber} ready for payment via Stripe Invoice: ${invoice.stripeInvoiceUrl}`,
       );
-
-      // Update invoice with final payment intent ID
-      await ctx.runMutation(api.invoices.updateFinalPayment, {
-        invoiceId: args.invoiceId,
-        finalPaymentIntentId: paymentIntent.id,
-      });
-
-      // Note: User stats (timesServiced, totalSpent) should only be updated
-      // when payment actually succeeds, not when payment intent is created.
-      // This is handled in the payment_intent.succeeded webhook handler.
-    } catch (error) {
-      console.error("Failed to create final payment intent:", error);
-      // Don't throw - allow appointment to be completed even if payment fails
+      // Stripe handles payment automatically or customer pays via hosted invoice page
+      // Payment status will be updated via invoice.paid webhook
+    } else {
+      console.warn(
+        `Invoice ${invoice.invoiceNumber} missing stripeInvoiceUrl - invoice may not be created yet`,
+      );
+      // Invoice should have been created after deposit was paid
+      // This is a fallback case - could retry invoice creation here if needed
     }
   },
 });
