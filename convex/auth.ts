@@ -13,9 +13,9 @@ if (!stripeSecretKey) {
   );
 }
 
-const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2025-10-29.clover",
-});
+// Initialize Stripe without explicit API version to use default
+// This avoids version conflicts between local Stripe package and Convex component
+const stripe = new Stripe(stripeSecretKey);
 
 // Get the current user's role
 // Role is determined by Clerk organization membership:
