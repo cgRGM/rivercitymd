@@ -141,10 +141,21 @@ The app uses Convex Auth with role-based access control:
 
 #### Environment Variables
 
+**Convex Environment Variables:**
+
 Add these to your Convex environment:
 
 - `CONVEX_SITE_URL`: Your Convex deployment URL (e.g., `https://your-project.convex.cloud`)
 - `STRIPE_SECRET_KEY`: Your Stripe secret key for payment processing
+
+**Next.js Environment Variables:**
+
+Add these to your `.env.local` file:
+
+- `NEXT_PUBLIC_SITE_URL`: Your production site URL for SEO metadata (Open Graph, structured data, sitemap)
+  - Current (Vercel): `https://your-app.vercel.app`
+  - Production: `https://rivercitymd.com`
+  - Used for: Social media previews, structured data, canonical URLs
 
 #### Convex Auth Configuration
 
