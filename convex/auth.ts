@@ -14,7 +14,7 @@ if (!stripeSecretKey) {
 }
 
 const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2025-12-15.clover",
+  apiVersion: "2025-10-29.clover",
 });
 
 // Get the current user's role
