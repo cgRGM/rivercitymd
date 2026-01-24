@@ -4,6 +4,7 @@ import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
 import { StructuredData } from "@/components/seo/structured-data";
+import { Analytics } from "@vercel/analytics/next";
 
 // Validate Clerk publishable key
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -121,6 +122,7 @@ export default function RootLayout({
           <ConvexClientProvider>
             <Suspense fallback={null}>{children}</Suspense>
           </ConvexClientProvider>
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>
