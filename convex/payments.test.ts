@@ -76,7 +76,7 @@ describe("payments", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
     const { appointmentId, invoiceId } = await asAdmin.mutation(
       api.appointments.create,
       {
@@ -142,7 +142,7 @@ describe("payments", () => {
       }),
     );
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
     const result = await asUser.action(
       api.payments.createDepositCheckoutSession,
       {
@@ -238,7 +238,7 @@ describe("payments", () => {
     // Note: In a real test, we'd need to mock the internal action differently
     // For now, we'll test that the function handles missing customer ID
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
     // This should call ensureStripeCustomer internally
     // Since we can't easily mock internal actions in convex-test,
     // we'll test the error case when customer creation fails
@@ -489,7 +489,7 @@ describe("payments", () => {
       }),
     );
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
     const paymentMethods = await asUser.query(api.payments.getPaymentMethods, {
       userId,
     });
@@ -538,7 +538,7 @@ describe("payments", () => {
       }),
     );
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
     const result = await asUser.action(api.payments.createPaymentIntent, {
       amount: 50,
       currency: "usd",

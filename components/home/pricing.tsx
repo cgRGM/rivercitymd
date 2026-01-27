@@ -53,7 +53,7 @@ export function PricingSection() {
                 key={i}
                 className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
               >
-                <Card>
+                <Card className="h-full">
                   <CardHeader className="text-center pb-4">
                   <Skeleton className="h-8 w-8 mx-auto mb-2" />
                   <Skeleton className="h-6 w-32 mx-auto mb-2" />

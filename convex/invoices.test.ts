@@ -57,7 +57,7 @@ describe("invoices", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
     const { appointmentId, invoiceId } = await asAdmin.mutation(
       api.appointments.create,
       {
@@ -100,7 +100,7 @@ describe("invoices", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
     const invoiceId = await asUser.mutation(api.invoices.create, {
       appointmentId,
       userId,
@@ -158,7 +158,7 @@ describe("invoices", () => {
   test("list invoices with status filter", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     // Create multiple invoices with different statuses
     const appointmentId1 = await t.run(async (ctx: any) => {
@@ -253,7 +253,7 @@ describe("invoices", () => {
   test("get invoice by ID", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
@@ -330,7 +330,7 @@ describe("invoices", () => {
   test("update invoice status", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
@@ -394,7 +394,7 @@ describe("invoices", () => {
   test("update deposit status", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
@@ -449,7 +449,7 @@ describe("invoices", () => {
   test("update final payment status", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
@@ -512,7 +512,7 @@ describe("invoices", () => {
   test("delete invoice", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {
@@ -561,7 +561,7 @@ describe("invoices", () => {
   test("cannot delete paid invoice", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     const appointmentId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("appointments", {

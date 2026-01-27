@@ -78,7 +78,7 @@ describe("appointments", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@example.com" });
 
     const { appointmentId, invoiceId } = await asAdmin.mutation(api.appointments.create, {
       userId,
@@ -186,7 +186,7 @@ describe("appointments", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
 
     // Create multiple appointments
     await asAdmin.mutation(api.appointments.create, {
@@ -292,7 +292,7 @@ describe("appointments", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
 
     const { appointmentId } = await asAdmin.mutation(api.appointments.create, {
       userId,

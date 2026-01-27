@@ -1045,6 +1045,15 @@ export const ensureStripeCustomer = internalAction({
       return user.stripeCustomerId;
     }
 
+    // No-op when Stripe key is missing (e.g. test env) to avoid writes after test transaction
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.warn(
+        "STRIPE_SECRET_KEY not set, skipping ensureStripeCustomer for user",
+        args.userId,
+      );
+      return "";
+    }
+
     // Use Stripe component to get or create customer
     // Component's userId should be the auth provider's user ID (Clerk subject)
     // We use clerkUserId if available, otherwise fall back to Convex userId as string

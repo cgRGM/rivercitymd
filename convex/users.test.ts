@@ -18,7 +18,7 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "newuser@example.com" });
 
     // Update profile during onboarding
     await asUser.mutation(api.users.updateUserProfile, {
@@ -57,7 +57,7 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
 
     // Get current user
     const currentUser = await asUser.query(api.users.getCurrentUser, {});
@@ -84,7 +84,7 @@ describe("users", () => {
       });
     });
 
-    const asIncompleteUser = t.withIdentity({ subject: incompleteUserId });
+    const asIncompleteUser = t.withIdentity({ subject: incompleteUserId, email: "incomplete@example.com" });
 
     const incompleteStatus = await asIncompleteUser.query(
       api.users.getOnboardingStatus,
@@ -126,7 +126,7 @@ describe("users", () => {
       return userId;
     });
 
-    const asCompleteUser = t.withIdentity({ subject: completeUserId });
+    const asCompleteUser = t.withIdentity({ subject: completeUserId, email: "complete@example.com" });
 
     const completeStatus = await asCompleteUser.query(
       api.users.getOnboardingStatus,
@@ -152,7 +152,7 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "current@example.com" });
 
     // Get current user
     const currentUser = await asUser.query(api.users.getCurrentUser, {});
@@ -183,7 +183,7 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId });
+    const asUser = t.withIdentity({ subject: userId, email: "vehicle@example.com" });
 
     // Add a vehicle
     const vehicleId = await asUser.mutation(api.users.addVehicle, {
@@ -232,7 +232,7 @@ describe("users", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@example.com" });
 
     // Create a client user
     const clientId = await asAdmin.mutation(api.users.create, {

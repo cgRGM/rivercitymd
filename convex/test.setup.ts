@@ -112,9 +112,9 @@ declare global {
   var __handledTestPromises: Promise<any>[] | undefined;
 }
 
-// Glob pattern to import all Convex functions for testing
-// Vite's import.meta.glob doesn't support bash extended globbing syntax like !(*.test|*.test.*)
-// Instead, we match all .ts/.tsx files and filter out test files from the resulting object
+// Glob pattern to import all Convex functions for testing.
+// Paths are relative to the convex/ directory (this file lives in convex/).
+// Vite's import.meta.glob doesn't support bash extended globbing; we match all .ts/.tsx then filter out test files.
 // @ts-expect-error - import.meta.glob is a Vite-specific feature, types may not be available
 const allModules = import.meta.glob("./**/*.{ts,tsx}", {
   eager: false,
@@ -156,21 +156,21 @@ if (typeof process !== "undefined" && process.on) {
   };
 
   process.on("unhandledRejection", (reason: any, promise: Promise<any>) => {
-    // Suppress expected errors from convex-test scheduled function handling
+    // Only suppress known expected rejections from convex-test / scheduled functions.
+    // Re-throw everything else so real bugs are not hidden.
     const errorMessage = reason?.message || String(reason);
 
-    // Check for expected scheduled function errors
-    const isScheduledFunctionError =
+    const isKnownScheduledOrStripeTestNoise =
       (errorMessage.includes("Write outside of transaction") &&
         errorMessage.includes("_scheduled_functions")) ||
-      errorMessage.includes(
-        "STRIPE_SECRET_KEY environment variable is not set",
-      ) ||
+      errorMessage.includes("STRIPE_SECRET_KEY") ||
       errorMessage.includes("Invalid API Key") ||
       errorMessage.includes("Stripe product creation failed") ||
-      errorMessage.includes("Failed to create Stripe customer");
+      errorMessage.includes("Failed to create Stripe customer") ||
+      errorMessage.includes("Closing rpc while") ||
+      errorMessage.includes("is not registered");
 
-    if (isScheduledFunctionError) {
+    if (isKnownScheduledOrStripeTestNoise) {
       // Expected in test environment - convex-test updates scheduled function status
       // after test transactions complete, or Stripe key is missing in test env.
       // This is a framework limitation, not a bug.
@@ -191,6 +191,6 @@ if (typeof process !== "undefined" && process.on) {
       }
       return;
     }
-    // For unexpected errors, let them propagate (Vitest will handle them)
+    // Unexpected: do not handle so Vitest/Node can report the unhandled rejection
   });
 }

@@ -17,7 +17,7 @@ describe("services", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
 
     // Create service category
     const categoryId = await asAdmin.mutation(api.services.createCategory, {
@@ -63,7 +63,7 @@ describe("services", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
 
     // Create service category
     const categoryId = await asAdmin.mutation(api.services.createCategory, {
@@ -120,7 +120,7 @@ describe("services", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
 
     // Create service category
     const categoryId = await asAdmin.mutation(api.services.createCategory, {
@@ -178,7 +178,7 @@ describe("services", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
 
     // Create service category
     const categoryId = await asAdmin.mutation(api.services.createCategory, {
@@ -224,7 +224,7 @@ describe("services", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId });
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
 
     // Create user and vehicle
     const userId = await t.run(async (ctx) => {

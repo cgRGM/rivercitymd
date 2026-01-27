@@ -866,19 +866,19 @@ export const handleWebhook = action({
         const invoiceIdString = paymentIntent.metadata?.invoiceId;
         const paymentType = paymentIntent.metadata?.type;
 
-        // Only handle deposit payments here (final payments are handled via invoice.paid)
-        if (invoiceIdString && paymentType === "deposit") {
-          const invoiceId = invoiceIdString as Id<"invoices">;
-          const invoice = await ctx.runQuery(
-            internal.invoices.getByIdInternal,
-            {
-              invoiceId,
-            },
-          );
+        if (!invoiceIdString) break;
 
-          if (invoice && !invoice.depositPaid) {
-            // Deposit payment succeeded via direct payment intent
-            // This is a backup handler in case checkout.session.completed didn't fire
+        const invoiceId = invoiceIdString as Id<"invoices">;
+        const invoice = await ctx.runQuery(
+          internal.invoices.getByIdInternal,
+          { invoiceId },
+        );
+        if (!invoice) break;
+
+        if (paymentType === "deposit") {
+          // Deposit payment succeeded via direct payment intent
+          // This is a backup handler in case checkout.session.completed didn't fire
+          if (!invoice.depositPaid) {
             await ctx.runMutation(
               internal.invoices.updateDepositStatusInternal,
               {
@@ -920,6 +920,37 @@ export const handleWebhook = action({
                 "Failed to create Stripe invoice after deposit:",
                 error,
               );
+            }
+          }
+        } else if (paymentType === "final_payment" && invoice.status !== "paid") {
+          // Final payment succeeded (e.g. direct payment intent for remaining balance)
+          await ctx.runMutation(
+            internal.invoices.updateFinalPaymentInternal,
+            {
+              invoiceId,
+              finalPaymentIntentId: paymentIntent.id,
+            },
+          );
+          await ctx.runMutation(internal.invoices.updateStatusInternal, {
+            invoiceId,
+            status: "paid",
+            paidDate: new Date().toISOString().split("T")[0],
+          });
+          // Update user stats
+          const appointment = await ctx.runQuery(
+            internal.appointments.getByIdInternal,
+            { appointmentId: invoice.appointmentId },
+          );
+          if (appointment) {
+            const user = await ctx.runQuery(internal.users.getByIdInternal, {
+              userId: appointment.userId,
+            });
+            if (user) {
+              await ctx.runMutation(internal.users.updateStats, {
+                userId: appointment.userId,
+                timesServiced: (user.timesServiced || 0) + 1,
+                totalSpent: (user.totalSpent || 0) + invoice.total,
+              });
             }
           }
         }
