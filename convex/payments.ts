@@ -319,6 +319,9 @@ export const createDepositCheckoutSession = action({
         },
       );
     }
+    if (!stripeCustomerId?.trim()) {
+      throw new Error("User not found or missing Stripe customer ID");
+    }
 
     if (!invoice.depositAmount || invoice.depositAmount <= 0) {
       throw new Error("No deposit amount found for this invoice");

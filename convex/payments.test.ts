@@ -239,20 +239,17 @@ describe("payments", () => {
     // For now, we'll test that the function handles missing customer ID
 
     const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
-    // This should call ensureStripeCustomer internally
-    // Since we can't easily mock internal actions in convex-test,
-    // we'll test the error case when customer creation fails
-    try {
-      await asUser.action(api.payments.createDepositCheckoutSession, {
+    // Without Stripe configured (no key or component), ensureStripeCustomer fails and checkout session creation should throw
+    await expect(
+      asUser.action(api.payments.createDepositCheckoutSession, {
         appointmentId,
         invoiceId,
         successUrl: "https://example.com/success",
         cancelUrl: "https://example.com/cancel",
-      });
-    } catch (error) {
-      // Expected if ensureStripeCustomer fails or isn't mocked properly
-      // In a real scenario, ensureStripeCustomer would be called and succeed
-    }
+      }),
+    ).rejects.toThrow(
+      /STRIPE_SECRET_KEY|Stripe customer|not registered|User not found or missing/,
+    );
 
     vi.unstubAllGlobals();
   });

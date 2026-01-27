@@ -1045,13 +1045,10 @@ export const ensureStripeCustomer = internalAction({
       return user.stripeCustomerId;
     }
 
-    // No-op when Stripe key is missing (e.g. test env) to avoid writes after test transaction
     if (!process.env.STRIPE_SECRET_KEY) {
-      console.warn(
-        "STRIPE_SECRET_KEY not set, skipping ensureStripeCustomer for user",
-        args.userId,
+      throw new Error(
+        "STRIPE_SECRET_KEY environment variable is not set; cannot create Stripe customer",
       );
-      return "";
     }
 
     // Use Stripe component to get or create customer
