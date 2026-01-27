@@ -43,14 +43,15 @@ export function PricingSection() {
             <Skeleton className="h-6 w-80 mx-auto mb-8" />
             <Skeleton className="h-12 w-64 mx-auto" />
           </div>
-          <div
-            className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 -mx-4 px-4 sm:gap-6 sm:max-w-7xl sm:mx-auto sm:px-6 lg:px-8"
-            aria-label="Service pricing cards"
-          >
+          <div className="-mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+            <div
+              className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 sm:gap-6 sm:max-w-7xl sm:mx-auto"
+              aria-label="Service pricing cards"
+            >
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,45vw)] lg:w-[min(320px,24vw)]"
+                className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
               >
                 <Card>
                   <CardHeader className="text-center pb-4">
@@ -70,6 +71,7 @@ export function PricingSection() {
                 </Card>
               </div>
             ))}
+            </div>
           </div>
         </div>
       </section>
@@ -161,10 +163,11 @@ export function PricingSection() {
           </motion.div>
 
           {/* Services */}
-          <div
-            className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 -mx-4 px-4 sm:gap-6 sm:max-w-7xl sm:mx-auto sm:px-6 lg:px-8"
-            aria-label="Service pricing cards"
-          >
+          <div className="-mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+            <div
+              className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 sm:gap-6 sm:max-w-7xl sm:mx-auto"
+              aria-label="Service pricing cards"
+            >
             {mainServices.map((service, index) => {
               const price =
                 selectedSize === "small"
@@ -180,7 +183,7 @@ export function PricingSection() {
                   whileInView={{ opacity: 1, scale: 1 }}
                   viewport={{ once: true, margin: "-50px" }}
                   transition={{ duration: 0.4, delay: index * 0.1 }}
-                  className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,45vw)] lg:w-[min(320px,24vw)]"
+                  className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
                 >
                   <Card className="relative hover:shadow-xl transition-all h-full">
                     <CardHeader className="text-center pb-4">
@@ -225,6 +228,7 @@ export function PricingSection() {
                 </motion.div>
               );
             })}
+            </div>
           </div>
 
           {/* CTA Button */}
