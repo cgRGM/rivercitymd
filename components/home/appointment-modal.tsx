@@ -176,7 +176,7 @@ export default function AppointmentModal({
     api.users.createUserWithAppointment,
   );
   const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
-  const { isSignedIn } = useAuth();
+  useAuth();
   const { signIn, setActive: setActiveSignIn } = useSignIn();
   const { signUp, setActive: setActiveSignUp } = useSignUp();
 
@@ -403,12 +403,14 @@ export default function AppointmentModal({
           const verificationError = new Error(
             "Email verification required. Please check your email for a verification code and verify your account before booking an appointment. You can sign in after verification.",
           );
-          (verificationError as any).isVerificationRequired = true;
+          (verificationError as Error & { isVerificationRequired?: boolean })
+            .isVerificationRequired = true;
           throw verificationError;
         }
-      } catch (authError: any) {
+      } catch (authError: unknown) {
         // Don't attempt sign-in if email verification is required
-        if (authError.isVerificationRequired) {
+        const err = authError as Error & { isVerificationRequired?: boolean };
+        if (err?.isVerificationRequired) {
           throw authError; // Re-throw verification errors
         }
 
@@ -424,11 +426,13 @@ export default function AppointmentModal({
           } else {
             throw new Error("Sign in incomplete. Please try again.");
           }
-        } catch (signInError: any) {
+        } catch (signInError: unknown) {
           // If both fail, we cannot proceed because checkout requires authentication
+          const signInErr = signInError as { errors?: Array<{ message?: string }> };
+          const authErr = authError as { errors?: Array<{ message?: string }> };
           const errorMessage =
-            signInError.errors?.[0]?.message ||
-            authError.errors?.[0]?.message ||
+            signInErr?.errors?.[0]?.message ||
+            authErr?.errors?.[0]?.message ||
             "Authentication failed. Please check your email and password, or try signing up with a different email.";
           throw new Error(errorMessage);
         }

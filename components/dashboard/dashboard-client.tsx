@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -79,7 +80,7 @@ export default function DashboardClient() {
               Please sign in to access your dashboard.
             </p>
             <Button asChild>
-              <a href="/sign-in">Sign In</a>
+              <Link href="/sign-in">Sign In</Link>
             </Button>
           </CardContent>
         </Card>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import Image from "next/image";
 import {
   LayoutDashboard,
@@ -80,7 +80,7 @@ const menuItems = [
 
 export default function AdminSidebar() {
   const pathname = usePathname();
-  const { isSignedIn } = useAuth();
+  useAuth();
   const pendingAppointmentsCount = useQuery(api.appointments.getPendingCount) ?? 0;
   const newCustomersCount = useQuery(api.users.getNewCustomersCount) ?? 0;
   const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin) ?? 0;

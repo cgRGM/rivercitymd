@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { SignOutButton } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
@@ -66,7 +66,7 @@ const menuItems = [
 
 export default function DashboardSidebar() {
   const pathname = usePathname();
-  const { isSignedIn } = useAuth();
+  useAuth();
   const confirmedAppointmentsCount =
     useQuery(api.appointments.getConfirmedAppointmentsCount) ?? 0;
   const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCount) ?? 0;

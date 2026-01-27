@@ -45,7 +45,6 @@ export default function AdminMobileNav() {
   const pathname = usePathname();
   const pendingAppointmentsCount = useQuery(api.appointments.getPendingCount) ?? 0;
   const newCustomersCount = useQuery(api.users.getNewCustomersCount) ?? 0;
-  const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin) ?? 0;
   const newReviewsCount = useQuery(api.reviews.getNewReviewsCount) ?? 0;
 
   return (

@@ -11,7 +11,6 @@ const isCustomerRoute = createRouteMatcher(["/dashboard(.*)"]);
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {
   const {
-    userId,
     isAuthenticated,
     sessionClaims,
     redirectToSignIn,
