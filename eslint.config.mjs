@@ -15,7 +15,6 @@ const eslintConfig = [
       ".next/**",
       "node_modules/**",
       "convex/_generated/**",
-      "convex/**",
       "**/*.test.ts",
       "**/*.test.tsx",
     ],
