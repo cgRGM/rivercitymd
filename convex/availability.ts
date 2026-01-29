@@ -133,6 +133,18 @@ async function checkSlotAvailability(
     return { available: false, reason: "Outside business hours" };
   }
 
+  // Check for time blocks
+  const timeBlocks = await ctx.db
+    .query("timeBlocks")
+    .withIndex("by_date", (q: any) => q.eq("date", date))
+    .collect();
+
+  for (const block of timeBlocks) {
+    if (requestedStart < block.endTime && requestedEnd > block.startTime) {
+      return { available: false, reason: `Blocked: ${block.reason}` };
+    }
+  }
+
   // Check for existing appointments
   const appointments = await ctx.db
     .query("appointments")
@@ -206,7 +218,8 @@ export const getAvailableTimeSlots = query({
     const startMinutes = timeToMinutes(businessHours.startTime);
     const endMinutes = timeToMinutes(businessHours.endTime);
 
-    for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
+    // Only generate start times where start + blockDuration <= business close
+    for (let minutes = startMinutes; minutes + blockDuration <= endMinutes; minutes += 15) {
       const timeString = minutesToTime(minutes);
 
       // Check if this slot is available (using 2-hour block)
