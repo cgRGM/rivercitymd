@@ -911,7 +911,7 @@ export const createStripeInvoice = action({
     invoiceId: v.optional(v.id("invoices")), // Optional: if provided, update existing invoice instead of creating new one
   },
   returns: v.null(),
-  handler: async (ctx, args: CreateStripeInvoiceArgs) => {
+  handler: async (ctx, args) => {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
       throw new Error("STRIPE_SECRET_KEY environment variable is not set");
@@ -1116,7 +1116,7 @@ export const createStripeInvoiceInternal = internalAction({
     invoiceId: v.optional(v.id("invoices")),
   },
   returns: v.null(),
-  handler: async (ctx, args: CreateStripeInvoiceArgs) => {
+  handler: async (ctx, args) => {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
       throw new Error("STRIPE_SECRET_KEY environment variable is not set");
