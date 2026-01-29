@@ -5,7 +5,6 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { getUserIdFromIdentity, isAdmin } from "./auth";
-import type { Doc } from "./_generated/dataModel";
 
 export const list = query({
   args: {},

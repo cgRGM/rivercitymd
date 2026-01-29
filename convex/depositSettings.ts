@@ -1,6 +1,6 @@
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity, requireAdmin } from "./auth";
+import { requireAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 
 // Get deposit settings

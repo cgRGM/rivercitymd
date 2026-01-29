@@ -486,8 +486,8 @@ export const createStripeInvoiceAfterDeposit = internalAction({
     stripeInvoiceUrl: v.string(),
   }),
   handler: async (ctx, args) => {
-    const stripeSecretKey = getStripeSecretKey();
-
+    // Validate Stripe configuration early; throws if missing
+    getStripeSecretKey();
     // Get invoice and appointment
     const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
       invoiceId: args.invoiceId,
@@ -507,18 +507,27 @@ export const createStripeInvoiceAfterDeposit = internalAction({
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: appointment.userId,
     });
-    if (!user || !user.stripeCustomerId) {
-      throw new Error("User not found or missing Stripe customer ID");
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    let stripeCustomerId = user.stripeCustomerId;
+    if (!stripeCustomerId) {
+      stripeCustomerId = await ctx.runAction(
+        internal.users.ensureStripeCustomer,
+        {
+          userId: appointment.userId,
+        },
+      );
     }
 
     // Get services with Stripe price IDs
     // Use internal queries to get services and vehicles
     const services = await Promise.all(
       appointment.serviceIds.map(async (id) => {
-        // Use internal query or direct db access - since this is an internal action,
-        // we can use ctx.runQuery with internal queries or access db directly
-        // For now, use the public API since we need the full service data
-        return await ctx.runQuery(api.services.getById, { serviceId: id });
+        return await ctx.runQuery(internal.services.getServiceById, {
+          serviceId: id,
+        });
       }),
     );
     const validServices = services.filter(
@@ -543,16 +552,21 @@ export const createStripeInvoiceAfterDeposit = internalAction({
       "medium";
 
     // Check if customer has a default payment method for automatic charging
+    // Skip in test mode to avoid unnecessary Stripe API calls
     let hasDefaultPaymentMethod = false;
-    try {
-      const customer = await stripeApiCall(
-        `customers/${user.stripeCustomerId}`,
-        { method: "GET" },
-      );
-      hasDefaultPaymentMethod =
-        !!customer.invoice_settings?.default_payment_method;
-    } catch (error) {
-      console.warn("Could not check customer payment method:", error);
+    if (
+      process.env.CONVEX_TEST !== "true" &&
+      process.env.NODE_ENV !== "test"
+    ) {
+      try {
+        const customer = await stripeApiCall(`customers/${stripeCustomerId}`, {
+          method: "GET",
+        });
+        hasDefaultPaymentMethod =
+          !!customer.invoice_settings?.default_payment_method;
+      } catch (error) {
+        console.warn("Could not check customer payment method:", error);
+      }
     }
 
     // Create invoice items for all services
@@ -582,7 +596,7 @@ export const createStripeInvoiceAfterDeposit = internalAction({
       await stripeApiCall("invoiceitems", {
         method: "POST",
         body: new URLSearchParams({
-          customer: user.stripeCustomerId,
+          customer: stripeCustomerId,
           price: stripePriceId,
           quantity: appointment.vehicleIds.length.toString(),
         }),
@@ -596,7 +610,7 @@ export const createStripeInvoiceAfterDeposit = internalAction({
       await stripeApiCall("invoiceitems", {
         method: "POST",
         body: new URLSearchParams({
-          customer: user.stripeCustomerId,
+          customer: stripeCustomerId,
           amount: `-${depositAmountInCents}`, // Negative amount = credit
           currency: "usd",
           description: `Deposit payment (${invoice.invoiceNumber})`,
@@ -618,7 +632,7 @@ export const createStripeInvoiceAfterDeposit = internalAction({
     const invoiceResponse = await stripeApiCall("invoices", {
       method: "POST",
       body: new URLSearchParams({
-        customer: user.stripeCustomerId,
+        customer: stripeCustomerId,
         collection_method: collectionMethod,
         days_until_due: "30",
         auto_advance: "true", // Automatically finalize and attempt payment

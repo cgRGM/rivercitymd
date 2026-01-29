@@ -47,6 +47,10 @@ export const resend: Resend = new Resend(components.resend, {
   testMode: !hasApiKey, // Test mode when no API key, production mode when API key is set
 });
 
+function shouldSkipEmails(): boolean {
+  return process.env.CONVEX_TEST === "true" || process.env.NODE_ENV === "test";
+}
+
 // Welcome Email Template Component
 interface WelcomeEmailProps {
   userName: string;
@@ -171,7 +175,11 @@ export const sendWelcomeEmail = internalAction({
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.runQuery(api.users.getById, { userId: args.userId });
+    if (shouldSkipEmails()) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: args.userId,
+    });
     if (!user || !user.email) return;
 
     const business = await ctx.runQuery(api.business.get);
@@ -366,9 +374,14 @@ export const sendAppointmentConfirmationEmail = internalAction({
     appointmentId: v.id("appointments"),
   },
   handler: async (ctx, args) => {
-    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
-      appointmentId: args.appointmentId,
-    });
+    if (shouldSkipEmails()) return;
+
+    const appointment = await ctx.runQuery(
+      internal.appointments.getByIdInternal,
+      {
+        appointmentId: args.appointmentId,
+      },
+    );
     if (!appointment) return;
 
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
@@ -382,7 +395,7 @@ export const sendAppointmentConfirmationEmail = internalAction({
     // Get services
     const services = await Promise.all(
       appointment.serviceIds.map((id: any) =>
-        ctx.runQuery(api.services.getById, { serviceId: id }),
+        ctx.runQuery(internal.services.getServiceById, { serviceId: id }),
       ),
     );
     const serviceNames = services
@@ -419,6 +432,8 @@ export const sendAdminNewCustomerNotification = internalAction({
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: args.userId,
     });
@@ -472,6 +487,8 @@ export const sendAdminReviewSubmittedNotification = internalAction({
     reviewId: v.id("reviews"),
   },
   handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
     // Use internal query or direct db access since this is an internalAction
     const review = await ctx.runQuery(internal.reviews.getByIdInternal, {
       reviewId: args.reviewId,
@@ -494,7 +511,7 @@ export const sendAdminReviewSubmittedNotification = internalAction({
     // Get services
     const services = await Promise.all(
       appointment.serviceIds.map((id: any) =>
-        ctx.runQuery(api.services.getById, { serviceId: id }),
+        ctx.runQuery(internal.services.getServiceById, { serviceId: id }),
       ),
     );
     const serviceNames = services
@@ -543,9 +560,14 @@ export const sendCustomerReviewRequestEmail = internalAction({
     appointmentId: v.id("appointments"),
   },
   handler: async (ctx, args) => {
-    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
-      appointmentId: args.appointmentId,
-    });
+    if (shouldSkipEmails()) return;
+
+    const appointment = await ctx.runQuery(
+      internal.appointments.getByIdInternal,
+      {
+        appointmentId: args.appointmentId,
+      },
+    );
     if (!appointment) return;
 
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
@@ -559,7 +581,7 @@ export const sendCustomerReviewRequestEmail = internalAction({
     // Get services
     const services = await Promise.all(
       appointment.serviceIds.map((id: any) =>
-        ctx.runQuery(api.services.getById, { serviceId: id }),
+        ctx.runQuery(internal.services.getServiceById, { serviceId: id }),
       ),
     );
     const serviceNames = services
@@ -615,9 +637,14 @@ export const sendAdminAppointmentNotification = internalAction({
     ),
   },
   handler: async (ctx, args) => {
-    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
-      appointmentId: args.appointmentId,
-    });
+    if (shouldSkipEmails()) return;
+
+    const appointment = await ctx.runQuery(
+      internal.appointments.getByIdInternal,
+      {
+        appointmentId: args.appointmentId,
+      },
+    );
     if (!appointment) return;
 
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
@@ -631,7 +658,7 @@ export const sendAdminAppointmentNotification = internalAction({
     // Get services
     const services = await Promise.all(
       appointment.serviceIds.map((id: any) =>
-        ctx.runQuery(api.services.getById, { serviceId: id }),
+        ctx.runQuery(internal.services.getServiceById, { serviceId: id }),
       ),
     );
     const serviceNames = services

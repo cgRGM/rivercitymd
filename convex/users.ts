@@ -697,7 +697,6 @@ export const getByIdWithDetails = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
-    const authUserId = await getUserIdFromIdentity(ctx);
     await requireAdmin(ctx);
 
     const user = await ctx.db.get(args.userId);
@@ -751,7 +750,6 @@ export const getByIdWithDetails = query({
 export const listWithStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
     await requireAdmin(ctx);
 
     const users = await ctx.db.query("users").collect();
@@ -1043,6 +1041,19 @@ export const ensureStripeCustomer = internalAction({
     // If user already has Stripe customer ID, return it
     if (user.stripeCustomerId) {
       return user.stripeCustomerId;
+    }
+
+    // Avoid Stripe network calls in tests to prevent pending fetch warnings
+    if (
+      process.env.CONVEX_TEST === "true" ||
+      process.env.NODE_ENV === "test"
+    ) {
+      const mockCustomerId = `cus_test_${args.userId}`;
+      await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
+        userId: args.userId,
+        stripeCustomerId: mockCustomerId,
+      });
+      return mockCustomerId;
     }
 
     if (!process.env.STRIPE_SECRET_KEY) {

@@ -4,11 +4,9 @@ import {
   action,
   internalMutation,
   internalQuery,
-  internalAction,
 } from "./_generated/server";
 import { v } from "convex/values";
 import { getUserIdFromIdentity } from "./auth";
-import { Id } from "./_generated/dataModel";
 import { internal, api } from "./_generated/api";
 
 // === Categories ===

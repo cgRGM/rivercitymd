@@ -10,6 +10,7 @@ if (typeof process !== "undefined") {
     process.env.STRIPE_SECRET_KEY || "sk_test_mock_key";
   process.env.STRIPE_WEBHOOK_SECRET =
     process.env.STRIPE_WEBHOOK_SECRET || "whsec_test_mock_secret";
+  process.env.CONVEX_TEST = process.env.CONVEX_TEST || "true";
 }
 
 // Helper function to create a mock Response with both json() and text() methods
@@ -42,73 +43,96 @@ function createMockResponse(
 // Mock fetch globally to intercept Stripe API calls from scheduled functions
 // This prevents scheduled functions from making real API calls with invalid keys
 const originalFetch = globalThis.fetch;
-vi.stubGlobal(
-  "fetch",
-  vi.fn(async (url: string | URL, options?: RequestInit) => {
-    const urlString = typeof url === "string" ? url : url.toString();
+export async function stripeFetchMock(
+  url: string | URL,
+  options?: RequestInit,
+): Promise<Response> {
+  const urlString = typeof url === "string" ? url : url.toString();
 
-    // Intercept Stripe API calls
-    if (urlString.includes("api.stripe.com")) {
-      // Parse the endpoint to return appropriate mock responses
-      if (urlString.includes("/customers")) {
-        // Create or retrieve customer
-        return createMockResponse({ id: "cus_test_123" });
-      } else if (urlString.includes("/products")) {
-        // Create or retrieve product
-        return createMockResponse({ id: "prod_test_123" });
-      } else if (urlString.includes("/checkout/sessions")) {
-        // Create checkout session
-        return createMockResponse({
-          id: "cs_test_123",
-          url: "https://checkout.stripe.com/test",
-        });
-      } else if (urlString.includes("/payment_intents")) {
-        // Create or retrieve payment intent
-        return createMockResponse({
-          id: "pi_test_123",
-          status: "succeeded",
-          amount: 1000,
-        });
-      } else if (urlString.includes("/payment_methods")) {
-        // List or create payment methods
-        return createMockResponse({
-          data: [
-            {
-              id: "pm_test_123",
-              type: "card",
-              card: { last4: "4242", brand: "visa" },
-            },
-          ],
-        });
-      } else if (urlString.includes("/invoices")) {
-        // Create or retrieve invoice
-        return createMockResponse({ id: "in_test_123", status: "draft" });
-      } else if (urlString.includes("/prices")) {
-        // Create or retrieve price
-        return createMockResponse({ id: "price_test_123" });
-      } else if (urlString.includes("/invoiceitems")) {
-        // Create or retrieve invoice item
-        return createMockResponse({ id: "ii_test_123" });
-      }
-      // Default Stripe response
-      return createMockResponse({ id: "stripe_test_123" });
+  // Intercept Stripe API calls
+  if (urlString.includes("api.stripe.com")) {
+    // Parse the endpoint to return appropriate mock responses
+    if (urlString.includes("/customers")) {
+      // Create or retrieve customer
+      return createMockResponse({
+        id: "cus_test_123",
+        invoice_settings: { default_payment_method: "pm_test_123" },
+      });
     }
+    if (urlString.includes("/products")) {
+      // Create or retrieve product
+      return createMockResponse({ id: "prod_test_123" });
+    }
+    if (urlString.includes("/checkout/sessions")) {
+      // Create checkout session
+      return createMockResponse({
+        id: "cs_test_123",
+        url: "https://checkout.stripe.com/test",
+      });
+    }
+    if (urlString.includes("/payment_intents")) {
+      // Create or retrieve payment intent
+      return createMockResponse({
+        id: "pi_test_123",
+        status: "succeeded",
+        amount: 1000,
+      });
+    }
+    if (urlString.includes("/payment_methods")) {
+      // List or create payment methods
+      return createMockResponse({
+        data: [
+          {
+            id: "pm_test_123",
+            type: "card",
+            card: { last4: "4242", brand: "visa" },
+          },
+        ],
+      });
+    }
+    if (urlString.includes("/invoices/") && urlString.includes("/send")) {
+      return createMockResponse({
+        id: "in_test_123",
+        hosted_invoice_url: "https://stripe.test/invoices/in_test_123",
+        status: "open",
+      });
+    }
+    if (urlString.includes("/invoices/") && urlString.includes("/finalize")) {
+      return createMockResponse({ id: "in_test_123", status: "open" });
+    }
+    if (urlString.includes("/invoices")) {
+      // Create or retrieve invoice
+      return createMockResponse({
+        id: "in_test_123",
+        status: "draft",
+        hosted_invoice_url: "https://stripe.test/invoices/in_test_123",
+      });
+    }
+    if (urlString.includes("/prices")) {
+      // Create or retrieve price
+      return createMockResponse({ id: "price_test_123" });
+    }
+    if (urlString.includes("/invoiceitems")) {
+      // Create or retrieve invoice item
+      return createMockResponse({ id: "ii_test_123" });
+    }
+    // Default Stripe response
+    return createMockResponse({ id: "stripe_test_123" });
+  }
 
-    // For non-Stripe URLs, use original fetch if available, otherwise return a basic response
-    if (originalFetch) {
-      return originalFetch(url, options);
-    }
-    // Fallback for environments without fetch
-    return createMockResponse(
-      { error: "Not mocked" },
-      { ok: false, status: 404 },
-    );
-  }),
-);
+  // For non-Stripe URLs, use original fetch if available, otherwise return a basic response
+  if (originalFetch) {
+    return originalFetch(url, options);
+  }
+  // Fallback for environments without fetch
+  return createMockResponse({ error: "Not mocked" }, { ok: false, status: 404 });
+}
+
+vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
 
 // Extend globalThis to track handled promises
 declare global {
-  // eslint-disable-next-line no-var
+   
   var __handledTestPromises: Promise<any>[] | undefined;
 }
 

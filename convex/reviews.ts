@@ -1,11 +1,7 @@
-import {
-  query,
-  mutation,
-  internalQuery,
-} from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
-import { internal, api } from "./_generated/api";
+import { internal } from "./_generated/api";
 
 // Get all reviews for admin (with customer and appointment details)
 export const listForAdmin = query({

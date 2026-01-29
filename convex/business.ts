@@ -1,9 +1,6 @@
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getUserIdFromIdentity } from "./auth";
-import { api } from "./_generated/api";
-import { Resend } from "@convex-dev/resend";
-import { components } from "./_generated/api";
 
 export const generateUploadUrl = mutation({
   handler: async (ctx) => {

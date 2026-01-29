@@ -2,7 +2,7 @@ import { convexTest } from "convex-test";
 import { expect, test, describe, vi, beforeEach, beforeAll } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { modules } from "./test.setup";
+import { modules, stripeFetchMock } from "./test.setup";
 
 describe("payments", () => {
   beforeAll(() => {
@@ -16,6 +16,7 @@ describe("payments", () => {
     // Ensure env vars are set for each test
     process.env.STRIPE_SECRET_KEY = "sk_test_mock_key";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_mock_secret";
+    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   // Helper function to create test user with Stripe customer
@@ -53,6 +54,7 @@ describe("payments", () => {
         name: "Test Service",
         description: "Test service description",
         basePrice: 100,
+        stripePriceIds: ["price_test_small", "price_test_medium", "price_test_large"],
         duration: 60,
         categoryId,
         isActive: true,
@@ -156,7 +158,7 @@ describe("payments", () => {
     expect(result.sessionId).toBe("cs_test_123");
     expect(result.url).toBe("https://checkout.stripe.com/test");
 
-    vi.unstubAllGlobals();
+    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   test("create deposit checkout session requires authentication", async () => {
@@ -239,19 +241,27 @@ describe("payments", () => {
     // For now, we'll test that the function handles missing customer ID
 
     const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
-    // Without Stripe configured (no key or component), ensureStripeCustomer fails and checkout session creation should throw
-    await expect(
-      asUser.action(api.payments.createDepositCheckoutSession, {
+
+    const result = await asUser.action(
+      api.payments.createDepositCheckoutSession,
+      {
         appointmentId,
         invoiceId,
         successUrl: "https://example.com/success",
         cancelUrl: "https://example.com/cancel",
-      }),
-    ).rejects.toThrow(
-      /STRIPE_SECRET_KEY|Stripe customer|not registered|User not found or missing/,
+      },
     );
 
-    vi.unstubAllGlobals();
+    expect(result).toEqual({
+      sessionId: "cs_test_123",
+      url: "https://checkout.stripe.com/test",
+    });
+
+    const updatedUser = await t.run(async (ctx: any) => {
+      return await ctx.db.get(userId);
+    });
+    expect(updatedUser?.stripeCustomerId).toBe(`cus_test_${userId}`);
+    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   test("create remaining balance checkout session", async () => {
@@ -297,7 +307,7 @@ describe("payments", () => {
     // Note: createRemainingBalanceCheckoutSession was removed
     // Remaining balance payments are now handled via Stripe Invoice hosted pages
     // This test is no longer applicable - customers pay via stripeInvoiceUrl
-    vi.unstubAllGlobals();
+    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   test("handle webhook - checkout.session.completed for deposit", async () => {
@@ -497,7 +507,7 @@ describe("payments", () => {
       brand: "visa",
     });
 
-    vi.unstubAllGlobals();
+    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   test("create payment intent", async () => {
@@ -547,6 +557,6 @@ describe("payments", () => {
     expect(result.id).toBe("pi_test_123");
     expect(result.amount).toBe(5000);
 
-    vi.unstubAllGlobals();
+    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 });
