@@ -157,8 +157,6 @@ describe("payments", () => {
 
     expect(result.sessionId).toBe("cs_test_123");
     expect(result.url).toBe("https://checkout.stripe.com/test");
-
-    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   test("create deposit checkout session requires authentication", async () => {
@@ -261,53 +259,6 @@ describe("payments", () => {
       return await ctx.db.get(userId);
     });
     expect(updatedUser?.stripeCustomerId).toBe(`cus_test_${userId}`);
-    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
-  });
-
-  test("create remaining balance checkout session", async () => {
-    const t = convexTest(schema, modules);
-    const userId = await createTestUser(t, true);
-    const adminId = await t.run(async (ctx) => {
-      return await ctx.db.insert("users", {
-        name: "Admin",
-        email: "admin@test.com",
-        role: "admin",
-      });
-    });
-
-    const { appointmentId, invoiceId } = await createTestAppointmentWithInvoice(
-      t,
-      userId,
-      adminId,
-    );
-
-    // Update invoice to have deposit paid
-    await t.mutation(internal.invoices.updateDepositStatusInternal, {
-      invoiceId,
-      depositPaid: true,
-      depositPaymentIntentId: "pi_deposit_123",
-    });
-
-    // Mock Stripe API response
-    const mockStripeResponse = {
-      id: "cs_remaining_123",
-      url: "https://checkout.stripe.com/remaining",
-    };
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        return {
-          ok: true,
-          json: async () => mockStripeResponse,
-        } as Response;
-      }),
-    );
-
-    // Note: createRemainingBalanceCheckoutSession was removed
-    // Remaining balance payments are now handled via Stripe Invoice hosted pages
-    // This test is no longer applicable - customers pay via stripeInvoiceUrl
-    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   test("handle webhook - checkout.session.completed for deposit", async () => {
@@ -506,8 +457,6 @@ describe("payments", () => {
       last4: "4242",
       brand: "visa",
     });
-
-    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
   test("create payment intent", async () => {
@@ -556,7 +505,5 @@ describe("payments", () => {
 
     expect(result.id).toBe("pi_test_123");
     expect(result.amount).toBe(5000);
-
-    vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 });
