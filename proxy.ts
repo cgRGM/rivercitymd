@@ -10,14 +10,88 @@ const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 const isCustomerRoute = createRouteMatcher(["/dashboard(.*)"]);
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {
-  const {
-    isAuthenticated,
-    sessionClaims,
-    redirectToSignIn,
-    getToken,
-    orgId,
-  } = await auth();
+  const { isAuthenticated, sessionClaims, redirectToSignIn, getToken } =
+    await auth();
   const url = new URL(req.url);
+
+  const isAuthRoute =
+    url.pathname.startsWith("/sign-in") || url.pathname.startsWith("/sign-up");
+
+  // Handle sign-in/sign-up routes first so authenticated users are redirected
+  // instead of getting stuck on an auth page.
+  if (isAuthRoute) {
+    if (!isAuthenticated) {
+      return NextResponse.next();
+    }
+
+    // Fast path: Clerk metadata says onboarding is complete.
+    if (sessionClaims?.metadata?.onboardingComplete) {
+      try {
+        const token = await getToken({ template: "convex" });
+        if (token) {
+          const userRole = await fetchQuery(
+            api.auth.getUserRole,
+            {},
+            {
+              url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+              token: token,
+            },
+          );
+          if (userRole?.type === "admin") {
+            return NextResponse.redirect(new URL("/admin", req.url));
+          }
+          return NextResponse.redirect(new URL("/dashboard", req.url));
+        }
+      } catch (error) {
+        console.error("Error getting user role on auth route:", error);
+      }
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+
+    // Fallback: check Convex if metadata isn't complete/missing.
+    try {
+      const token = await getToken({ template: "convex" });
+
+      // If Convex token is missing (template not ready/misconfigured), don't loop on /sign-in.
+      if (!token) {
+        return NextResponse.redirect(new URL("/onboarding", req.url));
+      }
+
+      const userRole = await fetchQuery(
+        api.auth.getUserRole,
+        {},
+        {
+          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+          token: token,
+        },
+      );
+
+      if (!userRole) {
+        return NextResponse.redirect(new URL("/onboarding", req.url));
+      }
+
+      const hasCompleted = await fetchQuery(
+        api.users.hasCompletedOnboarding,
+        {},
+        {
+          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+          token: token,
+        },
+      );
+
+      if (!hasCompleted) {
+        return NextResponse.redirect(new URL("/onboarding", req.url));
+      }
+
+      return NextResponse.redirect(
+        new URL(userRole.type === "admin" ? "/admin" : "/dashboard", req.url),
+      );
+    } catch (error) {
+      console.error("Error checking auth route status:", error);
+      // Safe fallback for authenticated users
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+  }
 
   // Allow public routes (including sign-in and sign-up)
   if (isPublicRoute(req)) {
@@ -27,119 +101,6 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   // Redirect unauthenticated users to sign-in
   if (!isAuthenticated) {
     return redirectToSignIn({ returnBackUrl: req.url });
-  }
-
-  // If user is authenticated and on sign-in page, check onboarding and redirect appropriately
-  // This ensures onboarding checks happen before any redirect
-  if (url.pathname.startsWith("/sign-in")) {
-    // Fast path: Check session claims first (no API call)
-    if (sessionClaims?.metadata?.onboardingComplete) {
-      // Onboarding is complete according to Clerk - redirect based on organization membership
-      const isInOrganization = !!orgId;
-      if (isInOrganization) {
-        return NextResponse.redirect(new URL("/admin", req.url));
-      } else {
-        // Need to get role from Convex for client users
-        try {
-          const token = await getToken({ template: "convex" });
-          if (token) {
-            const userRole = await fetchQuery(
-              api.auth.getUserRole,
-              {},
-              {
-                url: process.env.NEXT_PUBLIC_CONVEX_URL!,
-                token: token,
-              },
-            );
-            if (userRole) {
-              const role = userRole.type;
-              if (role === "admin") {
-                return NextResponse.redirect(new URL("/admin", req.url));
-              } else {
-                return NextResponse.redirect(new URL("/dashboard", req.url));
-              }
-            }
-          }
-        } catch (error) {
-          console.error(
-            "Error getting user role in sign-in middleware:",
-            error,
-          );
-        }
-        // Fallback to dashboard if we can't determine role
-        return NextResponse.redirect(new URL("/dashboard", req.url));
-      }
-    }
-
-    // Fallback: Onboarding not complete or missing - check Convex
-    try {
-      const token = await getToken({ template: "convex" });
-
-      if (!token) {
-        // No token, let them stay on sign-in page
-        return NextResponse.next();
-      }
-
-      // Check if user exists in Convex and has completed onboarding
-    const userRole = await fetchQuery(
-      api.auth.getUserRole,
-      {},
-      {
-        url: process.env.NEXT_PUBLIC_CONVEX_URL!,
-        token: token,
-      },
-    );
-
-    // If user doesn't exist in Convex, redirect to onboarding
-    if (!userRole) {
-      const onboardingUrl = new URL("/onboarding", req.url);
-      return NextResponse.redirect(onboardingUrl);
-    }
-
-    // Check if user has completed onboarding in Convex (has address and vehicles)
-    const hasCompleted = await fetchQuery(
-      api.users.hasCompletedOnboarding,
-      {},
-      {
-        url: process.env.NEXT_PUBLIC_CONVEX_URL!,
-        token: token,
-      },
-    );
-
-    // If onboarding is complete in Convex, handle role-based routing
-    if (hasCompleted) {
-      const role = userRole.type;
-      
-      // Check admin route access
-      if (isAdminRoute(req)) {
-        if (role === "admin") {
-          return NextResponse.next(); // Allow admin access
-        } else {
-          return NextResponse.redirect(new URL("/dashboard", req.url));
-        }
-      }
-      
-      // Check customer route access
-      if (isCustomerRoute(req)) {
-        if (role === "admin") {
-          return NextResponse.redirect(new URL("/admin", req.url));
-        } else {
-          return NextResponse.next(); // Allow client access
-        }
-      }
-      
-      // For other routes, allow access
-      return NextResponse.next();
-    }
-
-      // User exists but onboarding incomplete - redirect to onboarding
-      const onboardingUrl = new URL("/onboarding", req.url);
-      return NextResponse.redirect(onboardingUrl);
-    } catch (error) {
-      // If there's an error, let them stay on sign-in page
-      console.error("Error checking user status in sign-in middleware:", error);
-      return NextResponse.next();
-    }
   }
 
   // For users visiting /onboarding, don't try to redirect
@@ -164,10 +125,10 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
             token: token,
           },
         );
-        
+
         if (userRole) {
           const role = userRole.type;
-          
+
           // ADMIN - Full access to /admin, redirect from /dashboard to /admin
           if (role === "admin") {
             if (isCustomerRoute(req)) {

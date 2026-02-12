@@ -111,8 +111,8 @@ export default function RootLayout({
       publishableKey={clerkPublishableKey}
       signUpUrl="/sign-up"
       signInUrl="/sign-in"
-      afterSignInUrl="/dashboard"
-      afterSignUpUrl="/onboarding"
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/onboarding"
     >
       <html lang="en">
         <body
