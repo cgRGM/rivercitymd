@@ -17,6 +17,20 @@ if (!stripeSecretKey) {
 // This avoids version conflicts between local Stripe package and Convex component
 const stripe = new Stripe(stripeSecretKey);
 
+const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
+  emailNotifications: true,
+  smsNotifications: true,
+  marketingEmails: false,
+  serviceReminders: true,
+  events: {
+    appointmentConfirmed: true,
+    appointmentCancelled: true,
+    appointmentRescheduled: true,
+    appointmentStarted: true,
+    appointmentCompleted: true,
+  },
+} as const;
+
 async function getUserFromIdentity(
   ctx: QueryCtx | MutationCtx,
   identity: {
@@ -304,6 +318,7 @@ export const ensureUserFromClerk = internalMutation({
       timesServiced: 0,
       totalSpent: 0,
       status: "active",
+      notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
     };
 
     if (stripeCustomerId) {

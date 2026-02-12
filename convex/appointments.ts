@@ -21,6 +21,10 @@ function getVehicleSize(
   return vehicles[0]?.size || "medium";
 }
 
+function shouldScheduleNotificationJobs(): boolean {
+  return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
+}
+
 async function ensureStripeCustomerId(
   ctx: any,
   user: Doc<"users">,
@@ -541,19 +545,35 @@ export const updateStatus = mutation({
     const oldStatus = appointment.status;
     await ctx.db.patch(args.appointmentId, { status: args.status });
 
-    // Appointment confirmation is the single trigger for post-deposit Stripe invoice generation
-    if (args.status === "confirmed") {
-      if (oldStatus !== "confirmed") {
-        // Send appointment confirmation email to customer only on actual transition
+    if (oldStatus !== args.status) {
+      const lifecycleEvent =
+        args.status === "confirmed"
+          ? "appointment_confirmed"
+          : args.status === "cancelled"
+            ? "appointment_cancelled"
+            : args.status === "rescheduled"
+              ? "appointment_rescheduled"
+              : args.status === "in_progress"
+                ? "appointment_started"
+                : args.status === "completed"
+                  ? "appointment_completed"
+                  : null;
+
+      if (lifecycleEvent && shouldScheduleNotificationJobs()) {
         await ctx.scheduler.runAfter(
           0,
-          internal.emails.sendAppointmentConfirmationEmail,
+          internal.notifications.queueAppointmentLifecycleEvent,
           {
             appointmentId: args.appointmentId,
+            event: lifecycleEvent,
+            transition: `${oldStatus}->${args.status}`,
           },
         );
       }
+    }
 
+    // Appointment confirmation is the single trigger for post-deposit Stripe invoice generation
+    if (args.status === "confirmed") {
       const invoice = await ctx.db
         .query("invoices")
         .withIndex("by_appointment", (q) =>
@@ -647,19 +667,35 @@ export const updateStatusInternal = internalMutation({
     const oldStatus = appointment.status;
     await ctx.db.patch(args.appointmentId, { status: args.status });
 
-    // Appointment confirmation is the single trigger for post-deposit Stripe invoice generation
-    if (args.status === "confirmed") {
-      if (oldStatus !== "confirmed") {
-        // Send appointment confirmation email to customer only on actual transition
+    if (oldStatus !== args.status) {
+      const lifecycleEvent =
+        args.status === "confirmed"
+          ? "appointment_confirmed"
+          : args.status === "cancelled"
+            ? "appointment_cancelled"
+            : args.status === "rescheduled"
+              ? "appointment_rescheduled"
+              : args.status === "in_progress"
+                ? "appointment_started"
+                : args.status === "completed"
+                  ? "appointment_completed"
+                  : null;
+
+      if (lifecycleEvent && shouldScheduleNotificationJobs()) {
         await ctx.scheduler.runAfter(
           0,
-          internal.emails.sendAppointmentConfirmationEmail,
+          internal.notifications.queueAppointmentLifecycleEvent,
           {
             appointmentId: args.appointmentId,
+            event: lifecycleEvent,
+            transition: `${oldStatus}->${args.status}`,
           },
         );
       }
+    }
 
+    // Appointment confirmation is the single trigger for post-deposit Stripe invoice generation
+    if (args.status === "confirmed") {
       const invoice = await ctx.db
         .query("invoices")
         .withIndex("by_appointment", (q) =>
@@ -702,11 +738,26 @@ export const reschedule = mutation({
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+
     await ctx.db.patch(args.appointmentId, {
       scheduledDate: args.newDate,
       scheduledTime: args.newTime,
       status: "confirmed",
     });
+
+    if (shouldScheduleNotificationJobs()) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.notifications.queueAppointmentLifecycleEvent,
+        {
+          appointmentId: args.appointmentId,
+          event: "appointment_rescheduled",
+          transition: `${appointment.status}->confirmed`,
+        },
+      );
+    }
 
     return args.appointmentId;
   },

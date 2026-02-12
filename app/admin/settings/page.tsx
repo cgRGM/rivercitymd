@@ -31,6 +31,36 @@ const businessSchema = z.object({
 
 type BusinessFormData = z.infer<typeof businessSchema>;
 
+type AdminNotificationSettings = {
+  emailNotifications: boolean;
+  smsNotifications: boolean;
+  marketingEmails: boolean;
+  events: {
+    newCustomerOnboarded: boolean;
+    appointmentConfirmed: boolean;
+    appointmentCancelled: boolean;
+    appointmentRescheduled: boolean;
+    appointmentStarted: boolean;
+    appointmentCompleted: boolean;
+    reviewSubmitted: boolean;
+  };
+};
+
+const DEFAULT_NOTIFICATION_SETTINGS = {
+  emailNotifications: true,
+  smsNotifications: true,
+  marketingEmails: false,
+  events: {
+    newCustomerOnboarded: true,
+    appointmentConfirmed: true,
+    appointmentCancelled: true,
+    appointmentRescheduled: true,
+    appointmentStarted: true,
+    appointmentCompleted: true,
+    reviewSubmitted: true,
+  },
+} satisfies AdminNotificationSettings;
+
 export default function SettingsPage() {
   const business = useQuery(api.business.get);
   const businessHours = useQuery(api.availability.getBusinessHours);
@@ -39,6 +69,10 @@ export default function SettingsPage() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isHoursLoading, setIsHoursLoading] = useState(false);
+  const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState(
+    DEFAULT_NOTIFICATION_SETTINGS,
+  );
 
   // Business hours state - initialize with default values or loaded data
   const [hoursForm, setHoursForm] = useState(() => {
@@ -102,6 +136,30 @@ export default function SettingsPage() {
         cityStateZip: business.cityStateZip,
         country: business.country,
       });
+      setNotificationSettings({
+        emailNotifications:
+          business.notificationSettings?.emailNotifications ?? true,
+        smsNotifications: business.notificationSettings?.smsNotifications ?? true,
+        marketingEmails:
+          business.notificationSettings?.marketingEmails ?? false,
+        events: {
+          newCustomerOnboarded:
+            business.notificationSettings?.events?.newCustomerOnboarded ?? true,
+          appointmentConfirmed:
+            business.notificationSettings?.events?.appointmentConfirmed ?? true,
+          appointmentCancelled:
+            business.notificationSettings?.events?.appointmentCancelled ?? true,
+          appointmentRescheduled:
+            business.notificationSettings?.events?.appointmentRescheduled ??
+            true,
+          appointmentStarted:
+            business.notificationSettings?.events?.appointmentStarted ?? true,
+          appointmentCompleted:
+            business.notificationSettings?.events?.appointmentCompleted ?? true,
+          reviewSubmitted:
+            business.notificationSettings?.events?.reviewSubmitted ?? true,
+        },
+      });
     }
   }, [business, form]);
 
@@ -115,6 +173,11 @@ export default function SettingsPage() {
         address: data.address,
         cityStateZip: data.cityStateZip,
         country: data.country,
+        notificationSettings: {
+          ...notificationSettings,
+          emailNotifications: true,
+          smsNotifications: true,
+        },
       });
       toast.success(
         isFirstTimeSetup
@@ -148,6 +211,30 @@ export default function SettingsPage() {
       toast.error("Failed to update business hours");
     } finally {
       setIsHoursLoading(false);
+    }
+  };
+
+  const handleSaveNotifications = async () => {
+    if (!business?._id) {
+      toast.error("Create business information first");
+      return;
+    }
+
+    setIsNotificationsLoading(true);
+    try {
+      await updateBusiness({
+        id: business._id,
+        notificationSettings: {
+          ...notificationSettings,
+          emailNotifications: true,
+          smsNotifications: true,
+        },
+      });
+      toast.success("Notification settings saved");
+    } catch {
+      toast.error("Failed to save notification settings");
+    } finally {
+      setIsNotificationsLoading(false);
     }
   };
 
@@ -331,19 +418,19 @@ export default function SettingsPage() {
             <div>
               <div className="font-medium">Email Notifications</div>
               <div className="text-sm text-muted-foreground">
-                Receive booking confirmations via email
+                Required for operational notifications
               </div>
             </div>
-            <Switch defaultChecked />
+            <Switch checked disabled />
           </div>
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">SMS Notifications</div>
               <div className="text-sm text-muted-foreground">
-                Get text alerts for new bookings
+                Required for operational notifications
               </div>
             </div>
-            <Switch defaultChecked />
+            <Switch checked disabled />
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -352,8 +439,151 @@ export default function SettingsPage() {
                 Receive tips and updates
               </div>
             </div>
-            <Switch />
+            <Switch
+              checked={notificationSettings.marketingEmails}
+              onCheckedChange={(checked) =>
+                setNotificationSettings((prev) => ({
+                  ...prev,
+                  marketingEmails: checked,
+                }))
+              }
+            />
           </div>
+
+          <div className="pt-2 border-t">
+            <p className="text-sm font-medium mb-3">Event Notifications</p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">New Customer Onboarded</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify admin when onboarding completes
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.newCustomerOnboarded}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, newCustomerOnboarded: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Appointment Confirmed</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify after deposit is paid
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.appointmentConfirmed}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, appointmentConfirmed: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Appointment Cancelled</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when appointments are cancelled
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.appointmentCancelled}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, appointmentCancelled: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Appointment Rescheduled</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when date or time changes
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.appointmentRescheduled}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: {
+                        ...prev.events,
+                        appointmentRescheduled: checked,
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Appointment Started</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when work begins
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.appointmentStarted}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, appointmentStarted: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Appointment Completed</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when service is complete
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.appointmentCompleted}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, appointmentCompleted: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Review Submitted</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when a customer leaves a review
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.reviewSubmitted}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, reviewSubmitted: checked },
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+
+          <Button
+            onClick={handleSaveNotifications}
+            disabled={isNotificationsLoading || isFirstTimeSetup}
+          >
+            {isNotificationsLoading ? "Saving..." : "Save Notification Settings"}
+          </Button>
         </CardContent>
       </Card>
     </div>

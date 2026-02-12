@@ -1,6 +1,45 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const userNotificationPreferencesValidator = v.object({
+  emailNotifications: v.boolean(),
+  smsNotifications: v.boolean(),
+  marketingEmails: v.boolean(),
+  serviceReminders: v.boolean(),
+  events: v.object({
+    appointmentConfirmed: v.boolean(),
+    appointmentCancelled: v.boolean(),
+    appointmentRescheduled: v.boolean(),
+    appointmentStarted: v.boolean(),
+    appointmentCompleted: v.boolean(),
+  }),
+});
+
+const businessNotificationSettingsValidator = v.object({
+  emailNotifications: v.boolean(),
+  smsNotifications: v.boolean(),
+  marketingEmails: v.boolean(),
+  events: v.object({
+    newCustomerOnboarded: v.boolean(),
+    appointmentConfirmed: v.boolean(),
+    appointmentCancelled: v.boolean(),
+    appointmentRescheduled: v.boolean(),
+    appointmentStarted: v.boolean(),
+    appointmentCompleted: v.boolean(),
+    reviewSubmitted: v.boolean(),
+  }),
+});
+
+const notificationEventValidator = v.union(
+  v.literal("new_customer_onboarded"),
+  v.literal("appointment_confirmed"),
+  v.literal("appointment_cancelled"),
+  v.literal("appointment_rescheduled"),
+  v.literal("appointment_started"),
+  v.literal("appointment_completed"),
+  v.literal("review_submitted"),
+);
+
 // Customize users table to include role and basic info
 const schema = defineSchema({
   users: defineTable({
@@ -30,6 +69,7 @@ const schema = defineSchema({
     notes: v.optional(v.string()),
     // Payment fields
     stripeCustomerId: v.optional(v.string()),
+    notificationPreferences: v.optional(userNotificationPreferencesValidator),
   })
     .index("by_email", ["email"])
     .index("by_clerk_user_id", ["clerkUserId"])
@@ -43,13 +83,7 @@ const schema = defineSchema({
     cityStateZip: v.string(),
     country: v.string(),
     logoId: v.optional(v.id("_storage")),
-    notificationSettings: v.optional(
-      v.object({
-        emailNotifications: v.boolean(),
-        smsNotifications: v.boolean(),
-        marketingEmails: v.boolean(),
-      }),
-    ),
+    notificationSettings: v.optional(businessNotificationSettingsValidator),
   }),
 
   // Vehicle information
@@ -247,6 +281,28 @@ const schema = defineSchema({
     ),
     createdBy: v.id("users"),
   }).index("by_date", ["date"]),
+
+  notificationDispatches: defineTable({
+    dedupeKey: v.string(),
+    event: notificationEventValidator,
+    channel: v.union(v.literal("email"), v.literal("sms")),
+    recipientType: v.union(v.literal("admin"), v.literal("customer")),
+    recipient: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("canceled"),
+    ),
+    userId: v.optional(v.id("users")),
+    appointmentId: v.optional(v.id("appointments")),
+    reviewId: v.optional(v.id("reviews")),
+    transition: v.optional(v.string()),
+    workId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_dedupe_key", ["dedupeKey"]),
 });
 
 export default schema;

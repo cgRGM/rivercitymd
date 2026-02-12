@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { api, internal, components } from "./_generated/api";
 import { resend } from "./emails";
+import { registerTwilioRoutes } from "./sms";
 import { Webhook } from "svix";
 import type { WebhookEvent } from "@clerk/backend";
 import { registerRoutes } from "@convex-dev/stripe";
@@ -9,6 +10,8 @@ import type Stripe from "stripe";
 import type { Id } from "./_generated/dataModel";
 
 const http = httpRouter();
+
+registerTwilioRoutes(http);
 
 // Register Stripe component webhook handler (handles data sync to component tables)
 // The component verifies webhook signatures and syncs data automatically

@@ -11,6 +11,45 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 
+const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
+  emailNotifications: true,
+  smsNotifications: true,
+  marketingEmails: false,
+  serviceReminders: true,
+  events: {
+    appointmentConfirmed: true,
+    appointmentCancelled: true,
+    appointmentRescheduled: true,
+    appointmentStarted: true,
+    appointmentCompleted: true,
+  },
+} as const;
+
+function resolvePreferredName(args: {
+  onboardingName?: string;
+  existingName?: string;
+  identityName?: string;
+  identityEmail?: string;
+}): string {
+  const onboardingName = args.onboardingName?.trim();
+  if (onboardingName) return onboardingName;
+
+  const existingName = args.existingName?.trim();
+  if (existingName) return existingName;
+
+  const identityName = args.identityName?.trim();
+  if (identityName) return identityName;
+
+  const identityEmail = args.identityEmail?.trim();
+  if (identityEmail) return identityEmail;
+
+  return "User";
+}
+
+function shouldScheduleNotificationJobs(): boolean {
+  return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
+}
+
 // Get count of new customers (created in last 30 days, admin only)
 export const getNewCustomersCount = query({
   args: {},
@@ -231,6 +270,7 @@ export const create = mutation({
       status: "active",
       cancellationCount: 0,
       notes: args.notes,
+      notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
     });
 
     if (args.year && args.make && args.model) {
@@ -299,15 +339,21 @@ export const createUserProfile = mutation({
         // User doesn't exist at all - create new user
         // Default to client role (admin must be set manually in Convex dashboard)
         const userRole = "client"; // Always default to client for new users
+        const resolvedName = resolvePreferredName({
+          onboardingName: args.name,
+          identityName: identity.name,
+          identityEmail: identity.email,
+        });
 
         // Create new user with role (Stripe customer will be created on-demand via ensureStripeCustomer)
         const userData: any = {
-          name: args.name,
+          name: resolvedName,
           clerkUserId: clerkUserId,
           role: userRole, // Always "client" for new users
           timesServiced: 0,
           totalSpent: 0,
           status: "active",
+          notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
           // stripeCustomerId will be set when ensureStripeCustomer is called
         };
         if (identity.email) {
@@ -336,6 +382,9 @@ export const createUserProfile = mutation({
         // Default to client if no role set
         await ctx.db.patch(userId, {
           role: "client",
+          notificationPreferences:
+            existingUser.notificationPreferences ||
+            DEFAULT_USER_NOTIFICATION_PREFERENCES,
         });
       }
       // If role is already set (including "admin"), preserve it
@@ -348,9 +397,15 @@ export const createUserProfile = mutation({
     const userRole = shouldPreserveAdminRole
       ? "admin"
       : existingUser?.role || "client";
+    const resolvedName = resolvePreferredName({
+      onboardingName: args.name,
+      existingName: existingUser?.name,
+      identityName: identity.name,
+      identityEmail: identity.email,
+    });
 
     await ctx.db.patch(userId, {
-      name: args.name,
+      name: resolvedName,
       phone: args.phone,
       address: args.address,
       clerkUserId: clerkUserId, // Ensure clerkUserId is set
@@ -358,6 +413,9 @@ export const createUserProfile = mutation({
       timesServiced: 0,
       totalSpent: 0,
       status: "active",
+      notificationPreferences:
+        existingUser?.notificationPreferences ||
+        DEFAULT_USER_NOTIFICATION_PREFERENCES,
     });
 
     // Only create vehicles if they don't already exist (idempotent)
@@ -382,13 +440,18 @@ export const createUserProfile = mutation({
     // Send admin notification email for new customer (after onboarding complete)
     // Only send if this is a new user (not updating existing)
     if (!hasExistingAddress || !hasExistingVehicles) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.emails.sendAdminNewCustomerNotification,
-        {
-          userId,
-        },
-      );
+      if (shouldScheduleNotificationJobs()) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.notifications.queueNewCustomerOnboarded,
+          {
+            userId,
+          },
+        );
+      }
+      await ctx.scheduler.runAfter(0, internal.emails.sendWelcomeEmail, {
+        userId,
+      });
     }
 
     return { userId };
@@ -469,6 +532,7 @@ export const upsertFromClerk = internalMutation({
       timesServiced: 0,
       totalSpent: 0,
       status: "active",
+      notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
     });
 
     return userId;
@@ -579,6 +643,21 @@ export const updateUserProfile = mutation({
         zip: v.string(),
       }),
     ),
+    notificationPreferences: v.optional(
+      v.object({
+        emailNotifications: v.boolean(),
+        smsNotifications: v.boolean(),
+        marketingEmails: v.boolean(),
+        serviceReminders: v.boolean(),
+        events: v.object({
+          appointmentConfirmed: v.boolean(),
+          appointmentCancelled: v.boolean(),
+          appointmentRescheduled: v.boolean(),
+          appointmentStarted: v.boolean(),
+          appointmentCompleted: v.boolean(),
+        }),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
@@ -591,6 +670,9 @@ export const updateUserProfile = mutation({
     if (args.email !== undefined) updates.email = args.email;
     if (args.phone !== undefined) updates.phone = args.phone;
     if (args.address !== undefined) updates.address = args.address;
+    if (args.notificationPreferences !== undefined) {
+      updates.notificationPreferences = args.notificationPreferences;
+    }
 
     await ctx.db.patch(userId, updates);
     return { success: true };
@@ -870,6 +952,7 @@ export const createUserWithAppointment = mutation({
         totalSpent: 0,
         status: "active",
         cancellationCount: 0,
+        notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
       });
     }
 

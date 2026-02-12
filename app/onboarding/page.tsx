@@ -55,6 +55,7 @@ export default function OnboardingPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [hasEditedName, setHasEditedName] = useState(false);
 
   // Auto-populate email from auth system
   // Use Clerk's useUser hook first (works for new users), fallback to Convex query
@@ -65,6 +66,18 @@ export default function OnboardingPage() {
       setEmail(currentUser.email);
     }
   }, [user, currentUser]);
+
+  useEffect(() => {
+    if (hasEditedName) return;
+
+    const clerkName =
+      user?.fullName ||
+      [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
+    const fallbackName = clerkName || currentUser?.name || "";
+    if (fallbackName) {
+      setName(fallbackName);
+    }
+  }, [user, currentUser, hasEditedName]);
 
   // Step 2: Service Address
   const [street, setStreet] = useState("");
@@ -295,7 +308,10 @@ export default function OnboardingPage() {
                       type="text"
                       placeholder="John Doe"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={(e) => {
+                        setHasEditedName(true);
+                        setName(e.target.value);
+                      }}
                       required
                     />
                   </div>

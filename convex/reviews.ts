@@ -3,6 +3,10 @@ import { v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { internal } from "./_generated/api";
 
+function shouldScheduleNotificationJobs(): boolean {
+  return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
+}
+
 // Get all reviews for admin (with customer and appointment details)
 export const listForAdmin = query({
   args: {},
@@ -321,13 +325,15 @@ export const submit = mutation({
     });
 
     // Send admin notification email (schedule action to avoid blocking)
-    await ctx.scheduler.runAfter(
-      0,
-      internal.emails.sendAdminReviewSubmittedNotification,
-      {
-        reviewId,
-      },
-    );
+    if (shouldScheduleNotificationJobs()) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.notifications.queueReviewSubmitted,
+        {
+          reviewId,
+        },
+      );
+    }
 
     return reviewId;
   },

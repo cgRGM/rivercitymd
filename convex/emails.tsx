@@ -626,6 +626,102 @@ export const sendCustomerReviewRequestEmail = internalAction({
   },
 });
 
+export const sendCustomerAppointmentStatusEmail = internalAction({
+  args: {
+    appointmentId: v.id("appointments"),
+    status: v.union(
+      v.literal("confirmed"),
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("cancelled"),
+      v.literal("rescheduled"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const appointment = await ctx.runQuery(
+      internal.appointments.getByIdInternal,
+      {
+        appointmentId: args.appointmentId,
+      },
+    );
+    if (!appointment) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: appointment.userId,
+    });
+    if (!user || !user.email) return;
+
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    const services = await Promise.all(
+      appointment.serviceIds.map((id: any) =>
+        ctx.runQuery(internal.services.getServiceById, { serviceId: id }),
+      ),
+    );
+    const serviceNames = services
+      .filter((s: any) => s !== null)
+      .map((s: any) => s.name);
+
+    const statusLabel =
+      args.status === "in_progress"
+        ? "In Progress"
+        : args.status === "rescheduled"
+          ? "Rescheduled"
+          : args.status === "cancelled"
+            ? "Cancelled"
+            : args.status === "confirmed"
+              ? "Confirmed"
+              : "Completed";
+
+    const summaryLine =
+      args.status === "cancelled"
+        ? "Your appointment has been cancelled."
+        : args.status === "rescheduled"
+          ? "Your appointment has been rescheduled."
+          : args.status === "in_progress"
+            ? "Your detail appointment is now in progress."
+            : args.status === "completed"
+              ? "Your appointment has been completed."
+              : "Your appointment has been confirmed.";
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">Appointment ${statusLabel}</h2>
+        <p style="color: #666; font-size: 16px; line-height: 1.6;">
+          Hi ${user.name || "Valued Customer"}, ${summaryLine}
+        </p>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0;">
+          <h3 style="color: #333; margin-top: 0;">Appointment Details</h3>
+          <p style="margin: 5px 0;"><strong>Date:</strong> ${appointment.scheduledDate}</p>
+          <p style="margin: 5px 0;"><strong>Time:</strong> ${appointment.scheduledTime}</p>
+          <p style="margin: 5px 0;"><strong>Services:</strong> ${serviceNames.join(", ")}</p>
+          <p style="margin: 5px 0;"><strong>Location:</strong> ${appointment.location.street}, ${appointment.location.city}, ${appointment.location.state} ${appointment.location.zip}</p>
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.CONVEX_SITE_URL || "https://patient-wombat-877.convex.site"}/dashboard/appointments"
+             style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+            View Appointments
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">
+          This is an automated email from ${business.name}.
+        </p>
+      </div>
+    `;
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <notifications@rivercitymd.com>`,
+      to: user.email,
+      subject: `Appointment ${statusLabel} - ${appointment.scheduledDate}`,
+      html,
+    });
+  },
+});
+
 // Send Admin Notification for New Appointment
 export const sendAdminAppointmentNotification = internalAction({
   args: {
@@ -634,6 +730,10 @@ export const sendAdminAppointmentNotification = internalAction({
       v.literal("created"),
       v.literal("updated"),
       v.literal("cancelled"),
+      v.literal("confirmed"),
+      v.literal("rescheduled"),
+      v.literal("started"),
+      v.literal("completed"),
     ),
   },
   handler: async (ctx, args) => {
@@ -668,9 +768,17 @@ export const sendAdminAppointmentNotification = internalAction({
     const actionText =
       args.action === "created"
         ? "New Appointment Booked"
+        : args.action === "confirmed"
+          ? "Appointment Confirmed"
         : args.action === "updated"
           ? "Appointment Updated"
-          : "Appointment Cancelled";
+          : args.action === "cancelled"
+            ? "Appointment Cancelled"
+            : args.action === "rescheduled"
+              ? "Appointment Rescheduled"
+              : args.action === "started"
+                ? "Appointment Started"
+                : "Appointment Completed";
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
