@@ -46,7 +46,7 @@ type AdminNotificationSettings = {
   };
 };
 
-const DEFAULT_NOTIFICATION_SETTINGS = {
+const DEFAULT_NOTIFICATION_SETTINGS: AdminNotificationSettings = {
   emailNotifications: true,
   smsNotifications: true,
   marketingEmails: false,
@@ -59,7 +59,7 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
     appointmentCompleted: true,
     reviewSubmitted: true,
   },
-} satisfies AdminNotificationSettings;
+};
 
 export default function SettingsPage() {
   const business = useQuery(api.business.get);
@@ -70,9 +70,8 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isHoursLoading, setIsHoursLoading] = useState(false);
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
-  const [notificationSettings, setNotificationSettings] = useState(
-    DEFAULT_NOTIFICATION_SETTINGS,
-  );
+  const [notificationSettings, setNotificationSettings] =
+    useState<AdminNotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
 
   // Business hours state - initialize with default values or loaded data
   const [hoursForm, setHoursForm] = useState(() => {
