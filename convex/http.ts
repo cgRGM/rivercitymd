@@ -50,14 +50,18 @@ registerRoutes(http, components.stripe, {
             },
           );
 
-          // Auto-confirm appointment when deposit is paid
+          // Route through appointment status mutation (single source of truth for invoice generation)
           const appointment = await ctx.runQuery(
             internal.appointments.getByIdInternal,
             {
               appointmentId: invoice.appointmentId,
             },
           );
-          if (appointment && appointment.status === "pending") {
+          if (
+            appointment &&
+            (appointment.status === "pending" ||
+              appointment.status === "confirmed")
+          ) {
             await ctx.runMutation(
               internal.appointments.updateStatusInternal,
               {
@@ -65,23 +69,6 @@ registerRoutes(http, components.stripe, {
                 status: "confirmed",
               },
             );
-          }
-
-          // Create Stripe Invoice with all service line items
-          try {
-            await ctx.runAction(
-              internal.payments.createStripeInvoiceAfterDeposit,
-              {
-                invoiceId,
-                appointmentId: invoice.appointmentId,
-              },
-            );
-          } catch (error) {
-            console.error(
-              "Failed to create Stripe invoice after deposit:",
-              error,
-            );
-            // Don't throw - deposit is paid, invoice creation can be retried
           }
         }
       }
@@ -119,36 +106,24 @@ registerRoutes(http, components.stripe, {
             },
           );
 
-          // Auto-confirm appointment
+          // Route through appointment status mutation (single source of truth for invoice generation)
           const appointment = await ctx.runQuery(
             internal.appointments.getByIdInternal,
             {
               appointmentId: invoice.appointmentId,
             },
           );
-          if (appointment && appointment.status === "pending") {
+          if (
+            appointment &&
+            (appointment.status === "pending" ||
+              appointment.status === "confirmed")
+          ) {
             await ctx.runMutation(
               internal.appointments.updateStatusInternal,
               {
                 appointmentId: invoice.appointmentId,
                 status: "confirmed",
               },
-            );
-          }
-
-          // Create Stripe Invoice after deposit
-          try {
-            await ctx.runAction(
-              internal.payments.createStripeInvoiceAfterDeposit,
-              {
-                invoiceId,
-                appointmentId: invoice.appointmentId,
-              },
-            );
-          } catch (error) {
-            console.error(
-              "Failed to create Stripe invoice after deposit:",
-              error,
             );
           }
         }

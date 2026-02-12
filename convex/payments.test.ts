@@ -54,7 +54,11 @@ describe("payments", () => {
         name: "Test Service",
         description: "Test service description",
         basePrice: 100,
-        stripePriceIds: ["price_test_small", "price_test_medium", "price_test_large"],
+        stripePriceIds: [
+          "price_test_small",
+          "price_test_medium",
+          "price_test_large",
+        ],
         duration: 60,
         categoryId,
         isActive: true,
@@ -78,7 +82,10 @@ describe("payments", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@test.com" });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
     const { appointmentId, invoiceId } = await asAdmin.mutation(
       api.appointments.create,
       {
@@ -144,7 +151,10 @@ describe("payments", () => {
       }),
     );
 
-    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
     const result = await asUser.action(
       api.payments.createDepositCheckoutSession,
       {
@@ -238,7 +248,10 @@ describe("payments", () => {
     // Note: In a real test, we'd need to mock the internal action differently
     // For now, we'll test that the function handles missing customer ID
 
-    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
 
     const result = await asUser.action(
       api.payments.createDepositCheckoutSession,
@@ -447,7 +460,10 @@ describe("payments", () => {
       }),
     );
 
-    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
     const paymentMethods = await asUser.query(api.payments.getPaymentMethods, {
       userId,
     });
@@ -494,7 +510,10 @@ describe("payments", () => {
       }),
     );
 
-    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
     const result = await asUser.action(api.payments.createPaymentIntent, {
       amount: 50,
       currency: "usd",

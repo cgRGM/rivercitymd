@@ -272,7 +272,7 @@ export const createUserProfile = mutation({
   }),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity || !identity.email) {
+    if (!identity || !identity.subject) {
       throw new Error("Not authenticated");
     }
 
@@ -302,7 +302,6 @@ export const createUserProfile = mutation({
 
         // Create new user with role (Stripe customer will be created on-demand via ensureStripeCustomer)
         const userData: any = {
-          email: identity.email,
           name: args.name,
           clerkUserId: clerkUserId,
           role: userRole, // Always "client" for new users
@@ -311,6 +310,9 @@ export const createUserProfile = mutation({
           status: "active",
           // stripeCustomerId will be set when ensureStripeCustomer is called
         };
+        if (identity.email) {
+          userData.email = identity.email;
+        }
 
         userId = await ctx.db.insert("users", userData);
       }
@@ -343,7 +345,9 @@ export const createUserProfile = mutation({
     // Update user with onboarding data
     // IMPORTANT: Preserve existing admin role, only set if undefined
     const shouldPreserveAdminRole = existingUser?.role === "admin";
-    const userRole = shouldPreserveAdminRole ? "admin" : (existingUser?.role || "client");
+    const userRole = shouldPreserveAdminRole
+      ? "admin"
+      : existingUser?.role || "client";
 
     await ctx.db.patch(userId, {
       name: args.name,
@@ -378,9 +382,13 @@ export const createUserProfile = mutation({
     // Send admin notification email for new customer (after onboarding complete)
     // Only send if this is a new user (not updating existing)
     if (!hasExistingAddress || !hasExistingVehicles) {
-      await ctx.scheduler.runAfter(0, internal.emails.sendAdminNewCustomerNotification, {
-        userId,
-      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.emails.sendAdminNewCustomerNotification,
+        {
+          userId,
+        },
+      );
     }
 
     return { userId };
@@ -406,11 +414,11 @@ export const upsertFromClerk = internalMutation({
     };
 
     const clerkUserId = clerkData.id;
-    const email =
-      clerkData.email_addresses?.[0]?.email_address || null;
-    const name = clerkData.first_name || clerkData.last_name
-      ? `${clerkData.first_name || ""} ${clerkData.last_name || ""}`.trim()
-      : email || "User";
+    const email = clerkData.email_addresses?.[0]?.email_address || null;
+    const name =
+      clerkData.first_name || clerkData.last_name
+        ? `${clerkData.first_name || ""} ${clerkData.last_name || ""}`.trim()
+        : email || "User";
 
     if (!email) {
       console.warn("Clerk webhook: User has no email, skipping", clerkUserId);
@@ -545,7 +553,8 @@ export const update = mutation({
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.email !== undefined) updateData.email = updates.email;
     if (updates.phone !== undefined) updateData.phone = updates.phone;
-    if (updates.role !== undefined && isAdminUser) updateData.role = updates.role;
+    if (updates.role !== undefined && isAdminUser)
+      updateData.role = updates.role;
     if (updates.address !== undefined) updateData.address = updates.address;
     if (updates.notes !== undefined) updateData.notes = updates.notes;
     if (updates.status !== undefined && isAdminUser)
@@ -1044,10 +1053,7 @@ export const ensureStripeCustomer = internalAction({
     }
 
     // Avoid Stripe network calls in tests to prevent pending fetch warnings
-    if (
-      process.env.CONVEX_TEST === "true" ||
-      process.env.NODE_ENV === "test"
-    ) {
+    if (process.env.CONVEX_TEST === "true" || process.env.NODE_ENV === "test") {
       const mockCustomerId = `cus_test_${args.userId}`;
       await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
         userId: args.userId,

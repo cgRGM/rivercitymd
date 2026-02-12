@@ -11,27 +11,8 @@ import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 
-interface StripeInvoiceServiceInput {
-  _id: Id<"services">;
-  stripePriceIds: Array<string>;
-  basePriceSmall?: number;
-  basePriceMedium?: number;
-  basePriceLarge?: number;
-  name: string;
-}
-
 interface StripeInvoiceVehicleInput {
   size?: "small" | "medium" | "large";
-}
-
-interface CreateStripeInvoiceArgs {
-  appointmentId: Id<"appointments">;
-  userId: Id<"users">;
-  services: Array<StripeInvoiceServiceInput>;
-  vehicles: Array<StripeInvoiceVehicleInput>;
-  totalPrice: number;
-  scheduledDate: string;
-  invoiceId?: Id<"invoices">;
 }
 
 function getVehicleSize(
@@ -560,14 +541,19 @@ export const updateStatus = mutation({
     const oldStatus = appointment.status;
     await ctx.db.patch(args.appointmentId, { status: args.status });
 
-    // When confirming an appointment with paid deposit, generate and send invoice
-    if (args.status === "confirmed" && oldStatus !== "confirmed") {
-      // Send appointment confirmation email to customer
-      await ctx.scheduler.runAfter(0, internal.emails.sendAppointmentConfirmationEmail, {
-        appointmentId: args.appointmentId,
-      });
+    // Appointment confirmation is the single trigger for post-deposit Stripe invoice generation
+    if (args.status === "confirmed") {
+      if (oldStatus !== "confirmed") {
+        // Send appointment confirmation email to customer only on actual transition
+        await ctx.scheduler.runAfter(
+          0,
+          internal.emails.sendAppointmentConfirmationEmail,
+          {
+            appointmentId: args.appointmentId,
+          },
+        );
+      }
 
-      // Get invoice for this appointment
       const invoice = await ctx.db
         .query("invoices")
         .withIndex("by_appointment", (q) =>
@@ -576,10 +562,9 @@ export const updateStatus = mutation({
         .first();
 
       if (invoice && invoice.depositPaid && invoice.status === "draft") {
-        // Schedule invoice generation and sending
         await ctx.scheduler.runAfter(
           0,
-          internal.appointments.generateAndSendInvoice,
+          internal.payments.createStripeInvoiceAfterDeposit,
           {
             appointmentId: args.appointmentId,
             invoiceId: invoice._id,
@@ -662,14 +647,19 @@ export const updateStatusInternal = internalMutation({
     const oldStatus = appointment.status;
     await ctx.db.patch(args.appointmentId, { status: args.status });
 
-    // When confirming an appointment with paid deposit, generate and send invoice
-    if (args.status === "confirmed" && oldStatus !== "confirmed") {
-      // Send appointment confirmation email to customer
-      await ctx.scheduler.runAfter(0, internal.emails.sendAppointmentConfirmationEmail, {
-        appointmentId: args.appointmentId,
-      });
+    // Appointment confirmation is the single trigger for post-deposit Stripe invoice generation
+    if (args.status === "confirmed") {
+      if (oldStatus !== "confirmed") {
+        // Send appointment confirmation email to customer only on actual transition
+        await ctx.scheduler.runAfter(
+          0,
+          internal.emails.sendAppointmentConfirmationEmail,
+          {
+            appointmentId: args.appointmentId,
+          },
+        );
+      }
 
-      // Get invoice for this appointment
       const invoice = await ctx.db
         .query("invoices")
         .withIndex("by_appointment", (q) =>
@@ -678,10 +668,9 @@ export const updateStatusInternal = internalMutation({
         .first();
 
       if (invoice && invoice.depositPaid && invoice.status === "draft") {
-        // Schedule invoice generation and sending
         await ctx.scheduler.runAfter(
           0,
-          internal.appointments.generateAndSendInvoice,
+          internal.payments.createStripeInvoiceAfterDeposit,
           {
             appointmentId: args.appointmentId,
             invoiceId: invoice._id,

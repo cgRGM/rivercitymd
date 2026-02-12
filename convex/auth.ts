@@ -17,6 +17,35 @@ if (!stripeSecretKey) {
 // This avoids version conflicts between local Stripe package and Convex component
 const stripe = new Stripe(stripeSecretKey);
 
+async function getUserFromIdentity(
+  ctx: QueryCtx | MutationCtx,
+  identity: {
+    subject?: string;
+    email?: string | null;
+  },
+) {
+  if (identity.subject) {
+    const userByClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) =>
+        q.eq("clerkUserId", identity.subject!),
+      )
+      .first();
+    if (userByClerkId) {
+      return userByClerkId;
+    }
+  }
+
+  if (identity.email) {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
+      .first();
+  }
+
+  return null;
+}
+
 // Get the current user's role
 // Role is determined by Clerk organization membership:
 // - Users in an organization → admin
@@ -35,16 +64,11 @@ export const getUserRole = query({
   ),
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity || !identity.email) {
+    if (!identity || !identity.subject) {
       return null;
     }
 
-    // Find user by email (Clerk email) or by Clerk user ID
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-
+    const user = await getUserFromIdentity(ctx, identity);
     if (!user) {
       return null;
     }
@@ -56,8 +80,9 @@ export const getUserRole = query({
     return {
       type: role as "admin" | "client",
       userId: user._id,
-      name: user.name || identity.email,
-      email: user.email || identity.email,
+      name:
+        user.name || identity.name || user.email || identity.email || "User",
+      email: user.email || identity.email || "",
       phone: user.phone || null,
     };
   },
@@ -78,16 +103,11 @@ export const getCurrentUser = query({
   ),
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity || !identity.email) {
+    if (!identity || !identity.subject) {
       return null;
     }
 
-    // Find user by email (Clerk email) or by Clerk user ID
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
-      .first();
-
+    const user = await getUserFromIdentity(ctx, identity);
     if (!user) {
       return null;
     }
@@ -98,8 +118,8 @@ export const getCurrentUser = query({
 
     return {
       userId: user._id,
-      email: user.email || identity.email,
-      name: user.name || identity.name || null,
+      email: user.email || identity.email || null,
+      name: user.name || identity.name || user.email || null,
       phone: user.phone || null,
       role: role as "admin" | "client",
     };
@@ -132,14 +152,11 @@ export async function isAdmin(
   ctx: QueryCtx | MutationCtx | ActionCtx,
 ): Promise<boolean> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity || !identity.email) return false;
+  if (!identity || !identity.subject) return false;
 
   // Try to get user from Convex database
   if ("db" in ctx) {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
-      .first();
+    const user = await getUserFromIdentity(ctx, identity);
 
     // Primary source of truth: stored role in Convex
     if (user?.role === "admin") return true;
@@ -161,16 +178,13 @@ export async function requireAdmin(
   ctx: QueryCtx | MutationCtx | ActionCtx,
 ): Promise<void> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity || !identity.email) {
+  if (!identity || !identity.subject) {
     throw new Error("Not authenticated");
   }
 
   // Try to get user from Convex database
   if ("db" in ctx) {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
-      .first();
+    const user = await getUserFromIdentity(ctx, identity);
 
     // Primary source of truth: stored role in Convex
     if (user?.role === "admin") return;
@@ -196,21 +210,17 @@ export const debugIdentity = query({
     if (!identity) return { error: "No identity" };
 
     // Get user from Convex to show stored role
-    let storedRole = null;
-    if (identity.email) {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
-        .first();
-      storedRole = user?.role || null;
-    }
+    const user = await getUserFromIdentity(ctx, identity);
+    const storedRole = user?.role || null;
 
     // Return sanitized identity info (no sensitive data)
     return {
+      subject: identity.subject,
       email: identity.email,
       hasOrgId: !!identity.orgId,
       orgId: identity.orgId || null,
       tokenIdentifier: identity.tokenIdentifier,
+      userId: user?._id || null,
       storedRole,
     };
   },
@@ -222,18 +232,18 @@ export async function getUserIdFromIdentity(
   ctx: QueryCtx | MutationCtx | ActionCtx,
 ): Promise<Id<"users"> | null> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity || !identity.email) {
+  if (!identity || !identity.subject) {
     return null;
   }
 
   // For queries and mutations, query directly
   if ("db" in ctx) {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
-      .first();
-
+    const user = await getUserFromIdentity(ctx, identity);
     return user?._id || null;
+  }
+
+  if (!identity.email) {
+    return null;
   }
 
   // For actions, use an internal query

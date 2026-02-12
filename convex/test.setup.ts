@@ -125,14 +125,16 @@ export async function stripeFetchMock(
     return originalFetch(url, options);
   }
   // Fallback for environments without fetch
-  return createMockResponse({ error: "Not mocked" }, { ok: false, status: 404 });
+  return createMockResponse(
+    { error: "Not mocked" },
+    { ok: false, status: 404 },
+  );
 }
 
 vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
 
 // Extend globalThis to track handled promises
 declare global {
-   
   var __handledTestPromises: Promise<any>[] | undefined;
 }
 
@@ -166,10 +168,29 @@ if (typeof process !== "undefined" && process.on) {
   // for expected scheduled function errors
   const originalEmitWarning = process.emitWarning;
   process.emitWarning = function (warning: any, ...args: any[]) {
+    const warningName =
+      typeof warning === "object" && warning ? warning.name : "";
+    const warningCode =
+      typeof warning === "object" && warning ? warning.code : "";
+    const warningMessage =
+      typeof warning === "string"
+        ? warning
+        : typeof warning?.message === "string"
+          ? warning.message
+          : "";
+    const argMessage = args
+      .map((arg) => (typeof arg === "string" ? arg : ""))
+      .join(" ");
+
     // Suppress PromiseRejectionHandledWarning for expected scheduled function errors
     if (
-      typeof warning === "string" &&
-      warning.includes("Promise rejection was handled asynchronously")
+      warningName === "PromiseRejectionHandledWarning" ||
+      warningCode === "PromiseRejectionHandledWarning" ||
+      warningMessage.includes("Promise rejection was handled asynchronously") ||
+      warningName === "TimeoutNegativeWarning" ||
+      warningCode === "TimeoutNegativeWarning" ||
+      warningMessage.includes("Timeout duration was set to 1.") ||
+      argMessage.includes("PromiseRejectionHandledWarning")
     ) {
       return;
     }

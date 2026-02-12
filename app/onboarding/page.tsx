@@ -19,7 +19,7 @@ import {
 import { ArrowLeft, Plus, X } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { completeOnboarding } from "./_actions";
 
 type Vehicle = {
@@ -32,6 +32,7 @@ type Vehicle = {
 export default function OnboardingPage() {
   const router = useRouter();
   const { user, isLoaded: isUserLoaded } = useUser();
+  const { getToken } = useAuth();
   const userRole = useQuery(api.auth.getUserRole);
   const createUserProfile = useMutation(api.users.createUserProfile);
   const currentUser = useQuery(api.auth.getCurrentUser);
@@ -159,6 +160,21 @@ export default function OnboardingPage() {
     setIsLoading(true);
 
     try {
+      // Ensure the Convex JWT template token is available before mutation.
+      // This avoids a race right after verification/sign-up in production.
+      let convexToken = await getToken({ template: "convex" });
+      if (!convexToken) {
+        await user.reload();
+        convexToken = await getToken({ template: "convex" });
+      }
+
+      if (!convexToken) {
+        setError(
+          "Authentication is still initializing. Please wait a few seconds and try again.",
+        );
+        return;
+      }
+
       // First, save the profile data to Convex
       await createUserProfile({
         name,
@@ -189,7 +205,7 @@ export default function OnboardingPage() {
       // This ensures proper role-based routing after onboarding
       // Refetch the role query to get the latest role after profile creation
       router.refresh();
-      
+
       // Small delay to allow query to refetch, then check role
       setTimeout(() => {
         // Re-query the role (the query should have updated by now)
@@ -201,8 +217,12 @@ export default function OnboardingPage() {
         }
       }, 200);
     } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to complete onboarding";
       setError(
-        err instanceof Error ? err.message : "Failed to complete onboarding",
+        message === "Not authenticated"
+          ? "Authentication is still syncing. Please try again in a few seconds."
+          : message,
       );
     } finally {
       setIsLoading(false);

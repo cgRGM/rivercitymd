@@ -5,6 +5,72 @@ import schema from "./schema";
 import { modules } from "./test.setup";
 
 describe("users", () => {
+  test("create onboarding profile with Clerk subject-only identity", async () => {
+    const t = convexTest(schema, modules);
+
+    const clerkUserId = "user_subject_only_123";
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        email: "subject-only@example.com",
+        clerkUserId,
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const asUser = t.withIdentity({ subject: clerkUserId });
+
+    await asUser.mutation(api.users.createUserProfile, {
+      name: "Subject Only User",
+      phone: "555-0100",
+      address: {
+        street: "100 Subject St",
+        city: "Little Rock",
+        state: "AR",
+        zip: "72201",
+      },
+      vehicles: [
+        {
+          year: 2020,
+          make: "Toyota",
+          model: "Camry",
+          color: "Gray",
+        },
+      ],
+    });
+
+    const updatedUser = await t.run(async (ctx) => {
+      return await ctx.db.get(userId);
+    });
+    expect(updatedUser).toMatchObject({
+      name: "Subject Only User",
+      phone: "555-0100",
+      clerkUserId,
+      role: "client",
+    });
+    expect(updatedUser?.address).toMatchObject({
+      street: "100 Subject St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72201",
+    });
+
+    const vehicles = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("vehicles")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+    });
+    expect(vehicles.length).toBe(1);
+    expect(vehicles[0]).toMatchObject({
+      make: "Toyota",
+      model: "Camry",
+      color: "Gray",
+    });
+  });
+
   test("create user profile during onboarding", async () => {
     const t = convexTest(schema, modules);
 
@@ -18,7 +84,10 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId, email: "newuser@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "newuser@example.com",
+    });
 
     // Update profile during onboarding
     await asUser.mutation(api.users.updateUserProfile, {
@@ -57,7 +126,10 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId, email: "test@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
 
     // Get current user
     const currentUser = await asUser.query(api.users.getCurrentUser, {});
@@ -84,7 +156,10 @@ describe("users", () => {
       });
     });
 
-    const asIncompleteUser = t.withIdentity({ subject: incompleteUserId, email: "incomplete@example.com" });
+    const asIncompleteUser = t.withIdentity({
+      subject: incompleteUserId,
+      email: "incomplete@example.com",
+    });
 
     const incompleteStatus = await asIncompleteUser.query(
       api.users.getOnboardingStatus,
@@ -126,7 +201,10 @@ describe("users", () => {
       return userId;
     });
 
-    const asCompleteUser = t.withIdentity({ subject: completeUserId, email: "complete@example.com" });
+    const asCompleteUser = t.withIdentity({
+      subject: completeUserId,
+      email: "complete@example.com",
+    });
 
     const completeStatus = await asCompleteUser.query(
       api.users.getOnboardingStatus,
@@ -152,7 +230,10 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId, email: "current@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "current@example.com",
+    });
 
     // Get current user
     const currentUser = await asUser.query(api.users.getCurrentUser, {});
@@ -183,7 +264,10 @@ describe("users", () => {
       });
     });
 
-    const asUser = t.withIdentity({ subject: userId, email: "vehicle@example.com" });
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "vehicle@example.com",
+    });
 
     // Add a vehicle
     const vehicleId = await asUser.mutation(api.users.addVehicle, {
@@ -232,7 +316,10 @@ describe("users", () => {
       });
     });
 
-    const asAdmin = t.withIdentity({ subject: adminId, email: "admin@example.com" });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@example.com",
+    });
 
     // Create a client user
     const clientId = await asAdmin.mutation(api.users.create, {

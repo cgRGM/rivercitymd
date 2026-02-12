@@ -554,10 +554,7 @@ export const createStripeInvoiceAfterDeposit = internalAction({
     // Check if customer has a default payment method for automatic charging
     // Skip in test mode to avoid unnecessary Stripe API calls
     let hasDefaultPaymentMethod = false;
-    if (
-      process.env.CONVEX_TEST !== "true" &&
-      process.env.NODE_ENV !== "test"
-    ) {
+    if (process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test") {
       try {
         const customer = await stripeApiCall(`customers/${stripeCustomerId}`, {
           method: "GET",
@@ -839,14 +836,18 @@ export const handleWebhook = action({
               },
             );
 
-            // Auto-confirm appointment when deposit is paid
+            // Route through appointment status mutation (single source of truth for invoice generation)
             const appointment = await ctx.runQuery(
               internal.appointments.getByIdInternal,
               {
                 appointmentId: invoice.appointmentId,
               },
             );
-            if (appointment && appointment.status === "pending") {
+            if (
+              appointment &&
+              (appointment.status === "pending" ||
+                appointment.status === "confirmed")
+            ) {
               await ctx.runMutation(
                 internal.appointments.updateStatusInternal,
                 {
@@ -854,24 +855,6 @@ export const handleWebhook = action({
                   status: "confirmed",
                 },
               );
-            }
-
-            // Create Stripe Invoice with all service line items
-            // This will automatically charge if customer has card on file
-            try {
-              await ctx.runAction(
-                internal.payments.createStripeInvoiceAfterDeposit,
-                {
-                  invoiceId,
-                  appointmentId: invoice.appointmentId,
-                },
-              );
-            } catch (error) {
-              console.error(
-                "Failed to create Stripe invoice after deposit:",
-                error,
-              );
-              // Don't throw - deposit is paid, invoice creation can be retried
             }
           }
         }
@@ -886,10 +869,9 @@ export const handleWebhook = action({
         if (!invoiceIdString) break;
 
         const invoiceId = invoiceIdString as Id<"invoices">;
-        const invoice = await ctx.runQuery(
-          internal.invoices.getByIdInternal,
-          { invoiceId },
-        );
+        const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
+          invoiceId,
+        });
         if (!invoice) break;
 
         if (paymentType === "deposit") {
@@ -906,14 +888,18 @@ export const handleWebhook = action({
               },
             );
 
-            // Auto-confirm appointment
+            // Route through appointment status mutation (single source of truth for invoice generation)
             const appointment = await ctx.runQuery(
               internal.appointments.getByIdInternal,
               {
                 appointmentId: invoice.appointmentId,
               },
             );
-            if (appointment && appointment.status === "pending") {
+            if (
+              appointment &&
+              (appointment.status === "pending" ||
+                appointment.status === "confirmed")
+            ) {
               await ctx.runMutation(
                 internal.appointments.updateStatusInternal,
                 {
@@ -922,32 +908,16 @@ export const handleWebhook = action({
                 },
               );
             }
-
-            // Create Stripe Invoice after deposit
-            try {
-              await ctx.runAction(
-                internal.payments.createStripeInvoiceAfterDeposit,
-                {
-                  invoiceId,
-                  appointmentId: invoice.appointmentId,
-                },
-              );
-            } catch (error) {
-              console.error(
-                "Failed to create Stripe invoice after deposit:",
-                error,
-              );
-            }
           }
-        } else if (paymentType === "final_payment" && invoice.status !== "paid") {
+        } else if (
+          paymentType === "final_payment" &&
+          invoice.status !== "paid"
+        ) {
           // Final payment succeeded (e.g. direct payment intent for remaining balance)
-          await ctx.runMutation(
-            internal.invoices.updateFinalPaymentInternal,
-            {
-              invoiceId,
-              finalPaymentIntentId: paymentIntent.id,
-            },
-          );
+          await ctx.runMutation(internal.invoices.updateFinalPaymentInternal, {
+            invoiceId,
+            finalPaymentIntentId: paymentIntent.id,
+          });
           await ctx.runMutation(internal.invoices.updateStatusInternal, {
             invoiceId,
             status: "paid",
@@ -1009,7 +979,13 @@ export const handleWebhook = action({
       }
 
       default:
-        console.log(`Unhandled event type ${event.type}`);
+        // Avoid noisy test output while still logging unknown events in real environments.
+        if (
+          process.env.NODE_ENV !== "test" &&
+          process.env.CONVEX_TEST !== "true"
+        ) {
+          console.log(`Unhandled event type ${event.type}`);
+        }
     }
 
     return null;
