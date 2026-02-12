@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -67,14 +66,9 @@ type FormData = z.infer<typeof formSchema>;
 interface AddAddonFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  defaultCategoryId?: string;
 }
 
-export function AddAddonForm({
-  open,
-  onOpenChange,
-  defaultCategoryId,
-}: AddAddonFormProps) {
+export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
@@ -113,10 +107,6 @@ export function AddAddonForm({
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
     try {
-      // Use provided default category or fallback to add-on category
-      const addonCategoryId =
-        defaultCategoryId || "mn7av50tfv8pz9e3vrc11skdbd7vydmc"; // Add-on Services category
-
       let basePriceSmall, basePriceMedium, basePriceLarge;
 
       if (data.pricingType === "single") {
@@ -133,7 +123,7 @@ export function AddAddonForm({
         basePriceMedium,
         basePriceLarge,
         duration: 0, // Add-ons don't have duration
-        categoryId: addonCategoryId as Id<"serviceCategories">,
+        serviceType: "addon",
         includedServiceIds: [],
         features: data.features,
         icon: data.icon,

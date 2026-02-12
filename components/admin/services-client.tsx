@@ -30,17 +30,17 @@ import type { Id } from "@/convex/_generated/dataModel";
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
 
-// Hardcoded category IDs for easy reference
-const CATEGORY_IDS = {
-  STANDARD: "mn7bmjfryfs87q7xzjja2b96hn7vyqnb",
-  ADD_ON: "mn7av50tfv8pz9e3vrc11skdbd7vydmc",
-  SUBSCRIPTION: "mn73n62t43q4khjvj4g76jp8wx7vzgpm",
-} as const;
+const SERVICE_TYPE_ORDER = ["standard", "addon", "subscription"] as const;
+const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPE_ORDER)[number], string> =
+  {
+    standard: "Standard Services",
+    addon: "Add-on Services",
+    subscription: "Subscription Plans",
+  };
 
 export default function ServicesClient({}: Props) {
   // All hooks must be called before any conditional returns
   const servicesQuery = useQuery(api.services.listWithBookingStats);
-  const categoriesQuery = useQuery(api.services.listCategories);
   const deleteService = useMutation(api.services.deleteService);
   const depositSettings = useQuery(api.depositSettings.get);
   const updateDepositSettings = useMutation(api.depositSettings.upsert);
@@ -142,8 +142,6 @@ export default function ServicesClient({}: Props) {
     );
   }
 
-  const categories = categoriesQuery;
-
   const handleDeleteService = async (serviceId: Id<"services">) => {
     if (
       !confirm(
@@ -166,25 +164,23 @@ export default function ServicesClient({}: Props) {
     }
   };
 
-  // Group services by category, ensuring all categories are shown
-  const servicesByCategory = categories
-    ? categories.reduce(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (acc: any, category: any) => {
-          const categoryServices = (servicesQuery || []).filter(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (service: any) => service.categoryId === category._id,
-          );
-          acc[category.name] = categoryServices;
-          return acc;
-        },
-        {} as Record<string, NonNullable<typeof servicesQuery>>,
-      )
-    : {
-        "Standard Services": [],
-        "Add-on Services": [],
-        "Subscription Plans": [],
-      }; // Fallback for debugging
+  const servicesByType = SERVICE_TYPE_ORDER.reduce(
+    (acc, serviceType) => {
+      const filteredServices = (servicesQuery || []).filter(
+        (service) => (service.serviceType ?? "standard") === serviceType,
+      );
+      acc[serviceType] = filteredServices;
+      return acc;
+    },
+    {
+      standard: [],
+      addon: [],
+      subscription: [],
+    } as Record<
+      (typeof SERVICE_TYPE_ORDER)[number],
+      NonNullable<typeof servicesQuery>
+    >,
+  );
   const getPopularityColor = (popularity: string) => {
     switch (popularity) {
       case "Very High":
@@ -236,9 +232,7 @@ export default function ServicesClient({}: Props) {
                 variant="ghost"
                 onClick={() => {
                   setIsEditingDeposit(false);
-                  setDepositAmount(
-                    depositSettings?.amountPerVehicle ?? 50,
-                  );
+                  setDepositAmount(depositSettings?.amountPerVehicle ?? 50);
                 }}
               >
                 <X className="w-4 h-4" />
@@ -266,189 +260,186 @@ export default function ServicesClient({}: Props) {
       </div>
 
       <div className="space-y-8">
-        {categories &&
-          servicesByCategory &&
-          Object.entries(servicesByCategory).map(
-            ([categoryName, categoryServices]) => (
-              <div key={categoryName} className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-2xl font-semibold">{categoryName}</h3>
-                </div>
+        {SERVICE_TYPE_ORDER.map((serviceType) => (
+          <div key={serviceType} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-2xl font-semibold">
+                {SERVICE_TYPE_LABELS[serviceType]}
+              </h3>
+            </div>
 
-                <div className="overflow-x-auto">
-                  <div className="flex gap-6 min-w-max pb-4">
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    {(categoryServices as any)?.map(
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      (service: any, index: number) => (
-                        <Card
-                          key={service._id}
-                          className="w-80 flex-shrink-0 animate-fade-in-up hover:shadow-lg transition-all"
-                          style={{ animationDelay: `${index * 50}ms` }}
-                        >
-                        <CardHeader>
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3">
-                                {service.icon && (
-                                  <div className="text-2xl">{service.icon}</div>
-                                )}
-                                <div className="flex-1">
-                                  <CardTitle className="text-xl">
-                                    {service.name}
-                                  </CardTitle>
-                                  <CardDescription className="mt-1">
-                                    {service.description}
-                                  </CardDescription>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setEditingId(service._id)}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDeleteService(service._id)}
-                                disabled={deletingId === service._id}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          {/* Features */}
-                          {service.features && service.features.length > 0 && (
-                            <div className="space-y-2">
-                              <div className="text-sm text-muted-foreground">
-                                Features:
-                              </div>
-                              <ul className="text-sm space-y-1">
-                                {service.features
-                                  .slice(0, 3)
-                                  .map((feature: string, i: number) => (
-                                    <li
-                                      key={i}
-                                      className="flex items-center gap-2"
-                                    >
-                                      <Check className="w-3 h-3 text-accent" />
-                                      {feature}
-                                    </li>
-                                  ))}
-                                {service.features.length > 3 && (
-                                  <li className="text-muted-foreground">
-                                    +{service.features.length - 3} more features
-                                  </li>
-                                )}
-                              </ul>
-                            </div>
-                          )}
-
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">
-                                Small
-                              </div>
-                              <div className="font-semibold">
-                                $
-                                {service.basePriceSmall?.toFixed(2) ||
-                                  service.basePrice?.toFixed(2) ||
-                                  "N/A"}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">
-                                Medium
-                              </div>
-                              <div className="font-semibold">
-                                $
-                                {service.basePriceMedium?.toFixed(2) ||
-                                  service.basePrice?.toFixed(2) ||
-                                  "N/A"}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">
-                                Large
-                              </div>
-                              <div className="font-semibold">
-                                $
-                                {service.basePriceLarge?.toFixed(2) ||
-                                  service.basePrice?.toFixed(2) ||
-                                  "N/A"}
+            <div className="overflow-x-auto">
+              <div className="flex gap-6 min-w-max pb-4">
+                {servicesByType[serviceType]?.map(
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  (service: any, index: number) => (
+                    <Card
+                      key={service._id}
+                      className="w-80 flex-shrink-0 animate-fade-in-up hover:shadow-lg transition-all"
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3">
+                              {service.icon && (
+                                <div className="text-2xl">{service.icon}</div>
+                              )}
+                              <div className="flex-1">
+                                <CardTitle className="text-xl">
+                                  {service.name}
+                                </CardTitle>
+                                <CardDescription className="mt-1">
+                                  {service.description}
+                                </CardDescription>
                               </div>
                             </div>
                           </div>
-
-                          <div className="flex items-center justify-between pt-4 border-t border-border">
-                            <div>
-                              <div className="text-sm text-muted-foreground">
-                                Duration
-                              </div>
-                              <div className="font-medium">
-                                {Math.floor(service.duration / 60)}h{" "}
-                                {service.duration % 60}m
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-sm text-muted-foreground">
-                                Bookings
-                              </div>
-                              <div className="font-medium">
-                                {service.bookings} this month
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted-foreground">
-                              Popularity:
-                            </span>
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${getPopularityColor(service.popularity)}`}
-                            >
-                              {service.popularity}
-                            </span>
-                          </div>
-
-                          <div className="flex gap-2 pt-4 border-t border-border">
+                          <div className="flex gap-2">
                             <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1"
+                              variant="ghost"
+                              size="icon"
                               onClick={() => setEditingId(service._id)}
                             >
-                              <Edit className="w-3 h-3 mr-1" />
-                              Edit
+                              <Edit className="w-4 h-4" />
                             </Button>
                             <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1"
+                              variant="ghost"
+                              size="icon"
                               onClick={() => handleDeleteService(service._id)}
                               disabled={deletingId === service._id}
                             >
-                              <Trash2 className="w-3 h-3 mr-1" />
-                              {deletingId === service._id
-                                ? "Deleting..."
-                                : "Delete"}
+                              <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ),
-                  )}
-                  </div>
-                </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Features */}
+                        {service.features && service.features.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-sm text-muted-foreground">
+                              Features:
+                            </div>
+                            <ul className="text-sm space-y-1">
+                              {service.features
+                                .slice(0, 3)
+                                .map((feature: string, i: number) => (
+                                  <li
+                                    key={i}
+                                    className="flex items-center gap-2"
+                                  >
+                                    <Check className="w-3 h-3 text-accent" />
+                                    {feature}
+                                  </li>
+                                ))}
+                              {service.features.length > 3 && (
+                                <li className="text-muted-foreground">
+                                  +{service.features.length - 3} more features
+                                </li>
+                              )}
+                            </ul>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">
+                              Small
+                            </div>
+                            <div className="font-semibold">
+                              $
+                              {service.basePriceSmall?.toFixed(2) ||
+                                service.basePrice?.toFixed(2) ||
+                                "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">
+                              Medium
+                            </div>
+                            <div className="font-semibold">
+                              $
+                              {service.basePriceMedium?.toFixed(2) ||
+                                service.basePrice?.toFixed(2) ||
+                                "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">
+                              Large
+                            </div>
+                            <div className="font-semibold">
+                              $
+                              {service.basePriceLarge?.toFixed(2) ||
+                                service.basePrice?.toFixed(2) ||
+                                "N/A"}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-4 border-t border-border">
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Duration
+                            </div>
+                            <div className="font-medium">
+                              {Math.floor(service.duration / 60)}h{" "}
+                              {service.duration % 60}m
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">
+                              Bookings
+                            </div>
+                            <div className="font-medium">
+                              {service.bookings} this month
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">
+                            Popularity:
+                          </span>
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${getPopularityColor(service.popularity)}`}
+                          >
+                            {service.popularity}
+                          </span>
+                        </div>
+
+                        <div className="flex gap-2 pt-4 border-t border-border">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => setEditingId(service._id)}
+                          >
+                            <Edit className="w-3 h-3 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleDeleteService(service._id)}
+                            disabled={deletingId === service._id}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            {deletingId === service._id
+                              ? "Deleting..."
+                              : "Delete"}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ),
+                )}
               </div>
-            ),
-          )}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Service Type Selection Dialog */}
@@ -513,21 +504,15 @@ export default function ServicesClient({}: Props) {
         </DialogContent>
       </Dialog>
 
-      <AddServiceForm
-        open={showAddForm}
-        onOpenChange={setShowAddForm}
-        defaultCategoryId={CATEGORY_IDS.STANDARD}
-      />
+      <AddServiceForm open={showAddForm} onOpenChange={setShowAddForm} />
       <AddAddonForm
         open={showAddAddonForm}
         onOpenChange={setShowAddAddonForm}
-        defaultCategoryId={CATEGORY_IDS.ADD_ON}
       />
       <AddServiceForm
         open={showAddSubscriptionForm}
         onOpenChange={setShowAddSubscriptionForm}
         subscriptionMode={true}
-        defaultCategoryId={CATEGORY_IDS.SUBSCRIPTION}
       />
       <EditServiceForm
         serviceId={editingId}

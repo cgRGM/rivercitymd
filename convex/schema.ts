@@ -93,7 +93,14 @@ const schema = defineSchema({
     basePriceMedium: v.optional(v.number()),
     basePriceLarge: v.optional(v.number()),
     duration: v.number(), // in minutes
-    categoryId: v.id("serviceCategories"),
+    serviceType: v.optional(
+      v.union(
+        v.literal("standard"),
+        v.literal("subscription"),
+        v.literal("addon"),
+      ),
+    ),
+    categoryId: v.optional(v.id("serviceCategories")), // legacy field
     includedServiceIds: v.optional(v.array(v.id("services"))),
     isActive: v.boolean(),
     // NEW FIELDS:
@@ -102,7 +109,9 @@ const schema = defineSchema({
     stripeProductId: v.optional(v.string()), // Stripe product ID
     stripePriceIds: v.optional(v.array(v.string())), // Stripe price IDs for different sizes
     // Note: Deposit is now a separate product managed via depositSettings table
-  }).index("by_category", ["categoryId"]),
+  })
+    .index("by_service_type", ["serviceType"])
+    .index("by_category", ["categoryId"]),
 
   // Appointments/Bookings
   appointments: defineTable({

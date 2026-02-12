@@ -30,7 +30,14 @@ export const listForAdmin = query({
           basePriceMedium: v.optional(v.number()),
           basePriceLarge: v.optional(v.number()),
           duration: v.number(),
-          categoryId: v.id("serviceCategories"),
+          serviceType: v.optional(
+            v.union(
+              v.literal("standard"),
+              v.literal("subscription"),
+              v.literal("addon"),
+            ),
+          ),
+          categoryId: v.optional(v.id("serviceCategories")),
           includedServiceIds: v.optional(v.array(v.id("services"))),
           isActive: v.boolean(),
           features: v.optional(v.array(v.string())),
@@ -314,9 +321,13 @@ export const submit = mutation({
     });
 
     // Send admin notification email (schedule action to avoid blocking)
-    await ctx.scheduler.runAfter(0, internal.emails.sendAdminReviewSubmittedNotification, {
-      reviewId,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.emails.sendAdminReviewSubmittedNotification,
+      {
+        reviewId,
+      },
+    );
 
     return reviewId;
   },

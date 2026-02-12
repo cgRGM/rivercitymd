@@ -9,9 +9,19 @@ import { v } from "convex/values";
 import { getUserIdFromIdentity } from "./auth";
 import { internal, api } from "./_generated/api";
 
-// === Categories ===
+const SERVICE_TYPE_LABELS = {
+  standard: "Standard Services",
+  addon: "Add-on Services",
+  subscription: "Subscription Plans",
+} as const;
 
-// List all service categories
+const normalizeServiceType = (
+  serviceType?: "standard" | "addon" | "subscription",
+) => serviceType ?? "standard";
+
+// === Legacy Categories ===
+
+// List legacy service categories
 export const listCategories = query({
   args: {},
   handler: async (ctx) => {
@@ -19,7 +29,7 @@ export const listCategories = query({
   },
 });
 
-// Create a new service category
+// Create a legacy service category
 export const createCategory = mutation({
   args: {
     name: v.string(),
@@ -65,6 +75,17 @@ export const createStripeProduct = action({
       return;
     }
 
+    const serviceType = normalizeServiceType(service.serviceType);
+    const productBody = new URLSearchParams({
+      name: service.name,
+      description: service.description || "",
+      "metadata[serviceId]": args.serviceId,
+      "metadata[serviceType]": serviceType,
+    });
+    if (service.categoryId) {
+      productBody.append("metadata[categoryId]", service.categoryId);
+    }
+
     // Create Stripe product using HTTP fetch (no SDK)
     const productResponse = await fetch("https://api.stripe.com/v1/products", {
       method: "POST",
@@ -72,12 +93,7 @@ export const createStripeProduct = action({
         Authorization: `Bearer ${stripeSecretKey}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams({
-        name: service.name,
-        description: service.description || "",
-        "metadata[serviceId]": args.serviceId,
-        "metadata[categoryId]": service.categoryId,
-      }),
+      body: productBody,
     });
 
     if (!productResponse.ok) {
@@ -183,18 +199,17 @@ export const createStripeProduct = action({
   },
 });
 
-// Get all services, optionally joined with their category
+// Get all services with a display label for compatibility
 export const listWithCategories = query({
   args: {},
   handler: async (ctx) => {
     const services = await ctx.db.query("services").collect();
-    const categories = await ctx.db.query("serviceCategories").collect();
-
-    const categoryMap = new Map(categories.map((c) => [c._id, c.name]));
 
     return services.map((service) => ({
       ...service,
-      categoryName: categoryMap.get(service.categoryId) || "Unknown",
+      serviceType: normalizeServiceType(service.serviceType),
+      categoryName:
+        SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
     }));
   },
 });
@@ -216,7 +231,14 @@ export const create = mutation({
     basePriceMedium: v.optional(v.number()),
     basePriceLarge: v.optional(v.number()),
     duration: v.number(),
-    categoryId: v.id("serviceCategories"),
+    serviceType: v.optional(
+      v.union(
+        v.literal("standard"),
+        v.literal("subscription"),
+        v.literal("addon"),
+      ),
+    ),
+    categoryId: v.optional(v.id("serviceCategories")), // legacy
     includedServiceIds: v.optional(v.array(v.id("services"))),
     features: v.optional(v.array(v.string())),
     icon: v.optional(v.string()),
@@ -239,6 +261,7 @@ export const create = mutation({
       basePriceMedium: args.basePriceMedium,
       basePriceLarge: args.basePriceLarge,
       duration: args.duration,
+      serviceType: normalizeServiceType(args.serviceType),
       categoryId: args.categoryId,
       includedServiceIds: args.includedServiceIds,
       features: args.features,
@@ -265,7 +288,14 @@ export const update = mutation({
     basePriceMedium: v.optional(v.number()),
     basePriceLarge: v.optional(v.number()),
     duration: v.number(),
-    categoryId: v.id("serviceCategories"),
+    serviceType: v.optional(
+      v.union(
+        v.literal("standard"),
+        v.literal("subscription"),
+        v.literal("addon"),
+      ),
+    ),
+    categoryId: v.optional(v.id("serviceCategories")), // legacy
     includedServiceIds: v.optional(v.array(v.id("services"))),
     features: v.optional(v.array(v.string())),
     icon: v.optional(v.string()),
@@ -285,7 +315,18 @@ export const update = mutation({
       0;
 
     await ctx.db.patch(serviceId, {
-      ...updates,
+      name: updates.name,
+      description: updates.description,
+      basePriceSmall: updates.basePriceSmall,
+      basePriceMedium: updates.basePriceMedium,
+      basePriceLarge: updates.basePriceLarge,
+      duration: updates.duration,
+      serviceType: normalizeServiceType(updates.serviceType),
+      categoryId: updates.categoryId,
+      includedServiceIds: updates.includedServiceIds,
+      features: updates.features,
+      icon: updates.icon,
+      isActive: updates.isActive,
       basePrice, // For backwards compatibility
     });
     return serviceId;
@@ -322,8 +363,6 @@ export const listWithBookingStats = query({
   args: {},
   handler: async (ctx) => {
     const services = await ctx.db.query("services").collect();
-    const categories = await ctx.db.query("serviceCategories").collect();
-    const categoryMap = new Map(categories.map((c) => [c._id, c.name]));
 
     // Get this month's appointments
     const today = new Date();
@@ -345,7 +384,9 @@ export const listWithBookingStats = query({
 
       return {
         ...service,
-        categoryName: categoryMap.get(service.categoryId) || "Unknown",
+        serviceType: normalizeServiceType(service.serviceType),
+        serviceTypeLabel:
+          SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
         bookings: bookingCount,
         popularity,
       };

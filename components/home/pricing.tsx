@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function PricingSection() {
   // Fetch services
-  const servicesQuery = useQuery(api.services.listWithCategories);
+  const servicesQuery = useQuery(api.services.list);
 
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<
@@ -28,7 +28,10 @@ export function PricingSection() {
 
   // Transform services data for display - show all active services
   const mainServices =
-    servicesQuery?.filter((service) => service.isActive) || [];
+    servicesQuery?.filter(
+      (service) =>
+        service.isActive && (service.serviceType ?? "standard") !== "addon",
+    ) || [];
 
   // Handle loading state
   if (servicesQuery === undefined) {
@@ -48,29 +51,29 @@ export function PricingSection() {
               className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 sm:gap-6 sm:max-w-7xl sm:mx-auto"
               aria-label="Service pricing cards"
             >
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div
-                key={i}
-                className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
-              >
-                <Card className="h-full">
-                  <CardHeader className="text-center pb-4">
-                  <Skeleton className="h-8 w-8 mx-auto mb-2" />
-                  <Skeleton className="h-6 w-32 mx-auto mb-2" />
-                  <Skeleton className="h-4 w-48 mx-auto mb-4" />
-                  <Skeleton className="h-8 w-24 mx-auto" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 mb-4">
-                      {Array.from({ length: 4 }).map((_, j) => (
-                        <Skeleton key={j} className="h-4 w-full" />
-                      ))}
-                    </div>
-                    <Skeleton className="h-10 w-full" />
-                  </CardContent>
-                </Card>
-              </div>
-            ))}
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
+                >
+                  <Card className="h-full">
+                    <CardHeader className="text-center pb-4">
+                      <Skeleton className="h-8 w-8 mx-auto mb-2" />
+                      <Skeleton className="h-6 w-32 mx-auto mb-2" />
+                      <Skeleton className="h-4 w-48 mx-auto mb-4" />
+                      <Skeleton className="h-8 w-24 mx-auto" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2 mb-4">
+                        {Array.from({ length: 4 }).map((_, j) => (
+                          <Skeleton key={j} className="h-4 w-full" />
+                        ))}
+                      </div>
+                      <Skeleton className="h-10 w-full" />
+                    </CardContent>
+                  </Card>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -168,66 +171,68 @@ export function PricingSection() {
               className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 sm:gap-6 sm:max-w-7xl sm:mx-auto"
               aria-label="Service pricing cards"
             >
-            {mainServices.map((service, index) => {
-              const price =
-                selectedSize === "small"
-                  ? service.basePriceSmall
-                  : selectedSize === "medium"
-                    ? service.basePriceMedium
-                    : service.basePriceLarge;
+              {mainServices.map((service, index) => {
+                const price =
+                  selectedSize === "small"
+                    ? service.basePriceSmall
+                    : selectedSize === "medium"
+                      ? service.basePriceMedium
+                      : service.basePriceLarge;
 
-              return (
-                <motion.div
-                  key={service._id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true, margin: "-50px" }}
-                  transition={{ duration: 0.4, delay: index * 0.1 }}
-                  className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
-                >
-                  <Card className="relative hover:shadow-xl transition-all h-full">
-                    <CardHeader className="text-center pb-4">
-                      {service.icon && (
-                        <div className="text-4xl mb-2">{service.icon}</div>
-                      )}
-                      <CardTitle className="text-xl">{service.name}</CardTitle>
-                      <CardDescription className="text-xs">
-                        {service.description}
-                      </CardDescription>
-                      <div className="mt-4">
-                        <span className="text-3xl font-bold">
-                          ${price?.toFixed(2) || "N/A"}
-                        </span>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {Math.floor(service.duration / 60)}h{" "}
-                          {service.duration % 60}m
-                        </p>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {service.features && service.features.length > 0 && (
-                        <ul className="space-y-2">
-                          {service.features.slice(0, 4).map((feature, i) => (
-                            <li
-                              key={i}
-                              className="flex items-start gap-2 text-sm"
-                            >
-                              <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
-                              <span>{feature}</span>
-                            </li>
-                          ))}
-                          {service.features.length > 4 && (
-                            <li className="text-muted-foreground text-sm">
-                              +{service.features.length - 4} more features
-                            </li>
-                          )}
-                        </ul>
-                      )}
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              );
-            })}
+                return (
+                  <motion.div
+                    key={service._id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    whileInView={{ opacity: 1, scale: 1 }}
+                    viewport={{ once: true, margin: "-50px" }}
+                    transition={{ duration: 0.4, delay: index * 0.1 }}
+                    className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
+                  >
+                    <Card className="relative hover:shadow-xl transition-all h-full">
+                      <CardHeader className="text-center pb-4">
+                        {service.icon && (
+                          <div className="text-4xl mb-2">{service.icon}</div>
+                        )}
+                        <CardTitle className="text-xl">
+                          {service.name}
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          {service.description}
+                        </CardDescription>
+                        <div className="mt-4">
+                          <span className="text-3xl font-bold">
+                            ${price?.toFixed(2) || "N/A"}
+                          </span>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {Math.floor(service.duration / 60)}h{" "}
+                            {service.duration % 60}m
+                          </p>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {service.features && service.features.length > 0 && (
+                          <ul className="space-y-2">
+                            {service.features.slice(0, 4).map((feature, i) => (
+                              <li
+                                key={i}
+                                className="flex items-start gap-2 text-sm"
+                              >
+                                <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
+                                <span>{feature}</span>
+                              </li>
+                            ))}
+                            {service.features.length > 4 && (
+                              <li className="text-muted-foreground text-sm">
+                                +{service.features.length - 4} more features
+                              </li>
+                            )}
+                          </ul>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
 

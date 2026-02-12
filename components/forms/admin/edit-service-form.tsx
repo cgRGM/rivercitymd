@@ -24,13 +24,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,7 +33,6 @@ import { X, Plus } from "lucide-react";
 const formSchema = z.object({
   name: z.string().min(1, "Service name is required"),
   description: z.string().min(1, "Description is required"),
-  categoryId: z.string().min(1, "Please select a category"),
   duration: z.number().min(1, "Duration must be at least 1 minute"),
   basePriceSmall: z.number().min(0, "Price must be non-negative"),
   basePriceMedium: z.number().min(0, "Price must be non-negative"),
@@ -67,7 +59,6 @@ export function EditServiceForm({
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
-  const categories = useQuery(api.services.listCategories);
   const allServices = useQuery(api.services.list);
   const service = useQuery(
     api.services.getById,
@@ -81,7 +72,6 @@ export function EditServiceForm({
     defaultValues: {
       name: "",
       description: "",
-      categoryId: "",
       duration: 60,
       basePriceSmall: 0,
       basePriceMedium: 0,
@@ -99,7 +89,6 @@ export function EditServiceForm({
       form.reset({
         name: service.name,
         description: service.description,
-        categoryId: service.categoryId,
         duration: service.duration,
         basePriceSmall: service.basePriceSmall || 0,
         basePriceMedium: service.basePriceMedium || 0,
@@ -125,7 +114,7 @@ export function EditServiceForm({
         basePriceMedium: data.basePriceMedium,
         basePriceLarge: data.basePriceLarge,
         duration: data.duration,
-        categoryId: data.categoryId as Id<"serviceCategories">,
+        serviceType: service?.serviceType ?? "standard",
         includedServiceIds: data.includedServiceIds as Id<"services">[],
         features: data.features,
         icon: data.icon,
@@ -207,49 +196,19 @@ export function EditServiceForm({
                 )}
               />
 
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="icon"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Icon (Emoji)</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="🚗" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="categoryId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Category</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a category" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {categories?.map((category) => (
-                            <SelectItem key={category._id} value={category._id}>
-                              {category.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+              <FormField
+                control={form.control}
+                name="icon"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Icon (Emoji)</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="🚗" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

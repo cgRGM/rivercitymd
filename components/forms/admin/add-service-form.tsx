@@ -24,13 +24,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,7 +33,6 @@ import { X, Plus } from "lucide-react";
 const formSchema = z.object({
   name: z.string().min(1, "Service name is required"),
   description: z.string().min(1, "Description is required"),
-  categoryId: z.string().optional(),
   duration: z.number().min(1, "Duration must be at least 1 minute"),
   basePriceSmall: z.number().min(0, "Price must be non-negative"),
   basePriceMedium: z.number().min(0, "Price must be non-negative"),
@@ -57,7 +49,6 @@ interface AddServiceFormProps {
   onOpenChange: (open: boolean) => void;
   addOnMode?: boolean;
   subscriptionMode?: boolean;
-  defaultCategoryId?: string;
 }
 
 export function AddServiceForm({
@@ -65,33 +56,18 @@ export function AddServiceForm({
   onOpenChange,
   addOnMode = false,
   subscriptionMode = false,
-  defaultCategoryId,
 }: AddServiceFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
-  const categories = useQuery(api.services.listCategories);
   const allServices = useQuery(api.services.list);
   const createService = useMutation(api.services.create);
-
-  // Use provided default category or auto-select based on mode
-  const autoSelectedCategoryId = categories?.find((cat) => {
-    if (subscriptionMode) {
-      return cat.name.toLowerCase().includes("subscription");
-    } else if (addOnMode) {
-      return cat.name.toLowerCase().includes("add");
-    } else {
-      return cat.name.toLowerCase().includes("standard");
-    }
-  })?._id;
-  const finalDefaultCategoryId = defaultCategoryId || autoSelectedCategoryId;
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
       description: "",
-      categoryId: finalDefaultCategoryId,
       duration: 60,
       basePriceSmall: 0,
       basePriceMedium: 0,
@@ -121,13 +97,11 @@ export function AddServiceForm({
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
     try {
-      const categoryId = data.categoryId || defaultCategoryId;
-      if (!categoryId) {
-        toast.error(
-          "No appropriate category found. Please ensure Standard and Add-on categories exist.",
-        );
-        return;
-      }
+      const serviceType = subscriptionMode
+        ? "subscription"
+        : addOnMode
+          ? "addon"
+          : "standard";
 
       await createService({
         name: data.name,
@@ -136,7 +110,7 @@ export function AddServiceForm({
         basePriceMedium: data.basePriceMedium,
         basePriceLarge: data.basePriceLarge,
         duration: data.duration,
-        categoryId: categoryId as Id<"serviceCategories">,
+        serviceType,
         includedServiceIds: data.includedServiceIds as Id<"services">[],
         features: data.features,
         icon: data.icon,
@@ -145,10 +119,7 @@ export function AddServiceForm({
       toast.success(
         `${subscriptionMode ? "Subscription" : addOnMode ? "Add-on" : "Service"} created successfully`,
       );
-      form.reset({
-        ...form.getValues(),
-        categoryId: finalDefaultCategoryId,
-      });
+      form.reset();
       onOpenChange(false);
     } catch {
       toast.error(
@@ -211,31 +182,6 @@ export function AddServiceForm({
                         placeholder="Describe what this service includes"
                       />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="categoryId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {categories?.map((category) => (
-                          <SelectItem key={category._id} value={category._id}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -347,7 +293,6 @@ export function AddServiceForm({
                   )}
                 />
               </div>
-
             </div>
 
             {/* Features */}
