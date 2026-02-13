@@ -582,14 +582,28 @@ export const updateStatus = mutation({
         .first();
 
       if (invoice && invoice.depositPaid && invoice.status === "draft") {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.payments.createStripeInvoiceAfterDeposit,
-          {
-            appointmentId: args.appointmentId,
-            invoiceId: invoice._id,
-          },
+        console.log(
+          `[appointments] scheduling post-deposit invoice generation appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
         );
+        try {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.payments.createStripeInvoiceAfterDeposit,
+            {
+              appointmentId: args.appointmentId,
+              invoiceId: invoice._id,
+            },
+          );
+          console.log(
+            `[appointments] post-deposit invoice generation scheduled appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
+          );
+        } catch (error) {
+          console.error(
+            `[appointments] failed to schedule post-deposit invoice generation appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
+            error,
+          );
+          throw error;
+        }
       }
     }
 
@@ -704,14 +718,28 @@ export const updateStatusInternal = internalMutation({
         .first();
 
       if (invoice && invoice.depositPaid && invoice.status === "draft") {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.payments.createStripeInvoiceAfterDeposit,
-          {
-            appointmentId: args.appointmentId,
-            invoiceId: invoice._id,
-          },
+        console.log(
+          `[appointments] scheduling post-deposit invoice generation appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
         );
+        try {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.payments.createStripeInvoiceAfterDeposit,
+            {
+              appointmentId: args.appointmentId,
+              invoiceId: invoice._id,
+            },
+          );
+          console.log(
+            `[appointments] post-deposit invoice generation scheduled appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
+          );
+        } catch (error) {
+          console.error(
+            `[appointments] failed to schedule post-deposit invoice generation appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
+            error,
+          );
+          throw error;
+        }
       }
     }
 

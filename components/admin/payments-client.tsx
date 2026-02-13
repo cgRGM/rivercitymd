@@ -51,7 +51,24 @@ interface Invoice {
 function InvoicePreview({ invoice }: { invoice: Invoice }) {
   const business = useQuery(api.business.get);
 
-  if (!business) return null;
+  if (business === undefined) {
+    return (
+      <div className="border border-gray-200 p-8 max-w-4xl mx-auto bg-white space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-64" />
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="h-48 w-full" />
+      </div>
+    );
+  }
+
+  const businessData = business ?? {
+    name: "River City Mobile Detailing",
+    owner: "",
+    address: "",
+    cityStateZip: "",
+    country: "",
+  };
 
   return (
     <div
@@ -60,11 +77,11 @@ function InvoicePreview({ invoice }: { invoice: Invoice }) {
     >
       <div className="flex justify-between items-start mb-8">
         <div className="text-sm">
-          <h3 className="font-bold text-lg">{business.name}</h3>
-          <p>{business.owner}</p>
-          <p>{business.address}</p>
-          <p>{business.cityStateZip}</p>
-          <p>{business.country}</p>
+          <h3 className="font-bold text-lg">{businessData.name}</h3>
+          <p>{businessData.owner}</p>
+          <p>{businessData.address}</p>
+          <p>{businessData.cityStateZip}</p>
+          <p>{businessData.country}</p>
         </div>
         <div className="text-right">
           <h2 className="text-4xl font-bold uppercase text-gray-300">

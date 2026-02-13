@@ -298,7 +298,7 @@ export const updateStripeInvoiceData = internalMutation({
   args: {
     invoiceId: v.id("invoices"),
     stripeInvoiceId: v.string(),
-    stripeInvoiceUrl: v.string(),
+    stripeInvoiceUrl: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("sent"),
@@ -307,11 +307,42 @@ export const updateStripeInvoiceData = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.invoiceId, {
+    const patchData: {
+      stripeInvoiceId: string;
+      stripeInvoiceUrl?: string;
+      status: "draft" | "sent" | "paid" | "overdue";
+    } = {
       stripeInvoiceId: args.stripeInvoiceId,
-      stripeInvoiceUrl: args.stripeInvoiceUrl,
       status: args.status,
+    };
+
+    if (args.stripeInvoiceUrl !== undefined) {
+      patchData.stripeInvoiceUrl = args.stripeInvoiceUrl;
+    }
+
+    await ctx.db.patch(args.invoiceId, patchData);
+    return args.invoiceId;
+  },
+});
+
+// Internal repair mutation used by payment backfills.
+export const resetFalsePaidStateInternal = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+  },
+  returns: v.id("invoices"),
+  handler: async (ctx, args) => {
+    const invoice = await ctx.db.get(args.invoiceId);
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+
+    await ctx.db.patch(args.invoiceId, {
+      status: invoice.stripeInvoiceId ? "sent" : "draft",
+      paidDate: undefined,
+      finalPaymentIntentId: undefined,
     });
+
     return args.invoiceId;
   },
 });

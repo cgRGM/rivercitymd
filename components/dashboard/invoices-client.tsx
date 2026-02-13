@@ -64,6 +64,14 @@ type Invoice = {
   depositPaymentIntentId?: string;
   remainingBalance?: number;
   finalPaymentIntentId?: string;
+  customer?: string;
+  customerEmail?: string;
+  customerAddress?: {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  };
   appointment: {
     _id: Id<"appointments">;
     services: Array<{
@@ -82,7 +90,29 @@ function InvoicePreview({ invoice }: { invoice: Invoice }) {
   const business = useQuery(api.business.get);
   const currentUser = useQuery(api.users.getCurrentUser);
 
-  if (!business || !currentUser) return null;
+  if (business === undefined || currentUser === undefined) {
+    return (
+      <div className="border border-gray-200 p-8 max-w-4xl mx-auto bg-white space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-64" />
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="h-48 w-full" />
+      </div>
+    );
+  }
+
+  const businessData = business ?? {
+    name: "River City Mobile Detailing",
+    owner: "",
+    address: "",
+    cityStateZip: "",
+    country: "",
+    logoUrl: null,
+  };
+
+  const customerName = currentUser?.name || invoice.customer || "Customer";
+  const customerEmail = currentUser?.email || invoice.customerEmail || "";
+  const customerAddress = currentUser?.address || invoice.customerAddress;
 
   return (
     <div
@@ -91,20 +121,20 @@ function InvoicePreview({ invoice }: { invoice: Invoice }) {
     >
       <div className="flex justify-between items-start mb-8">
         <div className="text-sm">
-          {business.logoUrl && (
+          {businessData.logoUrl && (
             <Image
-              src={business.logoUrl}
+              src={businessData.logoUrl}
               alt="Company Logo"
               width={48}
               height={48}
               className="h-12 mb-2"
             />
           )}
-          <h3 className="font-bold text-lg">{business.name}</h3>
-          <p>{business.owner}</p>
-          <p>{business.address}</p>
-          <p>{business.cityStateZip}</p>
-          <p>{business.country}</p>
+          <h3 className="font-bold text-lg">{businessData.name}</h3>
+          <p>{businessData.owner}</p>
+          <p>{businessData.address}</p>
+          <p>{businessData.cityStateZip}</p>
+          <p>{businessData.country}</p>
         </div>
         <div className="text-right">
           <h2 className="text-4xl font-bold uppercase text-gray-300">
@@ -116,17 +146,17 @@ function InvoicePreview({ invoice }: { invoice: Invoice }) {
       <div className="flex justify-between mb-8 text-sm">
         <div>
           <p className="font-bold text-gray-500 mb-1">BILL TO</p>
-          <p className="font-bold">{currentUser.name}</p>
-          {currentUser.address && (
+          <p className="font-bold">{customerName}</p>
+          {customerAddress && (
             <>
-              <p>{currentUser.address.street}</p>
+              <p>{customerAddress.street}</p>
               <p>
-                {currentUser.address.city}, {currentUser.address.state}{" "}
-                {currentUser.address.zip}
+                {customerAddress.city}, {customerAddress.state}{" "}
+                {customerAddress.zip}
               </p>
             </>
           )}
-          <p>{currentUser.email}</p>
+          <p>{customerEmail}</p>
         </div>
         <div className="text-right">
           <p>
