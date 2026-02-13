@@ -60,6 +60,10 @@ function shouldScheduleNotificationJobs(): boolean {
   return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
 }
 
+function shouldScheduleStripeCustomerSync(): boolean {
+  return Boolean(process.env.STRIPE_SECRET_KEY?.trim());
+}
+
 function normalizeBackfillLimit(limit?: number): number {
   if (limit === undefined) {
     return DEFAULT_STRIPE_BACKFILL_LIMIT;
@@ -551,6 +555,22 @@ export const upsertFromClerk = internalMutation({
         // These are managed separately and should never be overwritten by webhook
       });
 
+      const role = existingUser?.role || "client";
+      if (
+        shouldScheduleStripeCustomerSync() &&
+        role !== "admin" &&
+        !existingUser?.stripeCustomerId
+      ) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.users.ensureStripeCustomerWithRetry,
+          {
+            userId,
+            attempt: 0,
+          },
+        );
+      }
+
       return userId;
     }
 
@@ -569,6 +589,13 @@ export const upsertFromClerk = internalMutation({
       status: "active",
       notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
     });
+
+    if (shouldScheduleStripeCustomerSync()) {
+      await ctx.scheduler.runAfter(0, internal.users.ensureStripeCustomerWithRetry, {
+        userId,
+        attempt: 0,
+      });
+    }
 
     return userId;
   },

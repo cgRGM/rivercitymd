@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation } from "convex/react";
-import { preloadedQueryResult } from "convex/nextjs";
+import { useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   Card,
@@ -16,10 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-
-interface ProfileClientProps {
-  userPreloaded: ReturnType<typeof preloadedQueryResult>;
-}
 
 type NotificationPreferences = {
   emailNotifications: boolean;
@@ -74,8 +69,10 @@ function getUserNotificationPreferences(
   };
 }
 
-export default function ProfileClient({ userPreloaded }: ProfileClientProps) {
-  const user = preloadedQueryResult(userPreloaded);
+export default function ProfileClient() {
+  const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
+  const queryArgs = isAuthenticated ? {} : ("skip" as const);
+  const user = useQuery(api.users.getCurrentUser, queryArgs);
   const updateUserProfile = useMutation(api.users.updateUserProfile);
 
   const currentPersonal = useMemo(
@@ -158,8 +155,12 @@ export default function ProfileClient({ userPreloaded }: ProfileClientProps) {
       setIsPersonalDirty(false);
       markSaved("personal");
       toast.success("Personal information saved");
-    } catch {
-      toast.error("Failed to save personal information");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to save personal information",
+      );
     } finally {
       setSavingSection(null);
     }
@@ -186,8 +187,10 @@ export default function ProfileClient({ userPreloaded }: ProfileClientProps) {
       setIsAddressDirty(false);
       markSaved("address");
       toast.success("Address saved");
-    } catch {
-      toast.error("Failed to save address");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save address",
+      );
     } finally {
       setSavingSection(null);
     }
@@ -213,8 +216,12 @@ export default function ProfileClient({ userPreloaded }: ProfileClientProps) {
       setIsNotificationsDirty(false);
       markSaved("notifications");
       toast.success("Notification preferences saved");
-    } catch {
-      toast.error("Failed to save notification preferences");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to save notification preferences",
+      );
     } finally {
       setSavingSection(null);
     }
@@ -225,6 +232,32 @@ export default function ProfileClient({ userPreloaded }: ProfileClientProps) {
     setIsNotificationsDirty(false);
     setIsEditingNotifications(false);
   };
+
+  if (isAuthLoading || (isAuthenticated && user === undefined)) {
+    return (
+      <div className="space-y-6 animate-fade-in max-w-4xl">
+        <div>
+          <h2 className="text-3xl font-bold">Profile Settings</h2>
+          <p className="text-muted-foreground">
+            Loading your profile information...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-6 animate-fade-in max-w-4xl">
+        <div>
+          <h2 className="text-3xl font-bold">Profile Settings</h2>
+          <p className="text-muted-foreground">
+            Sign in to manage your profile settings.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in max-w-4xl">

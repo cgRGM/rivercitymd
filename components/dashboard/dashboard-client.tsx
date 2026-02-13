@@ -53,47 +53,21 @@ type RawAppointment = {
 };
 
 export default function DashboardClient() {
-  const { isAuthenticated } = useConvexAuth();
-  const upcomingAppointmentsQuery = useQuery(api.appointments.getUpcoming);
-  const currentUserQuery = useQuery(api.users.getCurrentUser);
-  const userVehiclesQuery = useQuery(api.vehicles.getMyVehicles);
-  const userAppointmentsQuery = useQuery(api.appointments.getUserAppointments);
-
-  // Handle unauthenticated state
-  if (!isAuthenticated) {
-    return (
-      <div className="space-y-8 animate-fade-in">
-        <div>
-          <h2 className="text-3xl font-bold">Dashboard</h2>
-          <p className="text-muted-foreground mt-1">
-            Access your dashboard and manage your appointments
-          </p>
-        </div>
-
-        <Card className="text-center py-12">
-          <CardContent>
-            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">
-              Authentication Required
-            </h3>
-            <p className="text-muted-foreground mb-6">
-              Please sign in to access your dashboard.
-            </p>
-            <Button asChild>
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
+  const queryArgs = isAuthenticated ? {} : ("skip" as const);
+  const upcomingAppointmentsQuery = useQuery(api.appointments.getUpcoming, queryArgs);
+  const currentUserQuery = useQuery(api.users.getCurrentUser, queryArgs);
+  const userVehiclesQuery = useQuery(api.vehicles.getMyVehicles, queryArgs);
+  const userAppointmentsQuery = useQuery(api.appointments.getUserAppointments, queryArgs);
 
   // Handle loading state
   if (
-    upcomingAppointmentsQuery === undefined ||
-    currentUserQuery === undefined ||
-    userVehiclesQuery === undefined ||
-    userAppointmentsQuery === undefined
+    isAuthLoading ||
+    (isAuthenticated &&
+      (upcomingAppointmentsQuery === undefined ||
+        currentUserQuery === undefined ||
+        userVehiclesQuery === undefined ||
+        userAppointmentsQuery === undefined))
   ) {
     return (
       <div className="space-y-8 animate-fade-in">
@@ -166,6 +140,35 @@ export default function DashboardClient() {
     );
   }
 
+  // Handle unauthenticated state
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">Dashboard</h2>
+          <p className="text-muted-foreground mt-1">
+            Access your dashboard and manage your appointments
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Authentication Required
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              Please sign in to access your dashboard.
+            </p>
+            <Button asChild>
+              <Link href="/sign-in">Sign In</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Handle error states
   if (
     upcomingAppointmentsQuery === null ||
@@ -199,10 +202,10 @@ export default function DashboardClient() {
     );
   }
 
-  const upcomingAppointments = upcomingAppointmentsQuery;
-  const currentUser = currentUserQuery;
-  const userVehicles = userVehiclesQuery;
-  const completedAppointments = userAppointmentsQuery.past || [];
+  const upcomingAppointments = upcomingAppointmentsQuery ?? [];
+  const currentUser = currentUserQuery ?? null;
+  const userVehicles = userVehiclesQuery ?? [];
+  const completedAppointments = userAppointmentsQuery?.past || [];
 
   return (
     <div className="space-y-8 animate-fade-in">

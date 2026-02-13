@@ -1,4 +1,9 @@
-import { query, internalMutation, internalQuery } from "./_generated/server";
+import {
+  query,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
@@ -18,11 +23,79 @@ const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
   },
 } as const;
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function extractIdentityEmail(value: unknown, depth = 0): string | null {
+  if (depth > 3 || value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (EMAIL_REGEX.test(trimmed)) {
+      return trimmed;
+    }
+
+    if (
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    ) {
+      try {
+        return extractIdentityEmail(JSON.parse(trimmed), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const email = extractIdentityEmail(item, depth + 1);
+      if (email) {
+        return email;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const candidateKeys = [
+      "email",
+      "email_address",
+      "primary_email_address",
+      "address",
+      "value",
+    ];
+    for (const key of candidateKeys) {
+      const email = extractIdentityEmail(record[key], depth + 1);
+      if (email) {
+        return email;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getNormalizedIdentityEmail(identity: { email?: unknown }): string | null {
+  return extractIdentityEmail(identity.email);
+}
+
 async function getUserFromIdentity(
   ctx: QueryCtx | MutationCtx,
   identity: {
     subject?: string;
-    email?: string | null;
+    email?: unknown;
+  },
+  options?: {
+    linkMissingClerkUserId?: boolean;
   },
 ) {
   if (identity.subject) {
@@ -37,14 +110,29 @@ async function getUserFromIdentity(
     }
   }
 
-  if (identity.email) {
-    return await ctx.db
-      .query("users")
-      .withIndex("by_email", (q: any) => q.eq("email", identity.email!))
-      .first();
+  const normalizedEmail = getNormalizedIdentityEmail(identity);
+  if (!normalizedEmail) {
+    return null;
   }
 
-  return null;
+  const userByEmail = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q: any) => q.eq("email", normalizedEmail))
+    .first();
+
+  if (
+    userByEmail &&
+    options?.linkMissingClerkUserId &&
+    identity.subject &&
+    !userByEmail.clerkUserId &&
+    "scheduler" in ctx
+  ) {
+    await ctx.db.patch(userByEmail._id, {
+      clerkUserId: identity.subject,
+    });
+  }
+
+  return userByEmail;
 }
 
 // Get the current user's role
@@ -134,12 +222,82 @@ export const getUserIdByEmail = internalQuery({
   },
   returns: v.union(v.id("users"), v.null()),
   handler: async (ctx, args) => {
+    const email = args.email.trim();
+    if (!email) {
+      return null;
+    }
+
     const user = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", email))
       .first();
 
     return user?._id || null;
+  },
+});
+
+export const getUserIdByClerkUserId = internalQuery({
+  args: {
+    clerkUserId: v.string(),
+  },
+  returns: v.union(v.id("users"), v.null()),
+  handler: async (ctx, args) => {
+    const clerkUserId = args.clerkUserId.trim();
+    if (!clerkUserId) {
+      return null;
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
+      .first();
+    return user?._id || null;
+  },
+});
+
+export const linkClerkUserIdByEmail = internalMutation({
+  args: {
+    email: v.string(),
+    clerkUserId: v.string(),
+  },
+  returns: v.union(v.id("users"), v.null()),
+  handler: async (ctx, args) => {
+    const email = args.email.trim();
+    const clerkUserId = args.clerkUserId.trim();
+    if (!email || !clerkUserId) {
+      return null;
+    }
+
+    const existingClerkUser = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
+      .first();
+    if (existingClerkUser) {
+      return existingClerkUser._id;
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+    if (!user) {
+      return null;
+    }
+
+    if (user.clerkUserId && user.clerkUserId !== clerkUserId) {
+      console.warn(
+        `[auth] Refusing to relink email ${email} to Clerk user ${clerkUserId}: already linked to ${user.clerkUserId}`,
+      );
+      return user._id;
+    }
+
+    if (!user.clerkUserId) {
+      await ctx.db.patch(user._id, {
+        clerkUserId,
+      });
+    }
+
+    return user._id;
   },
 });
 
@@ -239,19 +397,46 @@ export async function getUserIdFromIdentity(
 
   // For queries and mutations, query directly
   if ("db" in ctx) {
-    const user = await getUserFromIdentity(ctx, identity);
+    const user = await getUserFromIdentity(ctx, identity, {
+      linkMissingClerkUserId: true,
+    });
     return user?._id || null;
   }
 
-  if (!identity.email) {
+  const userIdByClerkUserId = await ctx.runQuery(internal.auth.getUserIdByClerkUserId, {
+    clerkUserId: identity.subject,
+  });
+  if (userIdByClerkUserId) {
+    return userIdByClerkUserId;
+  }
+
+  const normalizedEmail = getNormalizedIdentityEmail(identity);
+  if (!normalizedEmail) {
     return null;
   }
 
   // For actions, use an internal query
-  return await ctx.runQuery(internal.auth.getUserIdByEmail, {
-    email: identity.email,
+  const userIdByEmail = await ctx.runQuery(internal.auth.getUserIdByEmail, {
+    email: normalizedEmail,
   });
+
+  if (userIdByEmail) {
+    await ctx.runMutation(internal.auth.linkClerkUserIdByEmail, {
+      email: normalizedEmail,
+      clerkUserId: identity.subject,
+    });
+  }
+
+  return userIdByEmail;
 }
+
+export const getCurrentUserIdForAction = internalAction({
+  args: {},
+  returns: v.union(v.id("users"), v.null()),
+  handler: async (ctx) => {
+    return await getUserIdFromIdentity(ctx);
+  },
+});
 
 // Legacy internal mutation retained for compatibility with older flows.
 // Active Clerk webhook + onboarding flows should be used instead.

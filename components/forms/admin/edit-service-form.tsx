@@ -328,10 +328,14 @@ export function EditServiceForm({
                     className="flex items-center gap-1"
                   >
                     {feature}
-                    <X
-                      className="w-3 h-3 cursor-pointer"
+                    <button
+                      type="button"
                       onClick={() => removeFeature(index)}
-                    />
+                      className="inline-flex items-center"
+                      aria-label={`Remove feature ${feature}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </Badge>
                 ))}
               </div>

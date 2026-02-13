@@ -68,6 +68,10 @@ const recipientTypeValidator = v.union(
   v.literal("admin"),
   v.literal("customer"),
 );
+const deliveryResultValidator = v.object({
+  delivered: v.boolean(),
+  error: v.optional(v.string()),
+});
 
 type NotificationEvent =
   | "new_customer_onboarded"
@@ -80,6 +84,10 @@ type NotificationEvent =
 
 type DeliveryChannel = "email" | "sms";
 type RecipientType = "admin" | "customer";
+type DeliveryResult = {
+  delivered: boolean;
+  error?: string;
+};
 
 type QueueDispatchArgs = {
   event: NotificationEvent;
@@ -307,7 +315,7 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
       },
       {
         name: dedupeKey,
-        retry: true,
+        retry: args.channel === "email",
         onComplete: internal.notifications.handleNotificationCompletion,
         context: { dispatchId },
       },
@@ -687,7 +695,7 @@ export const deliverQueuedNotification = internalAction({
     reviewId: v.optional(v.id("reviews")),
     transition: v.optional(v.string()),
   },
-  returns: v.null(),
+  returns: deliveryResultValidator,
   handler: async (ctx, args) => {
     console.log(
       `[notifications] delivery attempt event=${args.event} channel=${args.channel} recipientType=${args.recipientType} dispatchId=${args.dispatchId}`,
@@ -695,11 +703,22 @@ export const deliverQueuedNotification = internalAction({
 
     if (args.channel === "email") {
       await deliverEmail(ctx, args);
-      return null;
+      return { delivered: true };
     }
 
-    await deliverSms(ctx, args);
-    return null;
+    try {
+      await deliverSms(ctx, args);
+      return { delivered: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[notifications] sms delivery failed dispatchId=${args.dispatchId}: ${message}`,
+      );
+      return {
+        delivered: false,
+        error: message,
+      };
+    }
   },
 });
 
@@ -718,6 +737,21 @@ export const handleNotificationCompletion = internalMutation({
 
     const now = Date.now();
     if (args.result.kind === "success") {
+      const returnValue = (args.result.returnValue || null) as DeliveryResult | null;
+      if (returnValue && !returnValue.delivered) {
+        const error =
+          returnValue.error || "Delivery reported failure without an error message";
+        await ctx.db.patch(dispatch._id, {
+          status: "failed",
+          error,
+          updatedAt: now,
+        });
+        console.error(
+          `[notifications] delivery failed dispatchId=${dispatch._id}: ${error}`,
+        );
+        return null;
+      }
+
       await ctx.db.patch(dispatch._id, {
         status: "sent",
         error: undefined,

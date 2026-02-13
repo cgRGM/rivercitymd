@@ -89,14 +89,15 @@ type Appointment = {
 interface AppointmentsClientProps {}
 
 export default function AppointmentsClient({}: AppointmentsClientProps) {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
   const searchParams = useSearchParams();
   const [isAppointmentOpen, setIsAppointmentOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] =
     useState<Appointment | null>(null);
 
-  const appointmentsData = useQuery(api.appointments.getUserAppointments);
+  const queryArgs = isAuthenticated ? {} : ("skip" as const);
+  const appointmentsData = useQuery(api.appointments.getUserAppointments, queryArgs);
   const updateStatus = useMutation(api.appointments.updateStatus);
 
   // Handle payment success/cancelled redirects from Stripe
@@ -113,37 +114,8 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
     }
   }, [searchParams]);
 
-  // Handle unauthenticated state
-  if (!isAuthenticated) {
-    return (
-      <div className="space-y-8 animate-fade-in">
-        <div>
-          <h2 className="text-3xl font-bold">My Appointments</h2>
-          <p className="text-muted-foreground mt-1">
-            View and manage your service appointments
-          </p>
-        </div>
-
-        <Card className="text-center py-12">
-          <CardContent>
-            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">
-              Authentication Required
-            </h3>
-            <p className="text-muted-foreground mb-6">
-              Please sign in to view your appointments.
-            </p>
-            <Button onClick={() => (window.location.href = "/sign-in")}>
-              Sign In
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   // Handle loading state
-  if (appointmentsData === undefined) {
+  if (isAuthLoading || (isAuthenticated && appointmentsData === undefined)) {
     return (
       <div className="space-y-8 animate-fade-in">
         <div>
@@ -208,6 +180,35 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
     );
   }
 
+  // Handle unauthenticated state
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h2 className="text-3xl font-bold">My Appointments</h2>
+          <p className="text-muted-foreground mt-1">
+            View and manage your service appointments
+          </p>
+        </div>
+
+        <Card className="text-center py-12">
+          <CardContent>
+            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              Authentication Required
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              Please sign in to view your appointments.
+            </p>
+            <Button onClick={() => (window.location.href = "/sign-in")}>
+              Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Handle error state
   if (appointmentsData === null) {
     return (
@@ -236,7 +237,7 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
     );
   }
 
-  const appointments = appointmentsData;
+  const appointments = appointmentsData ?? { upcoming: [], past: [] };
 
   const handleCancelAppointment = async (appointmentId: Id<"appointments">) => {
     try {

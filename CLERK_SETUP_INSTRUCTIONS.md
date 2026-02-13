@@ -15,6 +15,33 @@
    - Development format: `https://verb-noun-00.clerk.accounts.dev`
    - Production format: `https://clerk.<your-domain>.com`
 
+### Convex JWT claim mapping guardrails
+
+Use a claims mapping where `email` resolves to a real email string. Recommended:
+
+```json
+{
+  "aud": "convex",
+  "name": "{{user.full_name}}",
+  "first_name": "{{user.first_name}}",
+  "email": "{{user.primary_email_address}}",
+  "org_id": "{{org.id}}",
+  "picture": "{{user.image_url}}",
+  "metadata": "{{user.public_metadata}}",
+  "nickname": "{{user.username}}",
+  "given_name": "{{user.first_name}}",
+  "updated_at": "{{user.updated_at}}",
+  "family_name": "{{user.last_name}}",
+  "phone_number": "{{user.primary_phone_number}}",
+  "email_verified": "{{user.email_verified}}",
+  "phone_number_verified": "{{user.phone_number_verified}}"
+}
+```
+
+Important details:
+- Use `{{user.first_name}}` (not `{{user.fire_name}}`).
+- `email` must map to a usable email string (for example `{{user.primary_email_address}}`) so Convex can safely match users when webhook/subject linking is incomplete.
+
 ## Step 2: Get API Keys
 
 1. In Clerk Dashboard, navigate to **API Keys**
