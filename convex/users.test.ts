@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
 import { expect, test, describe } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -351,5 +351,153 @@ describe("users", () => {
       phone: "555-2222",
       role: "client",
     });
+  });
+
+  test("createUserProfile and retry action sync Stripe customer", async () => {
+    const t = convexTest(schema, modules);
+
+    const clerkUserId = "user_profile_sync_123";
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        email: "profilesync@example.com",
+        clerkUserId,
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const asUser = t.withIdentity({
+      subject: clerkUserId,
+      email: "profilesync@example.com",
+    });
+
+    await asUser.mutation(api.users.createUserProfile, {
+      name: "Profile Sync",
+      phone: "555-0199",
+      address: {
+        street: "1 Sync St",
+        city: "Little Rock",
+        state: "AR",
+        zip: "72201",
+      },
+      vehicles: [
+        {
+          year: 2022,
+          make: "Honda",
+          model: "Civic",
+          color: "Silver",
+        },
+      ],
+    });
+
+    // Validate the same internal retry action used by scheduler can sync the ID.
+    await t.action((internal.users as any).ensureStripeCustomerWithRetry, {
+      userId,
+      attempt: 0,
+    });
+
+    const updatedUser = await t.run(async (ctx) => {
+      return await ctx.db.get(userId);
+    });
+
+    expect(updatedUser?.stripeCustomerId).toBe(`cus_test_${userId}`);
+  });
+
+  test("ensureStripeCustomerWithRetry does not throw for deleted user", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        email: "deleted-user@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.delete(userId);
+    });
+
+    await expect(
+      t.action((internal.users as any).ensureStripeCustomerWithRetry, {
+        userId,
+        attempt: 0,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("backfillMissingStripeCustomers dry run and limit", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-backfill@example.com",
+        role: "admin",
+      });
+    });
+
+    const activeClientA = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        email: "active-client-a@example.com",
+        role: "client",
+        status: "active",
+      });
+    });
+    const activeClientB = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        email: "active-client-b@example.com",
+        role: "client",
+        status: "active",
+      });
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        email: "inactive-client@example.com",
+        role: "client",
+        status: "inactive",
+      });
+      await ctx.db.insert("users", {
+        email: "already-synced@example.com",
+        role: "client",
+        status: "active",
+        stripeCustomerId: "cus_existing_123",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-backfill@example.com",
+    });
+
+    const backfillMutation = (api.users as any).backfillMissingStripeCustomers;
+    const dryRunResult = await asAdmin.mutation(backfillMutation, {
+      dryRun: true,
+      limit: 10,
+    });
+    expect(dryRunResult).toMatchObject({
+      scanned: 5,
+      eligible: 2,
+      scheduled: 0,
+      dryRun: true,
+    });
+
+    const backfillResult = await asAdmin.mutation(backfillMutation, {
+      dryRun: false,
+      limit: 1,
+    });
+    expect(backfillResult).toMatchObject({
+      eligible: 2,
+      scheduled: 1,
+      dryRun: false,
+    });
+
+    const userA = await t.run(async (ctx) => ctx.db.get(activeClientA));
+    const userB = await t.run(async (ctx) => ctx.db.get(activeClientB));
+    // Backfill schedules async work; IDs are not patched synchronously in this mutation.
+    expect(userA?.stripeCustomerId).toBeUndefined();
+    expect(userB?.stripeCustomerId).toBeUndefined();
   });
 });

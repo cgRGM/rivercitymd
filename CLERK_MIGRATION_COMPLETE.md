@@ -101,9 +101,10 @@ If you have existing users from `@convex-dev/auth`:
 
 When a user signs in with Clerk for the first time:
 1. Clerk authenticates the user
-2. The `getUserRole` or `getCurrentUser` query automatically calls `ensureUserFromClerk`
-3. A Convex user record is created/linked with the Clerk user ID
-4. Stripe customer is created automatically
+2. Clerk webhook (`/clerk-users-webhook`) upserts/links the Convex user record
+3. Onboarding (`createUserProfile`) persists address + vehicles
+4. Stripe customer sync is scheduled after onboarding completes (with retries)
+5. Payment flows still lazily create Stripe customer as a fallback if needed
 
 ### What Changed
 
@@ -129,7 +130,7 @@ When a user signs in with Clerk for the first time:
 - Check Clerk Dashboard logs for authentication errors
 
 ### Users not appearing in Convex
-- The `ensureUserFromClerk` mutation is called automatically when `getUserRole` or `getCurrentUser` is queried
+- Ensure Clerk webhook delivery to `/clerk-users-webhook` is healthy
 - Check Convex logs for errors during user creation
 - Verify the email in Clerk matches the email in your Convex users table
 
@@ -171,4 +172,3 @@ When a user signs in with Clerk for the first time:
 ## Success! 🎉
 
 Your app is now using Clerk for authentication. The migration is complete and ready for testing!
-

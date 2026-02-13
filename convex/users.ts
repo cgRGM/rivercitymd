@@ -25,6 +25,16 @@ const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
   },
 } as const;
 
+const STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS = [
+  0,
+  60_000,
+  300_000,
+  1_800_000,
+  7_200_000,
+] as const;
+const DEFAULT_STRIPE_BACKFILL_LIMIT = 200;
+const MAX_STRIPE_BACKFILL_LIMIT = 1000;
+
 function resolvePreferredName(args: {
   onboardingName?: string;
   existingName?: string;
@@ -48,6 +58,13 @@ function resolvePreferredName(args: {
 
 function shouldScheduleNotificationJobs(): boolean {
   return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
+}
+
+function normalizeBackfillLimit(limit?: number): number {
+  if (limit === undefined) {
+    return DEFAULT_STRIPE_BACKFILL_LIMIT;
+  }
+  return Math.min(MAX_STRIPE_BACKFILL_LIMIT, Math.max(1, Math.floor(limit)));
 }
 
 // Get count of new customers (created in last 30 days, admin only)
@@ -345,7 +362,7 @@ export const createUserProfile = mutation({
           identityEmail: identity.email,
         });
 
-        // Create new user with role (Stripe customer will be created on-demand via ensureStripeCustomer)
+        // Create new user with role (Stripe customer sync runs after onboarding completion)
         const userData: any = {
           name: resolvedName,
           clerkUserId: clerkUserId,
@@ -354,7 +371,7 @@ export const createUserProfile = mutation({
           totalSpent: 0,
           status: "active",
           notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
-          // stripeCustomerId will be set when ensureStripeCustomer is called
+          // stripeCustomerId will be set by onboarding/payment Stripe sync flows
         };
         if (identity.email) {
           userData.email = identity.email;
@@ -386,6 +403,16 @@ export const createUserProfile = mutation({
             existingUser.notificationPreferences ||
             DEFAULT_USER_NOTIFICATION_PREFERENCES,
         });
+      }
+      if (!existingUser.stripeCustomerId) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.users.ensureStripeCustomerWithRetry,
+          {
+            userId,
+            attempt: 0,
+          },
+        );
       }
       // If role is already set (including "admin"), preserve it
       return { userId };
@@ -436,6 +463,13 @@ export const createUserProfile = mutation({
         color: vehicle.color,
       });
     }
+
+    // Sync Stripe customer as soon as onboarding is complete.
+    // Retries are handled internally if Stripe is temporarily unavailable.
+    await ctx.scheduler.runAfter(0, internal.users.ensureStripeCustomerWithRetry, {
+      userId,
+      attempt: 0,
+    });
 
     // Send admin notification email for new customer (after onboarding complete)
     // Only send if this is a new user (not updating existing)
@@ -521,7 +555,8 @@ export const upsertFromClerk = internalMutation({
     }
 
     // New user - create with default values
-    // Don't create Stripe customer here - it will be created during onboarding or first payment
+    // Don't create Stripe customer here; onboarding completion triggers sync and
+    // payment flows still have a lazy fallback.
     // Role defaults to "client" - admin role must be set manually in Convex dashboard
     const userId = await ctx.db.insert("users", {
       email: email,
@@ -536,6 +571,58 @@ export const upsertFromClerk = internalMutation({
     });
 
     return userId;
+  },
+});
+
+// Admin-triggered one-time backfill for active client users missing Stripe IDs.
+export const backfillMissingStripeCustomers = mutation({
+  args: {
+    limit: v.optional(v.number()),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    eligible: v.number(),
+    scheduled: v.number(),
+    dryRun: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const dryRun = args.dryRun ?? false;
+    const limit = normalizeBackfillLimit(args.limit);
+    const users = await ctx.db.query("users").collect();
+
+    const eligibleUsers = users.filter(
+      (user) =>
+        user.role !== "admin" &&
+        user.status !== "inactive" &&
+        !user.stripeCustomerId,
+    );
+
+    if (dryRun) {
+      return {
+        scanned: users.length,
+        eligible: eligibleUsers.length,
+        scheduled: 0,
+        dryRun: true,
+      };
+    }
+
+    const usersToSchedule = eligibleUsers.slice(0, limit);
+    for (const user of usersToSchedule) {
+      await ctx.scheduler.runAfter(0, internal.users.ensureStripeCustomerWithRetry, {
+        userId: user._id,
+        attempt: 0,
+      });
+    }
+
+    return {
+      scanned: users.length,
+      eligible: eligibleUsers.length,
+      scheduled: usersToSchedule.length,
+      dryRun: false,
+    };
   },
 });
 
@@ -1117,6 +1204,58 @@ export const updateStripeCustomerId = mutation({
   },
 });
 
+async function ensureStripeCustomerForUser(
+  ctx: any,
+  userId: Id<"users">,
+): Promise<string> {
+  const user = await ctx.runQuery(internal.users.getByIdInternal, {
+    userId,
+  });
+  if (!user) throw new Error("User not found");
+
+  // If user already has Stripe customer ID, return it
+  if (user.stripeCustomerId) {
+    return user.stripeCustomerId;
+  }
+
+  // Avoid Stripe network calls in tests to prevent pending fetch warnings
+  if (process.env.CONVEX_TEST === "true" || process.env.NODE_ENV === "test") {
+    const mockCustomerId = `cus_test_${userId}`;
+    await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
+      userId,
+      stripeCustomerId: mockCustomerId,
+    });
+    return mockCustomerId;
+  }
+
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error(
+      "STRIPE_SECRET_KEY environment variable is not set; cannot create Stripe customer",
+    );
+  }
+
+  // Use Stripe component to get or create customer
+  // Component's userId should be the auth provider's user ID (Clerk subject)
+  // We use clerkUserId if available, otherwise fall back to Convex userId as string
+  const { stripeClient } = await import("./stripeClient");
+  const authUserId = user.clerkUserId || userId;
+  const customer = await stripeClient.getOrCreateCustomer(ctx, {
+    userId: authUserId, // Component expects auth provider's user ID (string)
+    email: user.email,
+    name: user.name,
+    // Note: Component doesn't support metadata in getOrCreateCustomer
+    // Customer metadata can be updated separately if needed via Stripe API
+  });
+
+  // Update user with Stripe customer ID
+  await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
+    userId,
+    stripeCustomerId: customer.customerId,
+  });
+
+  return customer.customerId;
+}
+
 // Internal action to ensure Stripe customer exists (for use by mutations)
 // Now uses the @convex-dev/stripe component for customer management
 export const ensureStripeCustomer = internalAction({
@@ -1125,52 +1264,57 @@ export const ensureStripeCustomer = internalAction({
   },
   returns: v.string(), // Returns stripeCustomerId
   handler: async (ctx, args): Promise<string> => {
-    const user = await ctx.runQuery(internal.users.getByIdInternal, {
-      userId: args.userId,
-    });
-    if (!user) throw new Error("User not found");
+    return await ensureStripeCustomerForUser(ctx, args.userId);
+  },
+});
 
-    // If user already has Stripe customer ID, return it
-    if (user.stripeCustomerId) {
-      return user.stripeCustomerId;
+// Wrapper that retries Stripe customer sync with bounded backoff.
+// This action intentionally does not throw so caller flows (e.g. onboarding) remain non-blocking.
+export const ensureStripeCustomerWithRetry = internalAction({
+  args: {
+    userId: v.id("users"),
+    attempt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const maxAttempt = STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS.length - 1;
+    const attempt = Math.min(maxAttempt, Math.max(0, Math.floor(args.attempt ?? 0)));
+
+    try {
+      await ensureStripeCustomerForUser(ctx, args.userId);
+      return null;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage === "User not found") {
+        console.warn(
+          `[users.ensureStripeCustomerWithRetry] User not found, skipping retry for ${args.userId}`,
+        );
+        return null;
+      }
+
+      const nextAttempt = attempt + 1;
+      if (nextAttempt <= maxAttempt) {
+        const retryDelayMs = STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS[nextAttempt];
+        console.error(
+          `[users.ensureStripeCustomerWithRetry] Failed attempt ${attempt + 1}/${STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS.length} for ${args.userId}. Retrying in ${retryDelayMs}ms.`,
+          error,
+        );
+        await ctx.scheduler.runAfter(
+          retryDelayMs,
+          internal.users.ensureStripeCustomerWithRetry,
+          {
+            userId: args.userId,
+            attempt: nextAttempt,
+          },
+        );
+      } else {
+        console.error(
+          `[users.ensureStripeCustomerWithRetry] Exhausted retries for ${args.userId}.`,
+          error,
+        );
+      }
+      return null;
     }
-
-    // Avoid Stripe network calls in tests to prevent pending fetch warnings
-    if (process.env.CONVEX_TEST === "true" || process.env.NODE_ENV === "test") {
-      const mockCustomerId = `cus_test_${args.userId}`;
-      await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
-        userId: args.userId,
-        stripeCustomerId: mockCustomerId,
-      });
-      return mockCustomerId;
-    }
-
-    if (!process.env.STRIPE_SECRET_KEY) {
-      throw new Error(
-        "STRIPE_SECRET_KEY environment variable is not set; cannot create Stripe customer",
-      );
-    }
-
-    // Use Stripe component to get or create customer
-    // Component's userId should be the auth provider's user ID (Clerk subject)
-    // We use clerkUserId if available, otherwise fall back to Convex userId as string
-    const { stripeClient } = await import("./stripeClient");
-    const authUserId = user.clerkUserId || args.userId;
-    const customer = await stripeClient.getOrCreateCustomer(ctx, {
-      userId: authUserId, // Component expects auth provider's user ID (string)
-      email: user.email,
-      name: user.name,
-      // Note: Component doesn't support metadata in getOrCreateCustomer
-      // Customer metadata can be updated separately if needed via Stripe API
-    });
-
-    // Update user with Stripe customer ID
-    await ctx.runMutation(internal.users.updateStripeCustomerIdInternal, {
-      userId: args.userId,
-      stripeCustomerId: customer.customerId,
-    });
-
-    return customer.customerId;
   },
 });
 

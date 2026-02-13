@@ -74,9 +74,10 @@ Existing users from `@convex-dev/auth` will need to:
 
 When a user signs in with Clerk for the first time:
 1. Clerk authenticates the user
-2. The app calls `ensureUserFromClerk` mutation (if needed)
-3. A Convex user record is created/linked with the Clerk user ID
-4. Stripe customer is created automatically
+2. Clerk webhook (`/clerk-users-webhook`) upserts/links the Convex user
+3. Onboarding stores profile + vehicle data
+4. Stripe customer sync is scheduled after onboarding completes
+5. Payment flows lazily create Stripe customer as a fallback if still missing
 
 ## Troubleshooting
 
@@ -94,7 +95,6 @@ When a user signs in with Clerk for the first time:
 - Check Clerk Dashboard logs for authentication errors
 
 ### Users not appearing in Convex
-- The `ensureUserFromClerk` mutation should be called automatically
+- Verify Clerk webhook delivery to `/clerk-users-webhook`
 - Check Convex logs for errors during user creation
 - Verify the email in Clerk matches the email in your Convex users table
-

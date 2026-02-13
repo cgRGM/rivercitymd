@@ -1,21 +1,8 @@
 import { query, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import Stripe from "stripe";
 import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-
-// Initialize Stripe with environment variable
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-if (!stripeSecretKey) {
-  throw new Error(
-    "STRIPE_SECRET_KEY environment variable is not set. Please set it in your Convex environment.",
-  );
-}
-
-// Initialize Stripe without explicit API version to use default
-// This avoids version conflicts between local Stripe package and Convex component
-const stripe = new Stripe(stripeSecretKey);
 
 const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
   emailNotifications: true,
@@ -266,8 +253,8 @@ export async function getUserIdFromIdentity(
   });
 }
 
-// Internal mutation to create or update user from Clerk identity
-// This will be called when a user signs in for the first time
+// Legacy internal mutation retained for compatibility with older flows.
+// Active Clerk webhook + onboarding flows should be used instead.
 export const ensureUserFromClerk = internalMutation({
   args: {
     email: v.string(),
@@ -292,24 +279,8 @@ export const ensureUserFromClerk = internalMutation({
       return user._id;
     }
 
-    // Create new user
-    // Create Stripe customer for new users
-    let stripeCustomerId: string | undefined;
-    try {
-      const customer = await stripe.customers.create({
-        email: args.email,
-        name: args.name || args.email,
-        metadata: {
-          clerkUserId: args.clerkUserId,
-        },
-      });
-      stripeCustomerId = customer.id;
-    } catch (error) {
-      console.error("Failed to create Stripe customer:", error);
-      // Continue with user creation even if Stripe customer creation fails
-    }
-
-    // Set default role and Stripe customer ID
+    // Create new user record.
+    // Stripe customer sync is handled by onboarding completion and payment fallbacks.
     const userData: any = {
       email: args.email,
       name: args.name || args.email,
@@ -320,10 +291,6 @@ export const ensureUserFromClerk = internalMutation({
       status: "active",
       notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
     };
-
-    if (stripeCustomerId) {
-      userData.stripeCustomerId = stripeCustomerId;
-    }
 
     return await ctx.db.insert("users", userData);
   },
