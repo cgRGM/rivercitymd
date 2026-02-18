@@ -1,5 +1,5 @@
 
-import { api, internal } from "./convex/_generated/api";
+import { api } from "./convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });

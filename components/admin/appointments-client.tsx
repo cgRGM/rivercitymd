@@ -19,7 +19,27 @@ import {
   Mail,
   Plus,
   AlertCircle,
+  MoreHorizontal,
+  ArrowUpDown,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { DataTable } from "@/components/ui/data-table";
+import { ColumnDef } from "@tanstack/react-table";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -36,6 +56,7 @@ export default function AppointmentsClient({}: Props) {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<Id<"appointments"> | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [appointmentToDelete, setAppointmentToDelete] = useState<Id<"appointments"> | null>(null);
 
   // Handle loading state
   if (appointmentsQuery === undefined) {
@@ -148,12 +169,14 @@ export default function AppointmentsClient({}: Props) {
     }
   };
 
-  const handleDelete = async (appointmentId: Id<"appointments">) => {
-    if (!confirm("Are you sure you want to delete this appointment?")) return;
+  const confirmDelete = async () => {
+    if (!appointmentToDelete) return;
 
-    setLoadingId(appointmentId);
+    setLoadingId(appointmentToDelete);
+    setAppointmentToDelete(null);
+
     try {
-      await deleteAppointment({ appointmentId });
+      await deleteAppointment({ appointmentId: appointmentToDelete });
       toast.success("Appointment deleted");
     } catch {
       toast.error("Failed to delete appointment");
@@ -187,6 +210,174 @@ export default function AppointmentsClient({}: Props) {
         return "bg-gray-100 text-gray-700";
     }
   };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const columns: ColumnDef<any>[] = [
+    {
+      accessorKey: "user.name",
+      header: ({ column }) => {
+        return (
+          <Button
+            variant="ghost"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            Customer
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        );
+      },
+      cell: ({ row }) => {
+        const user = row.original.user;
+        return (
+          <div className="flex flex-col">
+            <span className="font-medium">{user?.name || "Unknown"}</span>
+            <span className="text-xs text-muted-foreground">{user?.email}</span>
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "services",
+      header: "Service",
+      cell: ({ row }) => {
+        const services = row.original.services || [];
+        return (
+          <div className="flex flex-col gap-1">
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            {services.map((s: any) => (
+              <span key={s._id} className="text-sm">
+                {s.name}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "scheduledDate",
+      header: ({ column }) => {
+        return (
+          <Button
+            variant="ghost"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            Date
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        );
+      },
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-muted-foreground" />
+          <span>{formatDate(row.getValue("scheduledDate"))}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "scheduledTime",
+      header: "Time",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Clock className="w-4 h-4 text-muted-foreground" />
+          <span>{row.getValue("scheduledTime")}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const status = row.getValue("status") as string;
+        // Map status to badge variant logic roughly
+        let variant: "default" | "secondary" | "destructive" | "outline" = "outline";
+        if (status === "confirmed") variant = "default"; // green-ish usually but default works
+        if (status === "cancelled") variant = "destructive";
+        if (status === "pending") variant = "secondary";
+        
+        return (
+          <Badge variant={variant} className={getStatusColor(status)}>
+            {status.replace("_", " ")}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: "totalPrice",
+      header: ({ column }) => {
+        return (
+          <div className="text-right">
+             <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Amount
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+        );
+      },
+      cell: ({ row }) => {
+        const amount = parseFloat(row.getValue("totalPrice"));
+        const formatted = new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(amount);
+        return <div className="text-right font-medium">{formatted}</div>;
+      },
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => {
+        const appointment = row.original;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">Open menu</span>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => navigator.clipboard.writeText(appointment._id)}
+              >
+                Copy ID
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {appointment.status === "pending" && (
+                <DropdownMenuItem onClick={() => handleStatusUpdate(appointment._id, "confirmed")}>
+                  Confirm
+                </DropdownMenuItem>
+              )}
+              {appointment.status === "confirmed" && (
+                 <DropdownMenuItem onClick={() => handleStatusUpdate(appointment._id, "in_progress")}>
+                  Start
+                </DropdownMenuItem>
+              )}
+               {appointment.status === "in_progress" && (
+                 <DropdownMenuItem onClick={() => handleStatusUpdate(appointment._id, "completed")}>
+                  Complete
+                </DropdownMenuItem>
+              )}
+              {appointment.status !== "cancelled" && appointment.status !== "completed" && (
+                 <DropdownMenuItem onClick={() => handleStatusUpdate(appointment._id, "cancelled")} className="text-destructive">
+                  Cancel
+                </DropdownMenuItem>
+              )}
+               <DropdownMenuSeparator />
+               <DropdownMenuItem 
+                  onClick={() => setAppointmentToDelete(appointment._id)}
+                  className="text-destructive"
+                >
+                  Delete
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -238,7 +429,7 @@ export default function AppointmentsClient({}: Props) {
           }
           )
         </Button>
-        <Button
+         <Button
           variant={statusFilter === "in_progress" ? "default" : "outline"}
           size="sm"
           onClick={() => setStatusFilter("in_progress")}
@@ -266,7 +457,18 @@ export default function AppointmentsClient({}: Props) {
         </Button>
       </div>
 
-      {/* Appointments List */}
+      {/* Desktop: Data Table */}
+      <div className="hidden md:block">
+        <DataTable
+            columns={columns}
+            data={filteredAppointments}
+            filterColumn="user_name" 
+            filterPlaceholder="Filter by customer..."
+        />
+      </div>
+
+      {/* Mobile: Cards List */}
+      <div className="md:hidden space-y-4">
       {filteredAppointments.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
@@ -442,7 +644,7 @@ export default function AppointmentsClient({}: Props) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleDelete(appointment._id)}
+                      onClick={() => setAppointmentToDelete(appointment._id)}
                       disabled={isLoading}
                       className="text-destructive hover:text-destructive"
                     >
@@ -455,6 +657,37 @@ export default function AppointmentsClient({}: Props) {
           })}
         </div>
       )}
+      </div>
+      
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={!!appointmentToDelete}
+        onOpenChange={(open) => !open && setAppointmentToDelete(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Are you absolutely sure?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the
+              appointment from your database.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setAppointmentToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+            >
+              Delete Appointment
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AddAppointmentForm open={showAddForm} onOpenChange={setShowAddForm} />
     </div>

@@ -527,19 +527,26 @@ export const updateStatus = mutation({
     if (!appointment) throw new Error("Appointment not found");
 
     const user = await ctx.db.get(appointment.userId);
-    if (!user) throw new Error("User not found");
+    if (!user) {
+      console.warn(
+        `[appointments:updateStatus] User ${appointment.userId} not found for appointment ${args.appointmentId}. Proceeding with status update only.`,
+      );
+    }
 
-    if (args.status === "cancelled" && appointment.status !== "cancelled") {
-      await ctx.db.patch(user._id, {
-        cancellationCount: (user.cancellationCount || 0) + 1,
-      });
-    } else if (
-      args.status !== "cancelled" &&
-      appointment.status === "cancelled"
-    ) {
-      await ctx.db.patch(user._id, {
-        cancellationCount: Math.max(0, (user.cancellationCount || 0) - 1),
-      });
+    // Only update user stats if user exists
+    if (user) {
+      if (args.status === "cancelled" && appointment.status !== "cancelled") {
+        await ctx.db.patch(user._id, {
+          cancellationCount: (user.cancellationCount || 0) + 1,
+        });
+      } else if (
+        args.status !== "cancelled" &&
+        appointment.status === "cancelled"
+      ) {
+        await ctx.db.patch(user._id, {
+          cancellationCount: Math.max(0, (user.cancellationCount || 0) - 1),
+        });
+      }
     }
 
     const oldStatus = appointment.status;
@@ -663,19 +670,25 @@ export const updateStatusInternal = internalMutation({
     if (!appointment) throw new Error("Appointment not found");
 
     const user = await ctx.db.get(appointment.userId);
-    if (!user) throw new Error("User not found");
+    if (!user) {
+         console.warn(
+        `[appointments:updateStatusInternal] User ${appointment.userId} not found for appointment ${args.appointmentId}. Proceeding with status update only.`,
+      );
+    }
 
-    if (args.status === "cancelled" && appointment.status !== "cancelled") {
-      await ctx.db.patch(user._id, {
-        cancellationCount: (user.cancellationCount || 0) + 1,
-      });
-    } else if (
-      args.status !== "cancelled" &&
-      appointment.status === "cancelled"
-    ) {
-      await ctx.db.patch(user._id, {
-        cancellationCount: Math.max(0, (user.cancellationCount || 0) - 1),
-      });
+    if (user) {
+        if (args.status === "cancelled" && appointment.status !== "cancelled") {
+        await ctx.db.patch(user._id, {
+            cancellationCount: (user.cancellationCount || 0) + 1,
+        });
+        } else if (
+        args.status !== "cancelled" &&
+        appointment.status === "cancelled"
+        ) {
+        await ctx.db.patch(user._id, {
+            cancellationCount: Math.max(0, (user.cancellationCount || 0) - 1),
+        });
+        }
     }
 
     const oldStatus = appointment.status;

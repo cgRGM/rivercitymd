@@ -74,6 +74,7 @@ export default function SignUpVerifyPage() {
         console.error("Sign up incomplete:", result);
         toast.error("Could not complete sign up. Please try again.");
       }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error("Sign up error:", err);
       toast.error(err.errors?.[0]?.message || "Failed to create account");

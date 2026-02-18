@@ -30,7 +30,7 @@ export function PricingSection() {
   const mainServices =
     servicesQuery?.filter(
       (service) =>
-        service.isActive && (service.serviceType ?? "standard") !== "addon",
+        service.isActive && (service.serviceType === "standard" || !service.serviceType),
     ) || [];
 
   // Handle loading state
@@ -168,7 +168,7 @@ export function PricingSection() {
           {/* Services */}
           <div className="-mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
             <div
-              className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-6 pb-8 sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:overflow-visible sm:pb-0 max-w-7xl mx-auto"
+              className="flex items-stretch overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-6 pb-8 max-w-7xl mx-auto"
               aria-label="Service pricing cards"
             >
               {mainServices.map((service, index) => {
@@ -186,9 +186,9 @@ export function PricingSection() {
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: "-50px" }}
                     transition={{ duration: 0.5, delay: index * 0.1 }}
-                    className="flex-shrink-0 snap-center w-[85vw] sm:w-auto h-full"
+                    className="flex-shrink-0 snap-center w-[85vw] sm:w-[380px] lg:w-[400px] flex flex-col"
                   >
-                    <Card className="relative hover:shadow-2xl transition-all duration-300 h-full border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden group">
+                    <Card className="relative hover:shadow-2xl transition-all duration-300 flex-1 border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden group">
                       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       
                       <CardHeader className="text-center pb-6 pt-8">

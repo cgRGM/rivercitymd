@@ -575,7 +575,10 @@ export const queueAppointmentLifecycleEvent = internalMutation({
 
     const user = await ctx.db.get(appointment.userId);
     if (!user) {
-      throw new Error("Customer not found");
+       console.warn(`[notifications] Customer not found for appointment ${args.appointmentId}. Skipping customer notifications.`);
+       // If user is missing, we can still try to notify admin with limited info if needed,
+       // but for now, let's return early to avoid crashes downstream
+       return null;
     }
 
     const business = await ctx.db.query("businessInfo").first();

@@ -56,9 +56,7 @@ function resolvePreferredName(args: {
   return "User";
 }
 
-function shouldScheduleNotificationJobs(): boolean {
-  return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
-}
+
 
 function shouldScheduleStripeCustomerSync(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY?.trim());
@@ -535,15 +533,27 @@ export const upsertFromClerk = internalMutation({
       .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
       .first();
 
-    // Also check by email in case clerkUserId wasn't set
+    // Check if user exists by convexUserId from metadata (Guest User linking)
+    // The webhook payload data usually has keys in snake_case or whatever Clerk sends.
+    // We check public_metadata for the ID we sent during invitation.
+    const publicMetadata = (clerkData as any).public_metadata || {};
+    const convexUserId = publicMetadata.convexUserId as Id<"users"> | undefined;
+
+    let existingUserByMetadata: Doc<"users"> | null = null;
+    if (convexUserId) {
+        existingUserByMetadata = await ctx.db.get(convexUserId);
+    }
+
+    // Also check by email in case neither ID method worked
     const existingUserByEmail = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
 
-    if (existingUserByClerkId || existingUserByEmail) {
+    if (existingUserByClerkId || existingUserByMetadata || existingUserByEmail) {
       // User exists - update basic info but preserve ALL existing data
-      const userId = existingUserByClerkId?._id || existingUserByEmail!._id;
+      // Priority: Clerk ID > Metadata ID > Email
+      const userId = existingUserByClerkId?._id || existingUserByMetadata?._id || existingUserByEmail!._id;
       const existingUser = await ctx.db.get(userId);
 
       // Update only basic user data from Clerk (name, email, image, clerkUserId)
@@ -677,7 +687,7 @@ export const deleteFromClerk = internalMutation({
       return null;
     }
 
-    // Delete all vehicles associated with this user
+    // Delete associated vehicles
     const vehicles = await ctx.db
       .query("vehicles")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
@@ -685,6 +695,28 @@ export const deleteFromClerk = internalMutation({
 
     for (const vehicle of vehicles) {
       await ctx.db.delete(vehicle._id);
+    }
+
+    // Delete associated appointments and their invoices
+    // This prevents "User not found" errors and orphan data
+    const appointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+
+    for (const appointment of appointments) {
+      const invoice = await ctx.db
+        .query("invoices")
+        .withIndex("by_appointment", (q) =>
+          q.eq("appointmentId", appointment._id),
+        )
+        .unique();
+      
+      // Delete invoice if it exists (regardless of status - user is being hard deleted)
+      if (invoice) {
+        await ctx.db.delete(invoice._id);
+      }
+      await ctx.db.delete(appointment._id);
     }
 
     // Delete the user

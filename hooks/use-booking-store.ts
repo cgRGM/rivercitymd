@@ -1,12 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
-interface Address {
-  street: string
-  city: string
-  state: string
-  postalCode: string
-}
+
 
 interface Vehicle {
   year: string

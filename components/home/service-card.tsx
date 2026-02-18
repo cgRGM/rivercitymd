@@ -1,9 +1,7 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { Check, Info } from "lucide-react";
+import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface ServiceCardProps {
@@ -34,7 +32,6 @@ export function ServiceCard({
         ? service.basePriceMedium
         : service.basePriceLarge;
 
-  const isPackage = service.serviceType === "standard" || !service.serviceType;
   const isSubscription = service.serviceType === "subscription";
 
   return (

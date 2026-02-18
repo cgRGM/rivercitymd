@@ -50,6 +50,7 @@ export default function ServicesClient({}: Props) {
   const [showAddSubscriptionForm, setShowAddSubscriptionForm] = useState(false);
   const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [serviceToDelete, setServiceToDelete] = useState<Id<"services"> | null>(null);
   const [isEditingDeposit, setIsEditingDeposit] = useState(false);
   const [depositAmount, setDepositAmount] = useState(
     depositSettings?.amountPerVehicle ?? 50,
@@ -142,18 +143,14 @@ export default function ServicesClient({}: Props) {
     );
   }
 
-  const handleDeleteService = async (serviceId: Id<"services">) => {
-    if (
-      !confirm(
-        "Are you sure you want to delete this service? This action cannot be undone.",
-      )
-    ) {
-      return;
-    }
+  const confirmDelete = async () => {
+    if (!serviceToDelete) return;
 
-    setDeletingId(serviceId);
+    setDeletingId(serviceToDelete);
+    setServiceToDelete(null); // Close dialog immediately
+
     try {
-      await deleteService({ serviceId });
+      await deleteService({ serviceId: serviceToDelete });
       toast.success("Service deleted successfully");
     } catch (error) {
       toast.error(
@@ -306,7 +303,7 @@ export default function ServicesClient({}: Props) {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleDeleteService(service._id)}
+                              onClick={() => setServiceToDelete(service._id)}
                               disabled={deletingId === service._id}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -423,7 +420,7 @@ export default function ServicesClient({}: Props) {
                             variant="outline"
                             size="sm"
                             className="flex-1"
-                            onClick={() => handleDeleteService(service._id)}
+                            onClick={() => setServiceToDelete(service._id)}
                             disabled={deletingId === service._id}
                           >
                             <Trash2 className="w-3 h-3 mr-1" />
@@ -499,6 +496,36 @@ export default function ServicesClient({}: Props) {
                   Recurring services with subscription pricing
                 </div>
               </div>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={!!serviceToDelete}
+        onOpenChange={(open) => !open && setServiceToDelete(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Are you absolutely sure?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the
+               service from your database.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setServiceToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+            >
+              Delete Service
             </Button>
           </div>
         </DialogContent>

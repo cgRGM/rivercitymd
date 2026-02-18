@@ -6,10 +6,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Plus, Mail, Phone, MapPin, AlertCircle } from "lucide-react";
+import { Search, Plus, Mail, Phone, MapPin, AlertCircle, ArrowUpDown } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { AddCustomerForm } from "@/components/forms";
+import { DataTable } from "@/components/ui/data-table";
+import { ColumnDef } from "@tanstack/react-table";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
@@ -110,8 +112,111 @@ export default function CustomersClient({}: Props) {
     );
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const columns: ColumnDef<any>[] = [
+    {
+      accessorKey: "name",
+      header: ({ column }) => {
+        return (
+          <Button
+            variant="ghost"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            Customer
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => (
+        <div className="font-medium">{row.getValue("name") || "Unknown"}</div>
+      ),
+    },
+    {
+      accessorKey: "email",
+      header: "Contact",
+      cell: ({ row }) => (
+        <div className="flex flex-col text-sm">
+           <div className="flex items-center gap-1">
+             <Mail className="w-3 h-3 text-muted-foreground" />
+             {row.getValue("email")}
+           </div>
+           <div className="flex items-center gap-1">
+             <Phone className="w-3 h-3 text-muted-foreground" />
+             {row.original.phone}
+           </div>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "location",
+      header: "Location",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1 text-sm">
+          <MapPin className="w-3 h-3 text-muted-foreground" />
+          {row.getValue("location") || "-"}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "totalSpent",
+      header: ({ column }) => {
+        return (
+          <div className="text-right">
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Total Spent
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+        )
+      },
+      cell: ({ row }) => {
+        const amount = parseFloat(row.getValue("totalSpent"));
+        const formatted = new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(amount);
+        return <div className="text-right font-medium">{formatted}</div>;
+      },
+    },
+    {
+      accessorKey: "lastVisit",
+      header: ({ column }) => {
+        return (
+           <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+              Stats
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+           </Button>
+        )
+      },
+      cell: ({ row }) => {
+         const customer = row.original;
+         return (
+            <div className="text-sm">
+               <div>Bookings: {customer.totalBookings}</div>
+               <div className="text-muted-foreground text-xs">Last: {formatDate(customer.lastVisit)}</div>
+            </div>
+         )
+      }
+    },
+    {
+       id: "actions",
+       cell: ({ row }) => {
+         return (
+            <Button asChild variant="ghost" size="sm">
+               <Link href={`/admin/customers/${row.original._id}`}>
+                  View Details
+               </Link>
+            </Button>
+         )
+       }
+    }
+  ];
+
   const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "No visits yet";
+    if (!dateStr) return "Never";
     const date = new Date(dateStr);
     return date.toLocaleDateString("en-US", {
       month: "short",
@@ -140,44 +245,40 @@ export default function CustomersClient({}: Props) {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
+       {/* Mobile Search - integrated into DataTable on Desktop */}
+       <div className="md:hidden relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search customers by name, email, phone, or location..."
+          placeholder="Search customers..."
           className="pl-10"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
+       </div>
+
+      {/* Desktop View: Data Table */}
+      <div className="hidden md:block">
+         <DataTable 
+            columns={columns} 
+            data={customers} 
+            filterColumn="name" 
+            filterPlaceholder="Search customers by name..."
+         />
       </div>
 
-      {/* Results Count */}
-      <div className="text-sm text-muted-foreground">
-        Showing {filteredCustomers.length} of {customers.length} customers
-      </div>
-
-      {/* Customer Grid */}
-      {filteredCustomers.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Search className="w-12 h-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground text-center">
-              {searchQuery
-                ? "No customers found matching your search"
-                : "No customers yet"}
-            </p>
-            {!searchQuery && (
-              <Button className="mt-4" variant="outline">
-                <Plus className="w-4 h-4 mr-2" />
-                Add First Customer
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid md:grid-cols-2 gap-4">
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {filteredCustomers.map((customer: any, index: number) => (
+      {/* Mobile View: Cards */}
+      <div className="md:hidden grid gap-4">
+        {filteredCustomers.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <p className="text-muted-foreground text-center">
+                 No customers found.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+          filteredCustomers.map((customer: any, index: number) => (
             <Link
               key={customer._id}
               href={`/admin/customers/${customer._id}`}
@@ -257,9 +358,9 @@ export default function CustomersClient({}: Props) {
               </CardContent>
             </Card>
             </Link>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
 
       <AddCustomerForm open={showAddForm} onOpenChange={setShowAddForm} />
     </div>
