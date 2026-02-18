@@ -424,6 +424,10 @@ export default function AppointmentModal({
         invoiceId,
         successUrl: `${window.location.origin}/dashboard/appointments?payment=success`,
         cancelUrl: `${window.location.origin}/dashboard/appointments?payment=cancelled`,
+        // Pass optional contact info to ensure user is persisted correctly
+        name: fullName || undefined,
+        email: email || undefined,
+        phone: phone || undefined,
       });
 
       if (url) {
@@ -1120,22 +1124,6 @@ export default function AppointmentModal({
                       Logged in as {user?.primaryEmailAddress?.emailAddress}
                    </div>
                 )}
-                
-                <Button
-                   type="button"
-                   onClick={onSubmit}
-                   className="w-full h-12 text-lg font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
-                   disabled={isLoading}
-                 >
-                   {isLoading ? (
-                     <>
-                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                       Processing Payment...
-                     </>
-                   ) : (
-                     "Pay Deposit & Confirm Appointment"
-                   )}
-                 </Button>
              </div>
           </div>
         )}

@@ -15,6 +15,7 @@ import type * as availability from "../availability.js";
 import type * as business from "../business.js";
 import type * as chat from "../chat.js";
 import type * as crons from "../crons.js";
+import type * as debug from "../debug.js";
 import type * as depositSettings from "../depositSettings.js";
 import type * as emails from "../emails.js";
 import type * as http from "../http.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   business: typeof business;
   chat: typeof chat;
   crons: typeof crons;
+  debug: typeof debug;
   depositSettings: typeof depositSettings;
   emails: typeof emails;
   http: typeof http;

@@ -796,6 +796,142 @@ export const updateUserProfile = mutation({
   },
 });
 
+// Update a vehicle
+export const updateVehicle = mutation({
+  args: {
+    vehicleId: v.id("vehicles"),
+    year: v.optional(v.number()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    size: v.optional(
+      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+    ),
+    color: v.optional(v.string()),
+    licensePlate: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const vehicle = await ctx.db.get(args.vehicleId);
+    if (!vehicle || vehicle.userId !== userId) {
+      throw new Error("Vehicle not found or access denied");
+    }
+
+    const updates: any = {};
+    if (args.year !== undefined) updates.year = args.year;
+    if (args.make !== undefined) updates.make = args.make;
+    if (args.model !== undefined) updates.model = args.model;
+    if (args.size !== undefined) updates.size = args.size;
+    if (args.color !== undefined) updates.color = args.color;
+    if (args.licensePlate !== undefined) updates.licensePlate = args.licensePlate;
+
+    await ctx.db.patch(args.vehicleId, updates);
+    return args.vehicleId;
+  },
+});
+
+// Delete a vehicle
+export const deleteVehicle = mutation({
+  args: {
+    vehicleId: v.id("vehicles"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const vehicle = await ctx.db.get(args.vehicleId);
+    if (!vehicle || vehicle.userId !== userId) {
+      throw new Error("Vehicle not found or access denied");
+    }
+
+    await ctx.db.delete(args.vehicleId);
+    return args.vehicleId;
+  },
+});
+
+// Ensure a guest user exists and is linked to the appointment
+export const ensureGuestUser = internalMutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    name: v.string(),
+    email: v.string(),
+    phone: v.string(),
+  },
+  returns: v.id("users"),
+  handler: async (ctx, args) => {
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+
+    // Check if the appointment's current user exists
+    let user = await ctx.db.get(appointment.userId);
+
+    // If user is missing OR (it's a guest user without Clerk ID and we want to ensure details match),
+    // we might need to update or switch users.
+    
+    // Look up by email to see if we should link to an existing user instead
+    const existingUserByEmail = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+
+    if (existingUserByEmail) {
+      // Use the existing email match
+      user = existingUserByEmail;
+      
+      // Update basic info if needed (idempotent-ish)
+      const updates: any = {};
+      if (user.name !== args.name && (!user.clerkUserId || user.name === user.email)) {
+         updates.name = args.name;
+      }
+      if (user.phone !== args.phone && !user.clerkUserId) {
+         updates.phone = args.phone;
+      }
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(user._id, updates);
+      }
+    } else if (!user) {
+      // User doesn't exist by ID, and not found by email -> Create new guest user
+      const newUserId = await ctx.db.insert("users", {
+        name: args.name,
+        email: args.email,
+        phone: args.phone,
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+        cancellationCount: 0,
+        notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
+      });
+      user = (await ctx.db.get(newUserId))!;
+    } else {
+       // User exists by ID, but email didn't match?
+       // This implies the appointment was linked to a user with a DIFFERENT email.
+       // For guests, we should probably update the user record to match the form data?
+       // But if it's a real user (clerkUserId), we shouldn't overwrite email easily.
+       
+       if (!user.clerkUserId) {
+           // It's a guest/provisional user, safe to update
+           await ctx.db.patch(user._id, {
+               name: args.name,
+               email: args.email,
+               phone: args.phone
+           });
+       }
+       // If it IS a Clerk user, we respect the existing record and don't overwrite email/name from a guest checkout form
+       // unless we are sure. For now, assume if they are auth'd, they are fine. 
+       // If they are NOT auth'd but using a Clerk user's ID... that shouldn't happen in guest flow.
+    }
+
+    // Ensure appointment is linked to this user
+    if (appointment.userId !== user._id) {
+      await ctx.db.patch(args.appointmentId, { userId: user._id });
+    }
+
+    return user._id;
+  },
+});
+
 // Add a vehicle to user's profile
 export const addVehicle = mutation({
   args: {

@@ -1713,12 +1713,26 @@ export const createBookingCheckout = action({
     invoiceId: v.id("invoices"),
     successUrl: v.string(),
     cancelUrl: v.string(),
+    // Optional contact info to fix user data if missing
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
   },
   returns: v.object({
     sessionId: v.string(),
     url: v.string(),
   }),
   handler: async (ctx, args) => {
+    // 1. Ensure user exists and is linked if contact info provided
+    if (args.name && args.email && args.phone) {
+      await ctx.runMutation(internal.users.ensureGuestUser, {
+        appointmentId: args.appointmentId,
+        name: args.name,
+        email: args.email,
+        phone: args.phone,
+      });
+    }
+
     // Get invoice and appointment details using internal queries to bypass auth checks
     const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
       invoiceId: args.invoiceId,
@@ -1730,7 +1744,7 @@ export const createBookingCheckout = action({
     });
     if (!appointment) throw new Error("Appointment not found");
 
-    // Get user details
+    // Get user details (fetch fresh after potential ensureGuestUser update)
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: appointment.userId,
     });
