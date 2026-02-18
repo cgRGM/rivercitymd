@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
-import { useSignIn, useSignUp, useAuth } from "@clerk/nextjs";
+import { useUser, SignIn, SignUp } from "@clerk/nextjs";
+import { useBookingStore } from "@/hooks/use-booking-store";
 import { api } from "@/convex/_generated/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -34,10 +35,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
+import { TimeSlotPicker } from "./time-slot-picker";
+import { ServiceCard } from "./service-card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface RadarAddress {
   formattedAddress?: string;
@@ -61,7 +64,9 @@ interface RadarAddress {
 
 // Step schemas
 const step1Schema = z.object({
-  scheduledDate: z.string().min(1, "Please select a date"),
+  scheduledDate: z.date({
+    message: "A date of service is required.",
+  }),
   scheduledTime: z.string().min(1, "Please select a time"),
   street: z.string().min(1, "Street address is required"),
   city: z.string().min(1, "City is required"),
@@ -72,22 +77,27 @@ const step1Schema = z.object({
 
 const step2Schema = z.object({
   name: z.string().min(1, "Name is required"),
-  phone: z.string().min(1, "Phone number is required"),
+  phone: z
+    .string()
+    .min(10, "Phone number must be at least 10 digits")
+    .regex(/^[\d\s()+-]+$/, "Phone number contains invalid characters"),
+  email: z.string().email("Please enter a valid email"),
 });
 
 const step3Schema = z.object({
-  vehicleType: z.enum(["car", "truck", "suv"]).refine((val) => val, {
-    message: "Please select a vehicle type",
-  }),
   vehicles: z
     .array(
       z.object({
-        year: z.string().min(1, "Year is required"),
+        year: z
+          .string()
+          .regex(/^\d{4}$/, "Year must be a 4-digit number")
+          .min(1, "Year is required"),
         make: z.string().min(1, "Make is required"),
         model: z.string().min(1, "Model is required"),
         color: z.string().optional(),
         licensePlate: z.string().optional(),
         size: z.enum(["small", "medium", "large"]).optional(),
+        type: z.enum(["car", "truck", "suv"]),
       }),
     )
     .min(1, "Please add at least one vehicle"),
@@ -97,16 +107,7 @@ const step4Schema = z.object({
   serviceIds: z.array(z.string()).min(1, "Please select at least one service"),
 });
 
-const step5Schema = z
-  .object({
-    email: z.string().email("Please enter a valid email"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
+const step5Schema = z.object({});
 
 type Step1Data = z.infer<typeof step1Schema>;
 type Step2Data = z.infer<typeof step2Schema>;
@@ -125,108 +126,109 @@ export default function AppointmentModal({
   onOpenChange,
   preselectedServices = [],
 }: AppointmentModalProps) {
-  const [currentStep, setCurrentStep] = useState(1);
+  // Use Zustand store for persisted state
+  const {
+    currentStep,
+    setCurrentStep,
+    step1Data,
+    setStep1Data,
+    step2Data,
+    setStep2Data,
+    step3Data,
+    setStep3Data,
+    step4Data,
+    setStep4Data,
+    resetBooking,
+  } = useBookingStore();
+
   const [isLoading, setIsLoading] = useState(false);
+  const { user, isLoaded, isSignedIn } = useUser();
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signup");
 
-  // Form states - initialize with saved data if available
-  const [step1Data, setStep1Data] = useState<Partial<Step1Data>>(() => {
-    // Load saved form data from localStorage
-    if (typeof window !== "undefined") {
-      const savedData = localStorage.getItem("appointmentFormData");
-      if (savedData) {
-        try {
-          return JSON.parse(savedData);
-        } catch (error) {
-          console.warn("Error parsing saved form data:", error);
-        }
-      }
+  // Load saved data on mount if needed (Zustand persist handles this automatically, but we might want to pre-fill forms)
+  // We'll trust Zustand's persist middleware for the data
 
-      // Fallback: load saved address from localStorage and merge with any existing data
-      const savedAddress = localStorage.getItem("selectedAddress");
-      if (savedAddress) {
-        try {
-          const address = JSON.parse(savedAddress);
-          if (address.addressComponents) {
-            const components = address.addressComponents;
-            return {
-              street: components.street || address.formattedAddress || "",
-              city: components.city || components.locality || "",
-              state: components.state || components.region || "",
-              zip: components.postalCode || "",
-            };
-          }
-        } catch (error) {
-          console.warn("Error parsing saved address:", error);
-        }
-      }
-    }
-    return {};
+  // Load saved data on mount if needed (Zustand persist handles this automatically)
+
+  const step1Form = useForm<Step1Data>({
+    resolver: zodResolver(step1Schema),
+    defaultValues: {
+      scheduledDate: step1Data?.scheduledDate
+        ? new Date(step1Data.scheduledDate)
+        : undefined,
+      scheduledTime: step1Data?.scheduledTime || "",
+      street: step1Data?.street || "",
+      city: step1Data?.city || "",
+      state: step1Data?.state || "",
+      zip: step1Data?.zip || "",
+      locationNotes: step1Data?.locationNotes || "",
+    },
   });
-  const [step2Data, setStep2Data] = useState<Partial<Step2Data>>({});
-  const [step3Data, setStep3Data] = useState<Partial<Step3Data>>({
-    vehicles: [{ year: "", make: "", model: "", color: "", licensePlate: "" }],
-  });
-  const [step4Data, setStep4Data] = useState<Partial<Step4Data>>({
-    serviceIds: preselectedServices,
-  });
-  const [step5Data, setStep5Data] = useState<Partial<Step5Data>>({});
+
+  /* 
+     Logic removed: Old localStorage fallback. 
+     Zustand persist middleware handles this now.
+  */
 
   const services = useQuery(api.services.list);
   const createUserAndAppointment = useMutation(
     api.users.createUserWithAppointment,
   );
-  const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
-  useAuth();
-  const { signIn, setActive: setActiveSignIn } = useSignIn();
-  const { signUp, setActive: setActiveSignUp } = useSignUp();
+  const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+
 
   // Step forms
-  const step1Form = useForm<Step1Data>({
-    resolver: zodResolver(step1Schema),
-    defaultValues: {
-      scheduledDate: step1Data.scheduledDate || "",
-      scheduledTime: step1Data.scheduledTime || "",
-      street: step1Data.street || "",
-      city: step1Data.city || "",
-      state: step1Data.state || "",
-      zip: step1Data.zip || "",
-      locationNotes: step1Data.locationNotes || "",
-    },
-  });
+  // Note: step1Form is already defined above
 
   const step2Form = useForm<Step2Data>({
     resolver: zodResolver(step2Schema),
     defaultValues: {
-      name: step2Data.name || "",
-      phone: step2Data.phone || "",
+      name: step2Data?.name || "",
+      phone: step2Data?.phone || "",
+      email: step2Data?.email || "",
     },
   });
 
   const step3Form = useForm<Step3Data>({
     resolver: zodResolver(step3Schema),
     defaultValues: {
-      vehicleType: step3Data.vehicleType || undefined,
-      vehicles: step3Data.vehicles || [
-        { year: "", make: "", model: "", color: "", licensePlate: "" },
-      ],
+      vehicles: (step3Data?.vehicles || [
+        { year: "", make: "", model: "", color: "", licensePlate: "", type: "car", size: "small" },
+      ]) as any,
     },
   });
 
   const step4Form = useForm<Step4Data>({
     resolver: zodResolver(step4Schema),
     defaultValues: {
-      serviceIds: step4Data.serviceIds || [],
+      serviceIds: step4Data?.serviceIds || [],
     },
   });
 
-  const step5Form = useForm<Step5Data>({
-    resolver: zodResolver(step5Schema),
-    defaultValues: {
-      email: step5Data.email || "",
-      password: step5Data.password || "",
-      confirmPassword: step5Data.confirmPassword || "",
-    },
-  });
+  // Pre-fill user data if authenticated
+  useEffect(() => {
+    if (isLoaded && isSignedIn && user) {
+      const currentValues = step2Form.getValues();
+      if (!currentValues.name || !currentValues.email) {
+        const fullName = user.fullName || "";
+        const email = user.primaryEmailAddress?.emailAddress || "";
+        
+        step2Form.setValue("name", fullName);
+        step2Form.setValue("email", email);
+        
+        // Also update store
+        setStep2Data({
+          ...step2Data,
+          name: fullName,
+          email: email,
+          phone: step2Data?.phone || "",
+        });
+      }
+    }
+  }, [isLoaded, isSignedIn, user, step2Form, setStep2Data, step2Data]);
+
+  // Step 5 form is no longer needed as we use Clerk components
+
 
   // Memoized address selection callback to prevent Radar reinitialization
   const handleAddressSelect = useCallback(
@@ -266,13 +268,15 @@ export default function AppointmentModal({
     [step1Form],
   );
 
-  const addVehicle = () => {
-    const vehicleType = step3Form.getValues("vehicleType");
-    const size = getVehicleSize(vehicleType);
+  const addVehicle = async () => {
+    // Validate current vehicles before adding new one
+    const isValid = await step3Form.trigger();
+    if (!isValid) return;
+
     const currentVehicles = step3Form.getValues("vehicles") || [];
     step3Form.setValue("vehicles", [
       ...currentVehicles,
-      { year: "", make: "", model: "", color: "", licensePlate: "", size },
+      { year: "", make: "", model: "", color: "", licensePlate: "", type: "car", size: "small" },
     ]);
   };
 
@@ -354,12 +358,19 @@ export default function AppointmentModal({
   const hasServices = services && services.length > 0;
 
   const onSubmit = async () => {
-    const isValid = await step5Form.trigger();
-    if (!isValid) return;
-
     // Validate that all required data is present
-    if (!step2Data?.phone) {
-      toast.error("Please go back and enter your phone number.");
+    if (!step2Data?.phone || !step2Data?.email || !step2Data?.name) {
+      toast.error("Please go back and enter your contact details.");
+      return;
+    }
+
+    if (!step1Data?.scheduledDate || !step1Data?.scheduledTime) {
+      toast.error("Please go back and select a date and time.");
+      return;
+    }
+
+    if (!step3Data?.vehicles || step3Data.vehicles.length === 0) {
+      toast.error("Please go back and add at least one vehicle.");
       return;
     }
 
@@ -373,141 +384,76 @@ export default function AppointmentModal({
 
     setIsLoading(true);
     try {
-      const finalData = {
-        ...step1Data,
-        ...step2Data,
-        ...step3Data,
-        ...step4Data,
-        ...step5Form.getValues(),
-      };
+      // Determine user details (Guest vs Auth)
+      const fullName = isSignedIn && user?.fullName ? user.fullName : step2Data.name;
+      const email = isSignedIn && user?.primaryEmailAddress?.emailAddress 
+        ? user.primaryEmailAddress.emailAddress 
+        : step2Data.email;
+      const phone = step2Data.phone; 
 
-      // Step 1: Sign up using Clerk (creates user with password)
-      // This MUST succeed for the checkout flow to work
-      if (!signUp || !signIn) {
-        throw new Error("Authentication system is not ready. Please refresh the page.");
-      }
+      console.log("Submitting appointment for:", email);
 
-      try {
-        // Try to sign up first
-        const signUpResult = await signUp.create({
-          emailAddress: finalData.email!,
-          password: finalData.password!,
-        });
-
-        if (signUpResult.status === "complete") {
-          await setActiveSignUp({ session: signUpResult.createdSessionId });
-        } else if (signUpResult.status === "missing_requirements") {
-          // Email verification is required - prepare verification and inform user
-          await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
-          // Throw a specific error that won't trigger the sign-in fallback
-          const verificationError = new Error(
-            "Email verification required. Please check your email for a verification code and verify your account before booking an appointment. You can sign in after verification.",
-          );
-          (verificationError as Error & { isVerificationRequired?: boolean })
-            .isVerificationRequired = true;
-          throw verificationError;
-        }
-      } catch (authError: unknown) {
-        // Don't attempt sign-in if email verification is required
-        const err = authError as Error & { isVerificationRequired?: boolean };
-        if (err?.isVerificationRequired) {
-          throw authError; // Re-throw verification errors
-        }
-
-        // If signup fails for other reasons (e.g., user already exists), try to sign in
-        try {
-          const signInResult = await signIn.create({
-            identifier: finalData.email!,
-            password: finalData.password!,
-          });
-
-          if (signInResult.status === "complete") {
-            await setActiveSignIn({ session: signInResult.createdSessionId });
-          } else {
-            throw new Error("Sign in incomplete. Please try again.");
-          }
-        } catch (signInError: unknown) {
-          // If both fail, we cannot proceed because checkout requires authentication
-          const signInErr = signInError as { errors?: Array<{ message?: string }> };
-          const authErr = authError as { errors?: Array<{ message?: string }> };
-          const errorMessage =
-            signInErr?.errors?.[0]?.message ||
-            authErr?.errors?.[0]?.message ||
-            "Authentication failed. Please check your email and password, or try signing up with a different email.";
-          throw new Error(errorMessage);
-        }
-      }
-
-      // Step 2: Wait a moment for auth state to propagate
-      // This ensures the user is authenticated before proceeding
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Step 3: Create user and appointment (password is handled by auth above)
-      // Note: If auth succeeded, the user already exists in the DB via auth callback
-      // createUserWithAppointment will update the existing user or create a new one if needed
+      // Create user (ensure syncing) and appointment
       const { appointmentId, invoiceId } = await createUserAndAppointment({
-        name: finalData.name!,
-        email: finalData.email!,
-        phone: finalData.phone!,
+        name: fullName!,
+        email: email!,
+        phone: phone!,
         address: {
-          street: finalData.street!,
-          city: finalData.city!,
-          state: finalData.state!,
-          zip: finalData.zip!,
+          street: step1Data.street,
+          city: step1Data.city,
+          state: step1Data.state,
+          zip: step1Data.zip || "",
         },
-        vehicles: finalData.vehicles!.map((vehicle) => ({
-          ...vehicle,
-          year: parseInt(vehicle.year),
+        vehicles: step3Data.vehicles.map((vehicle) => ({
+          year: parseInt(vehicle.year), // Ensure year is number
+          make: vehicle.make,
+          model: vehicle.model,
+          size: vehicle.size,
+          color: vehicle.color,
+          licensePlate: vehicle.licensePlate,
         })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        serviceIds: finalData.serviceIds! as any,
-        scheduledDate: finalData.scheduledDate!,
-        scheduledTime: finalData.scheduledTime!,
-        locationNotes: finalData.locationNotes,
+        serviceIds: (step4Data?.serviceIds || []) as any,
+        scheduledDate: new Date(step1Data.scheduledDate).toISOString(),
+        scheduledTime: step1Data.scheduledTime,
+        locationNotes: step1Data.locationNotes,
       });
 
-      // Create checkout session for deposit payment
-      const { url } = await createDepositCheckout({
+      // Create checkout session for booking (guest or auth)
+      const { url } = await createBookingCheckout({
         appointmentId,
         invoiceId,
         successUrl: `${window.location.origin}/dashboard/appointments?payment=success`,
         cancelUrl: `${window.location.origin}/dashboard/appointments?payment=cancelled`,
       });
 
-      // Redirect to Stripe Checkout
-      window.location.href = url;
-    } catch (error) {
-      // Provide more user-friendly error messages
-      let errorMessage = "Failed to create account";
-      if (error instanceof Error) {
-        if (error.message.includes("phone")) {
-          errorMessage = "Please enter a valid phone number";
-        } else if (error.message.includes("email")) {
-          errorMessage = "Please enter a valid email address";
-        } else if (error.message.includes("already exists")) {
-          errorMessage = "An account with this email already exists";
-        } else {
-          errorMessage = error.message;
+      if (url) {
+        // Clear the booking store before redirecting to Stripe
+        resetBooking();
+        // Clear local storage fallbacks if any remain
+        if (typeof window !== "undefined") {
+             localStorage.removeItem("selectedAddress");
+             localStorage.removeItem("appointmentFormData");
         }
+        
+        // Redirect to Stripe Checkout
+        window.location.href = url;
+      } else {
+        throw new Error("Failed to create checkout session");
       }
-      toast.error(errorMessage);
+    } catch (error) {
+      console.error("Booking error:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create appointment",
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Reset function to clear all state
   const resetModal = () => {
-    setCurrentStep(1);
-    setStep1Data({});
-    setStep2Data({});
-    setStep3Data({
-      vehicles: [
-        { year: "", make: "", model: "", color: "", licensePlate: "" },
-      ],
-    });
-    setStep4Data({ serviceIds: preselectedServices });
-    setStep5Data({});
-    // Clear saved data from localStorage
+    resetBooking();
+    // Clear saved data from localStorage (legacy/redundant but safe)
     if (typeof window !== "undefined") {
       localStorage.removeItem("selectedAddress");
       localStorage.removeItem("appointmentFormData");
@@ -516,7 +462,6 @@ export default function AppointmentModal({
     step2Form.reset();
     step3Form.reset();
     step4Form.reset();
-    step5Form.reset();
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -630,7 +575,26 @@ export default function AppointmentModal({
                     <FormItem>
                       <FormLabel>Preferred Date</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} />
+                        <Input
+                            type="date"
+                            {...field}
+                            value={
+                              field.value instanceof Date
+                                ? field.value.toISOString().split("T")[0]
+                                : field.value || ""
+                            }
+                            onChange={(e) => {
+                              const date = new Date(e.target.value);
+                              // Adjust for timezone offset to prevent day shifting
+                              const userTimezoneOffset =
+                                date.getTimezoneOffset() * 60000;
+                              const adjustedDate = new Date(
+                                date.getTime() + userTimezoneOffset,
+                              );
+                              field.onChange(adjustedDate);
+                            }}
+                            className="bg-background-50 border-gray-200"
+                          />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -642,16 +606,14 @@ export default function AppointmentModal({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Preferred Time</FormLabel>
-                      <Input
-                        type="time"
-                        {...field}
-                        placeholder="Select preferred time"
-                      />
+                      <FormControl>
+                        <TimeSlotPicker 
+                          date={step1Form.watch("scheduledDate")?.toISOString() ?? ""}
+                          selectedTime={field.value}
+                          onTimeSelect={(time) => field.onChange(time)}
+                        />
+                      </FormControl>
                       <FormMessage />
-                      <p className="text-sm text-muted-foreground mt-1">
-                        We&apos;ll contact you to confirm availability and
-                        schedule your appointment
-                      </p>
                     </FormItem>
                   )}
                 />
@@ -669,9 +631,9 @@ export default function AppointmentModal({
                   control={step1Form.control}
                   name="street"
                   render={({ field }) => (
-                    <FormItem className="hidden">
+                  <FormItem className="hidden">
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} value={field.value || ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -681,9 +643,9 @@ export default function AppointmentModal({
                   control={step1Form.control}
                   name="city"
                   render={({ field }) => (
-                    <FormItem className="hidden">
+                  <FormItem className="hidden">
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} value={field.value || ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -693,9 +655,9 @@ export default function AppointmentModal({
                   control={step1Form.control}
                   name="state"
                   render={({ field }) => (
-                    <FormItem className="hidden">
+                  <FormItem className="hidden">
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} value={field.value || ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -745,7 +707,7 @@ export default function AppointmentModal({
                   <FormItem>
                     <FormLabel>Full Name</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input {...field} value={field.value || ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -758,7 +720,29 @@ export default function AppointmentModal({
                   <FormItem>
                     <FormLabel>Phone Number</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input 
+                        {...field} 
+                        value={field.value || ""} 
+                        type="tel" 
+                        placeholder="123-456-7890"
+                        onChange={(e) => {
+                           // Allow user to type, validation is handled by schema on submit
+                           field.onChange(e);
+                        }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={step2Form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email Address</FormLabel>
+                    <FormControl>
+                      <Input {...field} value={field.value || ""} type="email" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -772,47 +756,6 @@ export default function AppointmentModal({
         {currentStep === 3 && (
           <Form {...step3Form}>
             <form className="space-y-6">
-              <FormField
-                control={step3Form.control}
-                name="vehicleType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vehicle Type</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        // Update size for all existing vehicles
-                        const size = getVehicleSize(
-                          value as "car" | "truck" | "suv",
-                        );
-                        const currentVehicles =
-                          step3Form.getValues("vehicles") || [];
-                        step3Form.setValue(
-                          "vehicles",
-                          currentVehicles.map((vehicle) => ({
-                            ...vehicle,
-                            size,
-                          })),
-                        );
-                      }}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select vehicle type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="car">Car</SelectItem>
-                        <SelectItem value="truck">Truck</SelectItem>
-                        <SelectItem value="suv">SUV</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium">Vehicle Details</h3>
@@ -821,50 +764,88 @@ export default function AppointmentModal({
                     variant="outline"
                     size="sm"
                     onClick={addVehicle}
+                    disabled={!step3Form.formState.isValid && (step3Form.getValues("vehicles")?.length || 0) > 0} 
                   >
                     Add Another Vehicle
                   </Button>
                 </div>
 
                 {step3Form.watch("vehicles")?.map((_, index) => (
-                  <Card key={index}>
-                    <CardContent className="pt-4">
-                      <div className="flex items-start justify-between mb-4">
-                        <h4 className="font-medium">Vehicle {index + 1}</h4>
-                        {step3Form.watch("vehicles")!.length > 1 && (
+                  <Card key={index} className="relative">
+                     <div className="absolute top-2 right-2">
+                        {index > 0 && (
                           <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
+                            size="icon"
+                            className="h-6 w-6"
                             onClick={() => removeVehicle(index)}
                           >
-                            Remove
+                            <span className="sr-only">Remove</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                           </Button>
                         )}
-                      </div>
+                     </div>
+                    <CardContent className="pt-6 space-y-4">
+                      <FormField
+                        control={step3Form.control as any}
+                        name={`vehicles.${index}.type` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Vehicle Type</FormLabel>
+                            <Select
+                              onValueChange={(value) => {
+                                field.onChange(value);
+                                const size = getVehicleSize(value as "car" | "truck" | "suv");
+                                step3Form.setValue(`vehicles.${index}.size`, size);
+                              }}
+                              value={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select vehicle type" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="car">Car</SelectItem>
+                                <SelectItem value="truck">Truck</SelectItem>
+                                <SelectItem value="suv">SUV</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       <div className="grid grid-cols-2 gap-4">
                         <FormField
-                          control={step3Form.control}
-                          name={`vehicles.${index}.year`}
+                          control={step3Form.control as any}
+                          name={`vehicles.${index}.year` as any}
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Year</FormLabel>
                               <FormControl>
-                                <Input {...field} />
+                                <Input
+                                  {...field}
+                                  value={field.value || ""}
+                                  type="number"
+                                  placeholder="YYYY"
+                                  min={1900}
+                                  max={new Date().getFullYear() + 1}
+                                />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
                         <FormField
-                          control={step3Form.control}
-                          name={`vehicles.${index}.make`}
+                          control={step3Form.control as any}
+                          name={`vehicles.${index}.make` as any}
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Make</FormLabel>
                               <FormControl>
-                                <Input {...field} />
+                                <Input {...field} value={field.value || ""} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -872,28 +853,28 @@ export default function AppointmentModal({
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 mt-4">
+                      <div className="grid grid-cols-2 gap-4">
                         <FormField
-                          control={step3Form.control}
-                          name={`vehicles.${index}.model`}
+                          control={step3Form.control as any}
+                          name={`vehicles.${index}.model` as any}
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Model</FormLabel>
                               <FormControl>
-                                <Input {...field} />
+                                <Input {...field} value={field.value || ""} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
                         <FormField
-                          control={step3Form.control}
-                          name={`vehicles.${index}.color`}
+                          control={step3Form.control as any}
+                          name={`vehicles.${index}.color` as any}
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Color (Optional)</FormLabel>
                               <FormControl>
-                                <Input {...field} />
+                                <Input {...field} value={field.value || ""} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -902,13 +883,13 @@ export default function AppointmentModal({
                       </div>
 
                       <FormField
-                        control={step3Form.control}
-                        name={`vehicles.${index}.licensePlate`}
+                        control={step3Form.control as any}
+                        name={`vehicles.${index}.licensePlate` as any}
                         render={({ field }) => (
-                          <FormItem className="mt-4">
+                          <FormItem>
                             <FormLabel>License Plate (Optional)</FormLabel>
                             <FormControl>
-                              <Input {...field} />
+                              <Input {...field} value={field.value || ""} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -928,125 +909,241 @@ export default function AppointmentModal({
             <form className="space-y-6">
               <div className="space-y-4">
                 <h3 className="text-sm font-medium">Select Services</h3>
-                <div className="grid gap-3">
-                  {services
-                    ?.filter((service) => service.isActive)
-                    .map((service) => {
-                      // Get pricing based on the first vehicle's size
-                      const vehicleType = step3Data.vehicleType;
-                      const vehicleSize =
-                        vehicleType === "car"
-                          ? "small"
-                          : vehicleType === "suv"
-                            ? "medium"
-                            : "large";
+                
+                <FormField
+                  control={step4Form.control}
+                  name="serviceIds"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <div className="space-y-8">
+                          
+                          {/* Packages Section (Single Select) */}
+                          <div className="space-y-3">
+                            <h4 className="font-medium flex items-center gap-2">
+                              <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs">ONE REQUIRED</span>
+                              Packages
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {services
+                                ?.filter(s => s.isActive && (s.serviceType === "standard" || !s.serviceType))
+                                .map(service => {
+                                  const vehicleType = step3Data?.vehicleType;
+                                  const vehicleSize = vehicleType === "car" ? "small" : vehicleType === "suv" ? "medium" : "large";
+                                  const isSelected = field.value?.includes(service._id) || false;
 
-                      const price =
-                        vehicleSize === "small"
-                          ? service.basePriceSmall
-                          : vehicleSize === "medium"
-                            ? service.basePriceMedium
-                            : service.basePriceLarge;
+                                  return (
+                                    <ServiceCard
+                                      key={service._id}
+                                      service={service}
+                                      vehicleSize={vehicleSize}
+                                      isSelected={isSelected}
+                                      onSelect={() => {
+                                        const current = field.value || [];
+                                        // Remove other standard services, keep addons/subs
+                                        const otherServices = current.filter(id => {
+                                          const s = services.find(s => s._id === id);
+                                          return s && s.serviceType !== "standard" && s.serviceType; // Keep non-standards
+                                        });
+                                        // If clicking same, keep it (enforce at least one? logic handles in schema) 
+                                        // actually user said "select one", so radio behavior usually means you can't deselect the only one by clicking it, but let's allow switching.
+                                        // Simply set the value to [...others, newId]
+                                        field.onChange([...otherServices, service._id]);
+                                      }}
+                                    />
+                                  );
+                                })}
+                            </div>
+                          </div>
 
-                      return (
-                        <FormField
-                          key={service._id}
-                          control={step4Form.control}
-                          name="serviceIds"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center space-x-3">
-                              <FormControl>
-                                <Checkbox
-                                  checked={field.value?.includes(service._id)}
-                                  onCheckedChange={(checked) => {
-                                    const current = field.value || [];
-                                    if (checked) {
-                                      field.onChange([...current, service._id]);
-                                    } else {
-                                      field.onChange(
-                                        current.filter(
-                                          (id) => id !== service._id,
-                                        ),
-                                      );
-                                    }
-                                  }}
-                                />
-                              </FormControl>
-                              <div className="flex-1">
-                                <FormLabel className="text-sm font-normal cursor-pointer">
-                                  <div className="font-medium">
-                                    {service.name}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {service.description} • $
-                                    {price?.toFixed(2) || "N/A"}
-                                  </div>
-                                </FormLabel>
-                              </div>
-                            </FormItem>
-                          )}
-                        />
-                      );
-                    })}
-                </div>
+                          {/* Add-ons Section (Multi Select) */}
+                          <div className="space-y-3">
+                            <h4 className="font-medium text-muted-foreground">Add-ons (Optional)</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {services
+                                ?.filter(s => s.isActive && s.serviceType === "addon")
+                                .map(service => {
+                                  const vehicleType = step3Data?.vehicleType;
+                                  const vehicleSize = vehicleType === "car" ? "small" : vehicleType === "suv" ? "medium" : "large";
+                                  const isSelected = field.value?.includes(service._id) || false;
+
+                                  return (
+                                    <ServiceCard
+                                      key={service._id}
+                                      service={service}
+                                      vehicleSize={
+                                        step3Data?.vehicleType === "car" 
+                                          ? "small" 
+                                          : step3Data?.vehicleType === "suv" 
+                                            ? "medium" 
+                                            : "large"
+                                      }
+                                      isSelected={step4Data?.serviceIds.includes(service._id) || false}
+                                      onSelect={() => {
+                                        const currentIds = step4Data?.serviceIds || [];
+                                        const isSelected = currentIds.includes(service._id);
+                                        let newIds;
+                                        if (isSelected) {
+                                          newIds = currentIds.filter((id) => id !== service._id);
+                                        } else {
+                                          newIds = [...currentIds, service._id];
+                                        }
+                                        setStep4Data({ serviceIds: newIds });
+                                      }}
+                                    />
+                                  );
+                                })}
+                                {services?.filter(s => s.isActive && s.serviceType === "addon").length === 0 && (
+                                  <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
+                                )}
+                            </div>
+                          </div>
+
+                          {/* Subscriptions Section (Single Select) */}
+                          <div className="space-y-3">
+                            <h4 className="font-medium text-muted-foreground">Subscriptions (Optional)</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {services
+                                ?.filter(s => s.isActive && s.serviceType === "subscription")
+                                .map(service => {
+                                  const vehicleType = step3Data?.vehicleType;
+                                  const vehicleSize = vehicleType === "car" ? "small" : vehicleType === "suv" ? "medium" : "large";
+                                  const isSelected = field.value?.includes(service._id) || false;
+
+                                  return (
+                                    <ServiceCard
+                                      key={service._id}
+                                      service={service}
+                                      vehicleSize={vehicleSize}
+                                      isSelected={isSelected}
+                                      onSelect={(selected) => {
+                                        const current = field.value || [];
+                                        const otherServices = current.filter(id => {
+                                          const s = services.find(s => s._id === id);
+                                          return s && s.serviceType !== "subscription";
+                                        });
+                                        
+                                        if (selected) {
+                                           // Select this one, remove other subscriptions
+                                           field.onChange([...otherServices, service._id]);
+                                        } else {
+                                           // Deselect allowed for subscriptions
+                                           field.onChange(otherServices);
+                                        }
+                                      }}
+                                    />
+                                  );
+                                })}
+                                {services?.filter(s => s.isActive && s.serviceType === "subscription").length === 0 && (
+                                  <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
+                                )}
+                            </div>
+                          </div>
+
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormMessage />
               </div>
             </form>
           </Form>
         )}
 
-        {/* Step 5: Create Account */}
+        {/* Step 5: Create Account & Deposit */}
+
         {currentStep === 5 && (
-          <Form {...step5Form}>
-            <form className="space-y-6">
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium">Create Your Account</h3>
-                <FormField
-                  control={step5Form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input type="email" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={step5Form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={step5Form.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirm Password</FormLabel>
-                      <FormControl>
-                        <Input type="password" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </form>
-          </Form>
+          <div className="space-y-6">
+             <div className="bg-muted/50 p-4 rounded-lg border border-border/50">
+               <h3 className="font-semibold mb-3 flex items-center gap-2">
+                 <span className="bg-primary text-primary-foreground w-6 h-6 rounded-full flex items-center justify-center text-xs">✓</span>
+                 Order Summary
+               </h3>
+               {services
+                 ?.filter((s) => step4Data?.serviceIds?.includes(s._id))
+                 .map((service) => {
+                   const serviceId = service._id;
+                   const isSubscription = service.serviceType === "subscription";
+                   
+                   // Find vehicle size based on step 3 data
+                   // Create a safeguard for empty step3Data although logic prevents reaching step 5 without it
+                   if (!step3Data?.vehicles?.[0]) return null;
+                   
+                   const vehicleType = step3Data.vehicleType;
+                   const vehicleSize =
+                     vehicleType === "car"
+                       ? "small"
+                       : vehicleType === "suv"
+                         ? "medium"
+                         : "large";
+
+                   const price =
+                     vehicleSize === "small"
+                       ? service.basePriceSmall
+                       : vehicleSize === "medium"
+                         ? service.basePriceMedium
+                         : service.basePriceLarge;
+                         
+                   return (
+                     <div key={serviceId} className="flex justify-between text-sm mb-2">
+                       <span className="text-muted-foreground">{service.name}</span>
+                       <div className="flex items-center gap-1">
+                          <span className="font-medium">${price?.toFixed(2)}</span>
+                          {isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
+                       </div>
+                     </div>
+                   );
+                 })}
+
+                 
+                 <div className="border-t border-dashed my-3" />
+                 
+                 <div className="flex justify-between items-end">
+                   <div>
+                     <span className="font-bold text-base block">Deposit Due Now</span>
+                     <span className="text-xs text-muted-foreground">Secure payment via Stripe</span>
+                   </div>
+                   <span className="font-bold text-xl text-primary">$50.00</span>
+                 </div>
+             </div>
+
+             <div className="mt-6">
+                {!isSignedIn ? (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-3 rounded-md text-sm mb-4 border border-blue-200 dark:border-blue-800 text-center">
+                       You will receive an account setup link via email after payment.
+                    </div>
+                ) : (
+                   <div className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 p-3 rounded-md text-sm mb-4 flex items-center gap-2 border border-green-200 dark:border-green-800">
+                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                      Logged in as {user?.primaryEmailAddress?.emailAddress}
+                   </div>
+                )}
+                
+                <Button
+                   type="button"
+                   onClick={onSubmit}
+                   className="w-full h-12 text-lg font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
+                   disabled={isLoading}
+                 >
+                   {isLoading ? (
+                     <>
+                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                       Processing Payment...
+                     </>
+                   ) : (
+                     "Pay Deposit & Confirm Appointment"
+                   )}
+                 </Button>
+             </div>
+          </div>
         )}
 
-        {/* Navigation Buttons */}
-        <div className="flex gap-4 pt-4">
+
+
+      {/* Navigation Buttons */}
+        <div className="flex gap-4 pt-4 border-t mt-4">
           {currentStep > 1 && (
             <Button
               type="button"
@@ -1068,10 +1165,20 @@ export default function AppointmentModal({
             <Button
               type="button"
               onClick={onSubmit}
-              className="flex-1"
+              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
               disabled={isLoading}
             >
-              {isLoading ? "Creating Account..." : "Create Account"}
+              {isLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  Pay Deposit & Confirm
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </>
+              )}
             </Button>
           )}
         </div>

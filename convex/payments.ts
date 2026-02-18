@@ -47,6 +47,42 @@ const backfillSummaryValidator = v.object({
   errors: v.array(v.string()),
 });
 
+const invoiceStatusValidator = v.union(
+  v.literal("draft"),
+  v.literal("sent"),
+  v.literal("paid"),
+  v.literal("overdue"),
+);
+
+const invoicePipelineStateValidator = v.object({
+  invoiceId: v.id("invoices"),
+  appointmentId: v.id("appointments"),
+  status: invoiceStatusValidator,
+  depositPaid: v.boolean(),
+  remainingBalance: v.optional(v.number()),
+  stripeInvoiceId: v.optional(v.string()),
+  stripeInvoiceUrl: v.optional(v.string()),
+  depositPaymentIntentId: v.optional(v.string()),
+  finalPaymentIntentId: v.optional(v.string()),
+  hasFalsePaidSignature: v.boolean(),
+  hasValidFinalPaymentEvidence: v.boolean(),
+  stripeInvoiceStatus: v.optional(v.string()),
+  stripeInvoiceHostedUrl: v.optional(v.string()),
+});
+
+const repairSingleInvoiceValidator = v.object({
+  invoiceId: v.id("invoices"),
+  dryRun: v.boolean(),
+  eligible: v.boolean(),
+  patched: v.boolean(),
+  succeeded: v.boolean(),
+  skipped: v.boolean(),
+  reason: v.optional(v.string()),
+  stripeInvoiceId: v.optional(v.string()),
+  stripeInvoiceUrl: v.optional(v.string()),
+  errors: v.array(v.string()),
+});
+
 type BackfillSummary = {
   scanned: number;
   candidates: number;
@@ -57,12 +93,110 @@ type BackfillSummary = {
   errors: string[];
 };
 
+type InvoicePipelineState = {
+  invoiceId: Id<"invoices">;
+  appointmentId: Id<"appointments">;
+  status: "draft" | "sent" | "paid" | "overdue";
+  depositPaid: boolean;
+  remainingBalance?: number;
+  stripeInvoiceId?: string;
+  stripeInvoiceUrl?: string;
+  depositPaymentIntentId?: string;
+  finalPaymentIntentId?: string;
+  hasFalsePaidSignature: boolean;
+  hasValidFinalPaymentEvidence: boolean;
+  stripeInvoiceStatus?: string;
+  stripeInvoiceHostedUrl?: string;
+};
+
+type RepairSingleStripeInvoiceResult = {
+  invoiceId: Id<"invoices">;
+  dryRun: boolean;
+  eligible: boolean;
+  patched: boolean;
+  succeeded: boolean;
+  skipped: boolean;
+  reason?: string;
+  stripeInvoiceId?: string;
+  stripeInvoiceUrl?: string;
+  errors: string[];
+};
+
 function appendMetadata(
   params: URLSearchParams,
   metadata: Record<string, string>,
 ): void {
   for (const [key, value] of Object.entries(metadata)) {
     params.append(`metadata[${key}]`, value);
+  }
+}
+
+function getHostedInvoiceUrl(stripeInvoice: any): string | undefined {
+  if (!stripeInvoice) {
+    return undefined;
+  }
+  return stripeInvoice.hosted_invoice_url || stripeInvoice.hostedInvoiceUrl;
+}
+
+async function getStripeInvoiceById(stripeInvoiceId: string): Promise<any> {
+  return await stripeApiCall(`invoices/${stripeInvoiceId}`, {
+    method: "GET",
+  });
+}
+
+async function findReusableStripeInvoice(
+  stripeCustomerId: string,
+  invoiceId: Id<"invoices">,
+): Promise<any | null> {
+  const recentInvoices = await stripeApiCall(
+    `invoices?customer=${encodeURIComponent(stripeCustomerId)}&limit=25`,
+    { method: "GET" },
+  );
+  const candidate = recentInvoices?.data?.find(
+    (stripeInvoice: any) =>
+      stripeInvoice?.metadata?.invoiceId === String(invoiceId),
+  );
+  return candidate ?? null;
+}
+
+async function getFinalPaymentEvidence(invoice: any): Promise<{
+  hasValidFinalPaymentEvidence: boolean;
+  stripeInvoiceStatus?: string;
+  stripeInvoiceHostedUrl?: string;
+}> {
+  if (
+    invoice.finalPaymentIntentId &&
+    (!invoice.depositPaymentIntentId ||
+      invoice.finalPaymentIntentId !== invoice.depositPaymentIntentId)
+  ) {
+    return {
+      hasValidFinalPaymentEvidence: true,
+    };
+  }
+
+  if (!invoice.stripeInvoiceId) {
+    return {
+      hasValidFinalPaymentEvidence: false,
+    };
+  }
+
+  try {
+    const stripeInvoice = await getStripeInvoiceById(invoice.stripeInvoiceId);
+    const stripeInvoiceStatus = stripeInvoice.status as string | undefined;
+    const stripeInvoiceHostedUrl = getHostedInvoiceUrl(stripeInvoice);
+    return {
+      hasValidFinalPaymentEvidence: stripeInvoiceStatus === "paid",
+      stripeInvoiceStatus,
+      stripeInvoiceHostedUrl,
+    };
+  } catch (error) {
+    console.warn(
+      `[payments] Unable to fetch Stripe invoice for payment evidence stripeInvoiceId=${invoice.stripeInvoiceId}`,
+      error,
+    );
+    return {
+      hasValidFinalPaymentEvidence: false,
+    };
   }
 }
 
@@ -108,17 +242,150 @@ async function createStripeInvoiceAfterDepositImpl(
     `[payments] createStripeInvoiceAfterDeposit:start invoiceId=${args.invoiceId} appointmentId=${args.appointmentId}`,
   );
 
-  let hasDefaultPaymentMethod = false;
-  if (process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test") {
+  if (invoice.stripeInvoiceId && invoice.stripeInvoiceUrl) {
+    console.log(
+      `[payments] createStripeInvoiceAfterDeposit:idempotentReuse invoiceId=${args.invoiceId} stripeInvoiceId=${invoice.stripeInvoiceId}`,
+    );
+    return {
+      stripeInvoiceId: invoice.stripeInvoiceId,
+      stripeInvoiceUrl: invoice.stripeInvoiceUrl,
+    };
+  }
+
+  if (invoice.stripeInvoiceId && !invoice.stripeInvoiceUrl) {
     try {
-      const customer = await stripeApiCall(`customers/${stripeCustomerId}`, {
-        method: "GET",
-      });
-      hasDefaultPaymentMethod =
-        !!customer.invoice_settings?.default_payment_method;
+      const existingStripeInvoice = await getStripeInvoiceById(
+        invoice.stripeInvoiceId,
+      );
+      const existingStripeInvoiceUrl =
+        getHostedInvoiceUrl(existingStripeInvoice) || undefined;
+      if (existingStripeInvoiceUrl) {
+        await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
+          invoiceId: args.invoiceId,
+          stripeInvoiceId: invoice.stripeInvoiceId,
+          stripeInvoiceUrl: existingStripeInvoiceUrl,
+          status: invoice.status === "paid" ? "paid" : "sent",
+        });
+        console.log(
+          `[payments] createStripeInvoiceAfterDeposit:recoveredMissingUrl invoiceId=${args.invoiceId} stripeInvoiceId=${invoice.stripeInvoiceId}`,
+        );
+        return {
+          stripeInvoiceId: invoice.stripeInvoiceId,
+          stripeInvoiceUrl: existingStripeInvoiceUrl,
+        };
+      }
     } catch (error) {
-      console.warn("Could not check customer payment method:", error);
+      console.warn(
+        `[payments] createStripeInvoiceAfterDeposit:failedExistingInvoiceLookup invoiceId=${args.invoiceId} stripeInvoiceId=${invoice.stripeInvoiceId}`,
+        error,
+      );
     }
+  }
+
+  try {
+    const customer = await stripeApiCall(`customers/${stripeCustomerId}`, {
+      method: "GET",
+    });
+    console.log(
+      `[payments] createStripeInvoiceAfterDeposit:customerResolved invoiceId=${args.invoiceId} customerId=${stripeCustomerId} hasEmail=${Boolean(customer?.email)}`,
+    );
+  } catch (error) {
+    console.warn(
+      `[payments] createStripeInvoiceAfterDeposit:customerLookupFailed invoiceId=${args.invoiceId} customerId=${stripeCustomerId}`,
+      error,
+    );
+  }
+
+  try {
+    const reusableStripeInvoice = await findReusableStripeInvoice(
+      stripeCustomerId,
+      args.invoiceId,
+    );
+    if (reusableStripeInvoice?.id) {
+      let reusableInvoice = await getStripeInvoiceById(reusableStripeInvoice.id);
+      console.log(
+        `[payments] createStripeInvoiceAfterDeposit:foundReusableStripeInvoice invoiceId=${args.invoiceId} stripeInvoiceId=${reusableInvoice.id} status=${reusableInvoice.status}`,
+      );
+
+      if (reusableInvoice.status === "draft") {
+        reusableInvoice = await stripeApiCall(
+          `invoices/${reusableInvoice.id}/finalize`,
+          {
+            method: "POST",
+          },
+        );
+        console.log(
+          `[payments] createStripeInvoiceAfterDeposit:reusableInvoiceFinalized invoiceId=${args.invoiceId} stripeInvoiceId=${reusableInvoice.id}`,
+        );
+      }
+
+      let reusableInvoiceUrl =
+        getHostedInvoiceUrl(reusableInvoice) || undefined;
+      if (!reusableInvoiceUrl) {
+        const refreshedReusableInvoice = await getStripeInvoiceById(
+          reusableInvoice.id,
+        );
+        reusableInvoiceUrl =
+          getHostedInvoiceUrl(refreshedReusableInvoice) || undefined;
+      }
+
+      if (!reusableInvoiceUrl) {
+        throw new Error(
+          `Reusable Stripe invoice ${reusableInvoice.id} is missing hosted invoice URL`,
+        );
+      }
+
+      await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
+        invoiceId: args.invoiceId,
+        stripeInvoiceId: reusableInvoice.id,
+        stripeInvoiceUrl: reusableInvoiceUrl,
+        status: reusableInvoice.status === "paid" ? "paid" : "sent",
+      });
+
+      if (
+        reusableInvoice.status !== "paid" &&
+        reusableInvoice.status !== "void" &&
+        reusableInvoice.status !== "uncollectible"
+      ) {
+        try {
+          const sentReusableInvoice = await stripeApiCall(
+            `invoices/${reusableInvoice.id}/send`,
+            {
+              method: "POST",
+            },
+          );
+          const sentReusableInvoiceUrl =
+            getHostedInvoiceUrl(sentReusableInvoice) || reusableInvoiceUrl;
+          if (sentReusableInvoiceUrl !== reusableInvoiceUrl) {
+            reusableInvoiceUrl = sentReusableInvoiceUrl;
+            await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
+              invoiceId: args.invoiceId,
+              stripeInvoiceId: reusableInvoice.id,
+              stripeInvoiceUrl: reusableInvoiceUrl,
+              status: "sent",
+            });
+          }
+          console.log(
+            `[payments] createStripeInvoiceAfterDeposit:reusableInvoiceSent invoiceId=${args.invoiceId} stripeInvoiceId=${reusableInvoice.id}`,
+          );
+        } catch (error) {
+          console.error(
+            `[payments] createStripeInvoiceAfterDeposit:reusableInvoiceSendFailed invoiceId=${args.invoiceId} stripeInvoiceId=${reusableInvoice.id}`,
+            error,
+          );
+        }
+      }
+
+      return {
+        stripeInvoiceId: reusableInvoice.id,
+        stripeInvoiceUrl: reusableInvoiceUrl,
+      };
+    }
+  } catch (error) {
+    console.warn(
+      `[payments] createStripeInvoiceAfterDeposit:reusableLookupFailed invoiceId=${args.invoiceId}`,
+      error,
+    );
   }
 
   if (!invoice.items || invoice.items.length === 0) {
@@ -173,9 +440,7 @@ async function createStripeInvoiceAfterDepositImpl(
     });
   }
 
-  const collectionMethod = hasDefaultPaymentMethod
-    ? "charge_automatically"
-    : "send_invoice";
+  const collectionMethod = "send_invoice";
 
   const invoiceParams = new URLSearchParams({
     customer: stripeCustomerId,
@@ -183,9 +448,7 @@ async function createStripeInvoiceAfterDepositImpl(
     auto_advance: "true",
     description: `Mobile detailing service - ${appointment.scheduledDate}`,
   });
-  if (collectionMethod === "send_invoice") {
-    invoiceParams.append("days_until_due", "30");
-  }
+  invoiceParams.append("days_until_due", "30");
   appendMetadata(invoiceParams, {
     invoiceId: String(args.invoiceId),
     appointmentId: String(args.appointmentId),
@@ -203,23 +466,16 @@ async function createStripeInvoiceAfterDepositImpl(
     method: "POST",
   });
 
-  const processedInvoice =
-    collectionMethod === "send_invoice"
-      ? await stripeApiCall(`invoices/${finalizedInvoice.id}/send`, {
-          method: "POST",
-        })
-      : finalizedInvoice;
+  const finalizedStripeInvoiceId = finalizedInvoice.id || stripeInvoice.id;
 
   let stripeInvoiceUrl =
-    processedInvoice.hosted_invoice_url ||
+    getHostedInvoiceUrl(finalizedInvoice) ||
     finalizedInvoice.hosted_invoice_url ||
     stripeInvoice.hosted_invoice_url;
 
   if (!stripeInvoiceUrl) {
-    const fetchedInvoice = await stripeApiCall(`invoices/${finalizedInvoice.id}`, {
-      method: "GET",
-    });
-    stripeInvoiceUrl = fetchedInvoice.hosted_invoice_url;
+    const fetchedInvoice = await getStripeInvoiceById(finalizedStripeInvoiceId);
+    stripeInvoiceUrl = getHostedInvoiceUrl(fetchedInvoice) || undefined;
   }
 
   if (!stripeInvoiceUrl) {
@@ -231,12 +487,12 @@ async function createStripeInvoiceAfterDepositImpl(
   try {
     await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
       invoiceId: args.invoiceId,
-      stripeInvoiceId: processedInvoice.id || finalizedInvoice.id,
+      stripeInvoiceId: finalizedStripeInvoiceId,
       stripeInvoiceUrl,
       status: "sent",
     });
     console.log(
-      `[payments] createStripeInvoiceAfterDeposit:convexPatchSuccess invoiceId=${args.invoiceId} stripeInvoiceId=${processedInvoice.id || finalizedInvoice.id}`,
+      `[payments] createStripeInvoiceAfterDeposit:convexPatchSuccess invoiceId=${args.invoiceId} stripeInvoiceId=${finalizedStripeInvoiceId}`,
     );
   } catch (error) {
     console.error(
@@ -246,8 +502,36 @@ async function createStripeInvoiceAfterDepositImpl(
     throw error;
   }
 
+  try {
+    const sentInvoice = await stripeApiCall(
+      `invoices/${finalizedStripeInvoiceId}/send`,
+      {
+        method: "POST",
+      },
+    );
+    const sentInvoiceUrl =
+      getHostedInvoiceUrl(sentInvoice) || stripeInvoiceUrl;
+    if (sentInvoiceUrl !== stripeInvoiceUrl) {
+      stripeInvoiceUrl = sentInvoiceUrl;
+      await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
+        invoiceId: args.invoiceId,
+        stripeInvoiceId: finalizedStripeInvoiceId,
+        stripeInvoiceUrl,
+        status: "sent",
+      });
+    }
+    console.log(
+      `[payments] createStripeInvoiceAfterDeposit:invoiceSent invoiceId=${args.invoiceId} stripeInvoiceId=${finalizedStripeInvoiceId}`,
+    );
+  } catch (error) {
+    console.error(
+      `[payments] createStripeInvoiceAfterDeposit:sendFailed invoiceId=${args.invoiceId} stripeInvoiceId=${finalizedStripeInvoiceId}`,
+      error,
+    );
+  }
+
   return {
-    stripeInvoiceId: processedInvoice.id || finalizedInvoice.id,
+    stripeInvoiceId: finalizedStripeInvoiceId,
     stripeInvoiceUrl,
   };
 }
@@ -265,7 +549,9 @@ async function runBackfillMissingStripeInvoices(
       (invoice) =>
         invoice.depositPaid === true &&
         (invoice.remainingBalance ?? 0) > 0 &&
-        (!invoice.stripeInvoiceId || !invoice.stripeInvoiceUrl),
+        (!invoice.stripeInvoiceId ||
+          !invoice.stripeInvoiceUrl ||
+          invoice.status === "paid"),
     )
     .slice(0, limit);
 
@@ -291,19 +577,23 @@ async function runBackfillMissingStripeInvoices(
       continue;
     }
 
-    const hasFalsePaidSignature =
-      invoice.status === "paid" &&
-      !!invoice.depositPaymentIntentId &&
-      invoice.finalPaymentIntentId === invoice.depositPaymentIntentId;
+    if (invoice.status === "paid") {
+      const hasFalsePaidSignature =
+        !!invoice.depositPaymentIntentId &&
+        invoice.finalPaymentIntentId === invoice.depositPaymentIntentId;
+      const finalPaymentEvidence = await getFinalPaymentEvidence(invoice);
+      const shouldRepairPaidState =
+        hasFalsePaidSignature || !finalPaymentEvidence.hasValidFinalPaymentEvidence;
 
-    if (hasFalsePaidSignature) {
-      await ctx.runMutation(internal.invoices.resetFalsePaidStateInternal, {
-        invoiceId: invoice._id,
-      });
-      summary.patched += 1;
-    } else if (invoice.status === "paid") {
-      summary.skipped += 1;
-      continue;
+      if (shouldRepairPaidState) {
+        await ctx.runMutation(internal.invoices.resetFalsePaidStateInternal, {
+          invoiceId: invoice._id,
+        });
+        summary.patched += 1;
+      } else {
+        summary.skipped += 1;
+        continue;
+      }
     }
 
     try {
@@ -321,6 +611,13 @@ async function runBackfillMissingStripeInvoices(
   }
 
   return summary;
+}
+
+async function requireAdminRole(ctx: any): Promise<void> {
+  const role = await ctx.runQuery(api.auth.getUserRole, {});
+  if (role?.type !== "admin") {
+    throw new Error("Admin access required");
+  }
 }
 
 // === Payment Intents (for deposits and final payments) ===
@@ -794,11 +1091,7 @@ export const backfillMissingStripeInvoices = action({
   },
   returns: backfillSummaryValidator,
   handler: async (ctx, args): Promise<BackfillSummary> => {
-    const role = await ctx.runQuery(api.auth.getUserRole, {});
-    if (role?.type !== "admin") {
-      throw new Error("Admin access required");
-    }
-
+    await requireAdminRole(ctx);
     return await runBackfillMissingStripeInvoices(ctx, args);
   },
 });
@@ -812,12 +1105,146 @@ export const backfillMissingStripeInvoicesMutation = action({
   },
   returns: backfillSummaryValidator,
   handler: async (ctx, args): Promise<BackfillSummary> => {
-    const role = await ctx.runQuery(api.auth.getUserRole, {});
-    if (role?.type !== "admin") {
-      throw new Error("Admin access required");
+    await requireAdminRole(ctx);
+    return await runBackfillMissingStripeInvoices(ctx, args);
+  },
+});
+
+// Debug helper to inspect invoice/appointment pipeline state and Stripe linkage.
+export const inspectInvoicePipelineState = action({
+  args: {
+    invoiceId: v.id("invoices"),
+  },
+  returns: invoicePipelineStateValidator,
+  handler: async (ctx, args): Promise<InvoicePipelineState> => {
+    await requireAdminRole(ctx);
+
+    const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
+      invoiceId: args.invoiceId,
+    });
+    if (!invoice) {
+      throw new Error("Invoice not found");
     }
 
-    return await runBackfillMissingStripeInvoices(ctx, args);
+    const hasFalsePaidSignature =
+      invoice.status === "paid" &&
+      !!invoice.depositPaymentIntentId &&
+      invoice.finalPaymentIntentId === invoice.depositPaymentIntentId;
+    const finalPaymentEvidence = await getFinalPaymentEvidence(invoice);
+
+    return {
+      invoiceId: invoice._id,
+      appointmentId: invoice.appointmentId,
+      status: invoice.status,
+      depositPaid: invoice.depositPaid ?? false,
+      remainingBalance: invoice.remainingBalance,
+      stripeInvoiceId: invoice.stripeInvoiceId,
+      stripeInvoiceUrl: invoice.stripeInvoiceUrl,
+      depositPaymentIntentId: invoice.depositPaymentIntentId,
+      finalPaymentIntentId: invoice.finalPaymentIntentId,
+      hasFalsePaidSignature,
+      hasValidFinalPaymentEvidence:
+        finalPaymentEvidence.hasValidFinalPaymentEvidence,
+      stripeInvoiceStatus: finalPaymentEvidence.stripeInvoiceStatus,
+      stripeInvoiceHostedUrl: finalPaymentEvidence.stripeInvoiceHostedUrl,
+    };
+  },
+});
+
+// Targeted repair endpoint for a single invoice (surgical retries/debugging).
+export const repairSingleStripeInvoice = action({
+  args: {
+    invoiceId: v.id("invoices"),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: repairSingleInvoiceValidator,
+  handler: async (ctx, args): Promise<RepairSingleStripeInvoiceResult> => {
+    await requireAdminRole(ctx);
+
+    const dryRun = args.dryRun ?? true;
+    const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
+      invoiceId: args.invoiceId,
+    });
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+
+    const result: RepairSingleStripeInvoiceResult = {
+      invoiceId: args.invoiceId,
+      dryRun,
+      eligible: false,
+      patched: false,
+      succeeded: false,
+      skipped: false,
+      reason: undefined as string | undefined,
+      stripeInvoiceId: undefined as string | undefined,
+      stripeInvoiceUrl: undefined as string | undefined,
+      errors: [] as string[],
+    };
+
+    if (!invoice.appointmentId) {
+      result.skipped = true;
+      result.reason = "Invoice has no appointmentId";
+      return result;
+    }
+
+    if (!invoice.depositPaid || (invoice.remainingBalance ?? 0) <= 0) {
+      result.skipped = true;
+      result.reason =
+        "Invoice is not eligible (requires depositPaid=true and remainingBalance>0)";
+      return result;
+    }
+
+    result.eligible = true;
+
+    const hasFalsePaidSignature =
+      invoice.status === "paid" &&
+      !!invoice.depositPaymentIntentId &&
+      invoice.finalPaymentIntentId === invoice.depositPaymentIntentId;
+    const finalPaymentEvidence = await getFinalPaymentEvidence(invoice);
+    const shouldRepairPaidState =
+      invoice.status === "paid" &&
+      (hasFalsePaidSignature || !finalPaymentEvidence.hasValidFinalPaymentEvidence);
+
+    if (dryRun) {
+      if (
+        invoice.status === "paid" &&
+        !shouldRepairPaidState &&
+        invoice.stripeInvoiceId &&
+        invoice.stripeInvoiceUrl
+      ) {
+        result.skipped = true;
+        result.reason = "Invoice already has valid final-payment evidence";
+      } else {
+        result.reason = "Eligible for repair execution";
+      }
+      return result;
+    }
+
+    if (shouldRepairPaidState) {
+      await ctx.runMutation(internal.invoices.resetFalsePaidStateInternal, {
+        invoiceId: args.invoiceId,
+      });
+      result.patched = true;
+    }
+
+    try {
+      const stripeInvoice = await createStripeInvoiceAfterDepositImpl(ctx, {
+        invoiceId: args.invoiceId,
+        appointmentId: invoice.appointmentId,
+      });
+      result.succeeded = true;
+      result.stripeInvoiceId = stripeInvoice.stripeInvoiceId;
+      result.stripeInvoiceUrl = stripeInvoice.stripeInvoiceUrl;
+    } catch (error) {
+      result.errors.push(error instanceof Error ? error.message : String(error));
+    }
+
+    if (!result.succeeded && result.errors.length === 0) {
+      result.errors.push("Repair completed without success state");
+    }
+
+    return result;
   },
 });
 
@@ -1276,5 +1703,158 @@ export const syncPaymentStatus = action({
     }
 
     return { success: true, updated };
+  },
+});
+
+// Create a checkout session for booking (guest or auth)
+export const createBookingCheckout = action({
+  args: {
+    appointmentId: v.id("appointments"),
+    invoiceId: v.id("invoices"),
+    successUrl: v.string(),
+    cancelUrl: v.string(),
+  },
+  returns: v.object({
+    sessionId: v.string(),
+    url: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    // Get invoice and appointment details using internal queries to bypass auth checks
+    const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
+      invoiceId: args.invoiceId,
+    });
+    if (!invoice) throw new Error("Invoice not found");
+
+    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
+      appointmentId: args.appointmentId,
+    });
+    if (!appointment) throw new Error("Appointment not found");
+
+    // Get user details
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: appointment.userId,
+    });
+    if (!user) throw new Error("User not found");
+
+    // Ensure Stripe customer exists (create if needed)
+    let stripeCustomerId = user.stripeCustomerId;
+    if (!stripeCustomerId) {
+      stripeCustomerId = await ctx.runAction(internal.users.ensureStripeCustomer, {
+        userId: user._id,
+      });
+    }
+    if (!stripeCustomerId?.trim()) {
+      throw new Error("Could not ensure Stripe customer");
+    }
+
+    if (!invoice.depositAmount || invoice.depositAmount <= 0) {
+      throw new Error("No deposit amount found for this invoice");
+    }
+
+    // Get deposit settings
+    let depositPriceId: string | undefined;
+    try {
+      const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
+      depositPriceId = depositSettings?.stripePriceId;
+    } catch (error) {
+      console.warn("Could not fetch deposit settings:", error);
+    }
+
+    // Calculate quantity
+    const vehicleCount = appointment.vehicleIds.length;
+
+    // --- Clerk Invitation Logic ---
+    let successUrl = args.successUrl;
+    // Check if user is already linked to Clerk
+    if (!user.clerkUserId && user.email) {
+      try {
+        const clerkClient = (await import("@clerk/backend")).createClerkClient({
+          secretKey: process.env.CLERK_SECRET_KEY,
+          publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+        });
+
+        // Create invitation for the user
+        // ignore_existing: true ensures we don't error if they already have an invitation
+        const invitation = await clerkClient.invitations.createInvitation({
+          emailAddress: user.email,
+          ignoreExisting: true,
+          redirectUrl: `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL || "http://localhost:3000"}/dashboard/appointments?payment=success`,
+        });
+        
+        console.log("Created Clerk invitation:", invitation.id);
+        
+        // Update successUrl to point to our verification page
+        // We append the email so the page can show "Sent to {email}"
+        const baseUrl = new URL(args.successUrl).origin;
+        successUrl = `${baseUrl}/sign-up/verify?payment=success&is_guest=true&email=${encodeURIComponent(user.email)}`;
+
+      } catch (error) {
+        console.error("Failed to create Clerk invitation:", error);
+        // Fallback: Proceed with payment
+      }
+    }
+    // -----------------------------
+
+    // Create Stripe checkout session
+    if (depositPriceId) {
+      const session = await stripeClient.createCheckoutSession(ctx, {
+        priceId: depositPriceId,
+        customerId: stripeCustomerId,
+        mode: "payment",
+        successUrl: successUrl, // Use modified URL
+        cancelUrl: args.cancelUrl,
+        quantity: vehicleCount,
+        metadata: {
+          appointmentId: args.appointmentId,
+          invoiceId: args.invoiceId,
+          type: "deposit",
+        },
+        paymentIntentMetadata: {
+          appointmentId: args.appointmentId,
+          invoiceId: args.invoiceId,
+          type: "deposit",
+        },
+      });
+
+      if (!session.url) throw new Error("Failed to create checkout session URL");
+
+      return {
+        sessionId: session.sessionId,
+        url: session.url,
+      };
+    } else {
+      // Fallback: manual price data
+      const sessionData = new URLSearchParams({
+        mode: "payment",
+        customer: stripeCustomerId,
+        success_url: successUrl, // Use modified URL
+        cancel_url: args.cancelUrl,
+        "metadata[appointmentId]": args.appointmentId,
+        "metadata[invoiceId]": args.invoiceId,
+        "metadata[type]": "deposit",
+      });
+
+      const depositAmountInCents = Math.round(invoice.depositAmount * 100);
+      sessionData.append("line_items[0][price_data][currency]", "usd");
+      sessionData.append(
+        "line_items[0][price_data][unit_amount]",
+        depositAmountInCents.toString(),
+      );
+      sessionData.append(
+        "line_items[0][price_data][product_data][name]",
+        `Deposit (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
+      );
+      sessionData.append("line_items[0][quantity]", "1");
+
+      const session = await stripeApiCall("checkout/sessions", {
+        method: "POST",
+        body: sessionData,
+      });
+
+      return {
+        sessionId: session.id,
+        url: session.url,
+      };
+    }
   },
 });

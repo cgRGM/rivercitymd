@@ -1,43 +1,83 @@
-# Agent Guidelines for River City Mobile Detailing
+# River City Mobile Detailing - Agent Guidelines
 
-River City Mobile Detailing is a Next.js web app for managing a mobile car detailing business with customer dashboards, admin portals, and Stripe payments.
+This document serves as the primary reference for AI agents and developers working on the River City Mobile Detailing repository.
 
-## Build/Lint/Test Commands
+## 🚀 Project Overview
 
-- **Build**: `npm run build` (Next.js production build)
-- **Dev**: `npm run dev` (runs frontend and backend in parallel)
-- **Lint**: `npm run lint` (Next.js ESLint)
-- **Test**: `npm run test` (vitest), `npm run test:once` (single run), `npm run test:coverage` (with coverage)
-- **Single Test**: `npx vitest run <test-file>` (run specific test file)
+- **Framework**: Next.js 16 (App Router)
+- **Backend/Database**: Convex (Real-time database + backend functions)
+- **Authentication**: **Clerk** (Migrated from Convex Auth).
+  - *Note*: `@convex-dev/auth` packages may exist but Clerk is the active auth provider.
+- **Styling**: Tailwind CSS + Shadcn UI
+- **Payments**: Stripe
+- **Testing**: Vitest
 
-## Code Style Guidelines
+## ⚠️ Critical Rules
 
-- Absolute imports with `@/` prefix, React: `import * as React from "react"`
-- Convex: `import { query, mutation } from "./_generated/server"`, UI: `@/components/ui/*`
-- Prettier (2-space indent), ESLint with Next.js core web vitals and TypeScript
-- Strict TypeScript, proper type annotations, `Id<"tableName">` for Convex IDs, union types for enums
-- Files: kebab-case, Components: PascalCase, Variables/Functions: camelCase, Types: PascalCase, Constants: UPPER_SNAKE_CASE
-- Throw descriptive `Error` objects, early returns for validation
-- Functional components with hooks, `"use client"` directive, `useQuery` for Convex data, controlled components with React Hook Form
-- `cn()` utility for className merging, shadcn/ui "new-york" style, Tailwind with CSS variables, Lucide icons, responsive mobile-first design
+1.  **Deployment**: NEVER run `npx convex deploy` or git commands unless explicitly instructed by the user.
+2.  **Authentication Source of Truth**:
+    -   **Frontend**: Use Clerk hooks (`useUser`, `useAuth`, `useSignIn`, `useSignUp`).
+    -   **Backend**: Use `ctx.auth.getUserIdentity()` to get the authenticated user.
+    -   **User Data**: User profile data (address, vehicles) is stored in Convex `users` table, linked by `clerkUserId`.
+3.  **Schema First**: Always define data models in `convex/schema.ts` before writing business logic.
 
-## Authentication Patterns
+## 🛠 Convex Best Practices
 
-- Use `@convex-dev/auth/react` hooks (`useAuthActions`) for client-side auth
-- Handle auth errors gracefully - never show raw server errors to users
-- Map server errors to user-friendly messages (e.g., "InvalidSecret" → "Authentication service unavailable")
-- Validate auth state before making protected API calls
-- Use role-based access control with `getUserRole` query
-- Implement proper loading states during auth operations
+### Function Organization
+-   Group functions by domain (e.g., `convex/users.ts`, `convex/services.ts`, `convex/appointments.ts`).
+-   Use `internalMutation` / `internalQuery` for logic that should not be exposed to the client.
 
-## Error Handling
+### Data Access & logic
+-   **Indexes over Filters**: Always use `withIndex` for querying. Avoid `filter` unless the dataset is guaranteed to be small.
+    ```typescript
+    // GOOD
+    .withIndex("by_user", (q) => q.eq("userId", args.userId))
+    
+    // BAD (for large tables)
+    .filter((q) => q.eq(q.field("userId"), args.userId))
+    ```
+-   **Idempotency**: Ensure mutations can be retried safely. Check state before applying changes.
+-   **Validation**: Always use `zod` or Convex `v` validators for arguments AND return values.
+-   **Error Handling**: Throw `ConvexError` for errors that should be displayed to the user.
 
-- Catch and handle auth errors specifically (InvalidSecret, network errors, invalid credentials)
-- Provide fallback UI for auth system failures
-- Log errors for debugging but show user-friendly messages
-- Use try/catch blocks around all async auth operations
-- Validate environment variables on startup
+### TypeScript
+-   Use `Id<"tableName">` for document IDs.
+-   Use `Doc<"tableName">` for full document types.
+-   Avoid `any`.
 
-## Cursor Rules
+## 🎨 Frontend Design Guidelines
 
-Follow `.cursor/rules/convex_rules.mdc` for Convex development (new function syntax, validators, schema design, auth patterns)
+### Aesthetic Direction
+-   **Goal**: Create **distinctive, production-grade** interfaces. Avoid generic "AI slop" or default bootstrap-like looks.
+-   **Style**: Bold, high-quality, "premium". Use deep blacks/grays for dark mode, vibrant accents.
+-   **Typography**: Use specific, characterful fonts (Inter is okay if styled well, but prefer more distinct options if available).
+-   **Motion**: Use `framer-motion` (or `motion`) for smooth, staggering entrances and micro-interactions.
+
+### Component Architecture
+-   Use **Shadcn UI** components from `@/components/ui`.
+-   **Client Components**: Marking `"use client"` is necessary for interactive components.
+-   **Server Components**: Default to server components where possible for data fetching (though Convex relies heavily on client-side subscriptions).
+
+## 🛡 Workflow & Feature Scope
+
+### Avoiding Feature Creep
+-   **Validation**: Before adding a feature, ask: "Does this solve a user problem?"
+-   **MVP Mindset**: Build the smallest version that works.
+-   **"No" is okay**: If a request seems out of scope, politely challenge it or suggest a simpler alternative.
+
+### Testing
+-   Run tests with `pnpm test` (Vitest).
+-   Write tests for critical logic, especially payment flows and complex schedulers.
+
+## 📂 Common Commands
+
+-   **Start Dev Server**: `pnpm dev` (Runs Next.js and Convex concurrently)
+-   **Build**: `pnpm build`
+-   **Lint**: `pnpm lint`
+-   **Test**: `pnpm test`
+-   **Type Check**: `pnpm tsc --noEmit`
+
+## 🔗 Key Documentation Files
+-   `CLERK_MIGRATION_COMPLETE.md`: Details on the current auth setup.
+-   `convex/schema.ts`: Database schema definition.
+-   `.agents/skills/`: Directory containing specific agent skills (read `SKILL.md` in subdirs for deep dives).

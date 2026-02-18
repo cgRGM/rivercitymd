@@ -953,6 +953,8 @@ export const getUserAppointments = query({
 });
 
 // Action to create Stripe invoice and Convex invoice record for an appointment
+// Deprecated: legacy direct Stripe invoice creation path.
+// Active production flow is deposit webhook -> updateStatusInternal -> internal.payments.createStripeInvoiceAfterDeposit.
 export const createStripeInvoice = action({
   args: {
     appointmentId: v.id("appointments"),
@@ -1158,6 +1160,8 @@ export const createStripeInvoice = action({
   },
 });
 
+// Deprecated: legacy internal Stripe invoice creation path retained for rollback safety.
+// Do not use for new flows; use internal.payments.createStripeInvoiceAfterDeposit instead.
 export const createStripeInvoiceInternal = internalAction({
   args: {
     appointmentId: v.id("appointments"),
@@ -1468,6 +1472,8 @@ export const chargeDeposit = internalAction({
 });
 
 // Generate and send invoice when appointment is confirmed
+// Deprecated: legacy wrapper retained for rollback safety.
+// Active post-deposit invoice generation is scheduled through internal.payments.createStripeInvoiceAfterDeposit.
 export const generateAndSendInvoice = internalAction({
   args: {
     appointmentId: v.id("appointments"),

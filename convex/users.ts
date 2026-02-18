@@ -476,7 +476,9 @@ export const createUserProfile = mutation({
     });
 
     // Send admin notification email for new customer (after onboarding complete)
-    // Only send if this is a new user (not updating existing)
+    // MOVED: Onboarding notifications and Welcome emails are now handled in the Stripe webhook
+    // (`convex/http.ts`) after successful payment to prevent spam.
+    /*
     if (!hasExistingAddress || !hasExistingVehicles) {
       if (shouldScheduleNotificationJobs()) {
         await ctx.scheduler.runAfter(
@@ -491,6 +493,7 @@ export const createUserProfile = mutation({
         userId,
       });
     }
+    */
 
     return { userId };
   },
@@ -1378,7 +1381,8 @@ export const updateStats = internalMutation({
   },
 });
 
-// Action to create Stripe invoice for user appointment
+// Deprecated: legacy direct Stripe invoice creation action.
+// Active production flow creates Convex invoice first and only creates Stripe invoice after deposit is paid.
 export const createUserAppointmentInvoice = action({
   args: {
     userId: v.id("users"),

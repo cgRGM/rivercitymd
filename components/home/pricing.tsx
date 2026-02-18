@@ -130,9 +130,9 @@ export function PricingSection() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="max-w-md mx-auto mb-12"
+            className="max-w-xl mx-auto mb-12"
           >
-            <p className="text-center text-muted-foreground mb-4">
+            <p className="text-center text-muted-foreground mb-6">
               Select your vehicle type to see accurate pricing
             </p>
             <Tabs
@@ -168,7 +168,7 @@ export function PricingSection() {
           {/* Services */}
           <div className="-mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
             <div
-              className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 sm:gap-6 sm:max-w-7xl sm:mx-auto"
+              className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-6 pb-8 sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:overflow-visible sm:pb-0 max-w-7xl mx-auto"
               aria-label="Service pricing cards"
             >
               {mainServices.map((service, index) => {
@@ -182,53 +182,71 @@ export function PricingSection() {
                 return (
                   <motion.div
                     key={service._id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    whileInView={{ opacity: 1, scale: 1 }}
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: "-50px" }}
-                    transition={{ duration: 0.4, delay: index * 0.1 }}
-                    className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                    className="flex-shrink-0 snap-center w-[85vw] sm:w-auto h-full"
                   >
-                    <Card className="relative hover:shadow-xl transition-all h-full">
-                      <CardHeader className="text-center pb-4">
+                    <Card className="relative hover:shadow-2xl transition-all duration-300 h-full border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden group">
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      
+                      <CardHeader className="text-center pb-6 pt-8">
                         {service.icon && (
-                          <div className="text-4xl mb-2">{service.icon}</div>
+                          <div className="text-5xl mb-4 transform group-hover:scale-110 transition-transform duration-300 drop-shadow-sm">
+                             {service.icon}
+                          </div>
                         )}
-                        <CardTitle className="text-xl">
+                        <CardTitle className="text-2xl font-bold tracking-tight">
                           {service.name}
                         </CardTitle>
-                        <CardDescription className="text-xs">
+                        <CardDescription className="text-sm mt-2 line-clamp-2 min-h-[2.5rem]">
                           {service.description}
                         </CardDescription>
-                        <div className="mt-4">
-                          <span className="text-3xl font-bold">
-                            ${price?.toFixed(2) || "N/A"}
+                        
+                        <div className="mt-6 flex items-baseline justify-center gap-1">
+                          <span className="text-sm font-medium text-muted-foreground">$</span>
+                          <span className="text-4xl font-extrabold text-foreground tracking-tight">
+                            {price?.toFixed(0) || "N/A"}
                           </span>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {Math.floor(service.duration / 60)}h{" "}
-                            {service.duration % 60}m
-                          </p>
+                          {price ? <span className="text-sm font-medium text-muted-foreground">.00</span> : null}
                         </div>
+                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mt-2">
+                            Approx. {Math.floor(service.duration / 60)}h{" "}
+                            {service.duration % 60 > 0 ? `${service.duration % 60}m` : ""}
+                          </p>
                       </CardHeader>
-                      <CardContent className="space-y-4">
+                      
+                      <CardContent className="space-y-6">
+                        <div className="w-full h-px bg-border/50" />
+                        
                         {service.features && service.features.length > 0 && (
-                          <ul className="space-y-2">
-                            {service.features.slice(0, 4).map((feature, i) => (
+                          <ul className="space-y-3 px-2">
+                            {service.features.map((feature, i) => (
                               <li
                                 key={i}
-                                className="flex items-start gap-2 text-sm"
+                                className="flex items-start gap-3 text-sm group/item"
                               >
-                                <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
-                                <span>{feature}</span>
+                                <div className="mt-0.5 rounded-full bg-primary/10 p-1 group-hover/item:bg-primary/20 transition-colors">
+                                   <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" strokeWidth={3} />
+                                </div>
+                                <span className="text-muted-foreground group-hover/item:text-foreground transition-colors leading-tight pt-0.5">{feature}</span>
                               </li>
                             ))}
-                            {service.features.length > 4 && (
-                              <li className="text-muted-foreground text-sm">
-                                +{service.features.length - 4} more features
-                              </li>
-                            )}
                           </ul>
                         )}
                       </CardContent>
+                      
+                       {/* Mobile-only "Book" button within card for better UX on small screens */}
+                       <div className="p-6 pt-0 mt-auto sm:hidden">
+                         <Button 
+                           className="w-full" 
+                           variant="outline"
+                           onClick={() => setBookingOpen(true)}
+                         >
+                           Select {service.name}
+                         </Button>
+                       </div>
                     </Card>
                   </motion.div>
                 );
@@ -236,22 +254,25 @@ export function PricingSection() {
             </div>
           </div>
 
-          {/* CTA Button */}
+          {/* CTA Button - Desktop/Tablet mostly */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.4 }}
-            className="text-center mt-8"
+            className="text-center mt-12 sm:mt-16"
           >
             <Button
               size="lg"
               onClick={() => setBookingOpen(true)}
-              className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-3 text-lg"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground px-10 py-6 text-lg rounded-full shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
             >
               <Calendar className="w-5 h-5 mr-2" />
-              Book Now
+              Book Appointment
             </Button>
+            <p className="mt-4 text-sm text-muted-foreground">
+              A deposit is required to secure your appointment.
+            </p>
           </motion.div>
         </div>
       </section>
