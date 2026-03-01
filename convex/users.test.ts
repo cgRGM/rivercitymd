@@ -4,6 +4,40 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
+const BOOKING_TEST_DATE = "2024-12-02"; // Monday (dayOfWeek 1)
+
+async function seedBookingSetup(t: any) {
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("businessInfo", {
+      name: "River City Mobile Detailing",
+      owner: "Owner Name",
+      address: "123 Main St",
+      cityStateZip: "Little Rock, AR 72201",
+      country: "USA",
+    });
+
+    await ctx.db.insert("availability", {
+      dayOfWeek: 1,
+      startTime: "08:00",
+      endTime: "18:00",
+      isActive: true,
+    });
+  });
+}
+
+async function expectConvexErrorCode(
+  promise: Promise<unknown>,
+  expectedCode: string,
+) {
+  try {
+    await promise;
+    throw new Error("Expected mutation to throw");
+  } catch (error: any) {
+    const errorCode = error?.data?.code ?? String(error?.message ?? "");
+    expect(String(errorCode)).toContain(expectedCode);
+  }
+}
+
 describe("users", () => {
   test("create onboarding profile with Clerk subject-only identity", async () => {
     const t = convexTest(schema, modules);
@@ -499,5 +533,199 @@ describe("users", () => {
     // Backfill schedules async work; IDs are not patched synchronously in this mutation.
     expect(userA?.stripeCustomerId).toBeUndefined();
     expect(userB?.stripeCustomerId).toBeUndefined();
+  });
+
+  test("createUserWithAppointment rejects when setup is incomplete", async () => {
+    const t = convexTest(schema, modules);
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Exterior Detail",
+        description: "Service",
+        basePrice: 95,
+        basePriceMedium: 95,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    await expectConvexErrorCode(
+      t.mutation(api.users.createUserWithAppointment, {
+        name: "New Customer",
+        email: "new-customer@example.com",
+        phone: "555-2000",
+        address: {
+          street: "123 Main St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        vehicles: [
+          {
+            year: 2021,
+            make: "Toyota",
+            model: "Camry",
+            size: "medium",
+            color: "Gray",
+          },
+        ],
+        serviceIds: [serviceId],
+        scheduledDate: BOOKING_TEST_DATE,
+        scheduledTime: "10:00",
+      }),
+      "BOOKING_SETUP_INCOMPLETE",
+    );
+  });
+
+  test("createUserWithAppointment rejects when selected service is missing pricing", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t);
+
+    // Keep setup readiness true with one valid standard service.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("services", {
+        name: "Baseline Service",
+        description: "Ready service",
+        basePrice: 70,
+        basePriceMedium: 70,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const invalidServiceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Broken Service",
+        description: "Zero-price service",
+        basePrice: 0,
+        basePriceSmall: 0,
+        basePriceMedium: 0,
+        basePriceLarge: 0,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    await expectConvexErrorCode(
+      t.mutation(api.users.createUserWithAppointment, {
+        name: "Pricing Failure",
+        email: "pricing-failure@example.com",
+        phone: "555-2001",
+        address: {
+          street: "321 Main St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        vehicles: [
+          {
+            year: 2022,
+            make: "Honda",
+            model: "Accord",
+            size: "medium",
+            color: "Blue",
+          },
+        ],
+        serviceIds: [invalidServiceId],
+        scheduledDate: BOOKING_TEST_DATE,
+        scheduledTime: "10:00",
+      }),
+      "SERVICE_NOT_BOOKABLE",
+    );
+  });
+
+  test("createUserWithAppointment rejects when selected slot is unavailable", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t);
+
+    const blockingUserId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Blocking User",
+        email: "blocking-user@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-slot-block@example.com",
+        role: "admin",
+      });
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Interior Detail",
+        description: "Service",
+        basePrice: 110,
+        basePriceMedium: 110,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const blockingVehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId: blockingUserId,
+        year: 2020,
+        make: "Ford",
+        model: "Escape",
+        size: "medium",
+      });
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("appointments", {
+        userId: blockingUserId,
+        vehicleIds: [blockingVehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: BOOKING_TEST_DATE,
+        scheduledTime: "10:00",
+        duration: 60,
+        location: {
+          street: "100 Blocked St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        status: "confirmed",
+        totalPrice: 110,
+        createdBy: adminId,
+      });
+    });
+
+    await expectConvexErrorCode(
+      t.mutation(api.users.createUserWithAppointment, {
+        name: "Blocked Slot",
+        email: "blocked-slot@example.com",
+        phone: "555-2002",
+        address: {
+          street: "555 Main St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        vehicles: [
+          {
+            year: 2024,
+            make: "Chevrolet",
+            model: "Tahoe",
+            size: "medium",
+            color: "Black",
+          },
+        ],
+        serviceIds: [serviceId],
+        scheduledDate: BOOKING_TEST_DATE,
+        scheduledTime: "11:00", // overlaps with 10:00 start + 2-hour policy
+      }),
+      "TIME_SLOT_UNAVAILABLE",
+    );
   });
 });

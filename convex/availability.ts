@@ -1,15 +1,27 @@
-import { query, mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { getUserIdFromIdentity, requireAdmin } from "./auth";
+import {
+  addDaysToDateKey,
+  BOOKING_BLOCK_MINUTES,
+  getUtcDayOfWeek,
+  legacyIsoDateKey,
+  NEXT_BOOKABLE_DATE_HORIZON_DAYS,
+  normalizeDateKey,
+} from "./lib/booking";
 
-// Get business hours
+const MAX_NEXT_BOOKABLE_HORIZON_DAYS = 60;
+
+type SlotAvailability = {
+  available: boolean;
+  reason: string | null;
+};
+
+// Get business hours (all rows for admin editing)
 export const getBusinessHours = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
-      .query("availability")
-      .filter((q: any) => q.eq(q.field("isActive"), true))
-      .collect();
+    return await ctx.db.query("availability").collect();
   },
 });
 
@@ -26,17 +38,14 @@ export const setBusinessHours = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     // Clear existing schedule
     const existing = await ctx.db.query("availability").collect();
     await Promise.all(existing.map((item) => ctx.db.delete(item._id)));
 
     // Add new schedule
-    await Promise.all(
-      args.schedule.map((day) => ctx.db.insert("availability", day)),
-    );
+    await Promise.all(args.schedule.map((day) => ctx.db.insert("availability", day)));
 
     return true;
   },
@@ -74,11 +83,12 @@ export const addTimeBlock = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireAdmin(ctx);
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
     return await ctx.db.insert("timeBlocks", {
-      date: args.date,
+      date: normalizeDateKey(args.date),
       startTime: args.startTime,
       endTime: args.endTime,
       reason: args.reason,
@@ -88,18 +98,10 @@ export const addTimeBlock = mutation({
   },
 });
 
-// Helper function for availability checking
-async function checkSlotAvailability(
-  ctx: any,
-  date: string,
-  startTime: string,
-  duration: number,
-) {
-  // Get day of week (0 = Sunday)
-  const dayOfWeek = new Date(date).getDay();
+async function getBusinessHoursForDate(ctx: any, dateKey: string) {
+  const dayOfWeek = getUtcDayOfWeek(dateKey);
 
-  // Check business hours
-  const businessHours = await ctx.db
+  return await ctx.db
     .query("availability")
     .filter((q: any) =>
       q.and(
@@ -108,6 +110,58 @@ async function checkSlotAvailability(
       ),
     )
     .first();
+}
+
+async function getTimeBlocksForDate(ctx: any, dateKey: string) {
+  const [normalizedBlocks, legacyBlocks] = await Promise.all([
+    ctx.db
+      .query("timeBlocks")
+      .withIndex("by_date", (q: any) => q.eq("date", dateKey))
+      .collect(),
+    ctx.db
+      .query("timeBlocks")
+      .withIndex("by_date", (q: any) => q.eq("date", legacyIsoDateKey(dateKey)))
+      .collect(),
+  ]);
+
+  const deduped = new Map<string, any>();
+  for (const block of [...normalizedBlocks, ...legacyBlocks]) {
+    deduped.set(block._id, block);
+  }
+  return [...deduped.values()];
+}
+
+async function getAppointmentsForDate(ctx: any, dateKey: string) {
+  const [normalizedAppointments, legacyAppointments] = await Promise.all([
+    ctx.db
+      .query("appointments")
+      .withIndex("by_date", (q: any) => q.eq("scheduledDate", dateKey))
+      .collect(),
+    ctx.db
+      .query("appointments")
+      .withIndex("by_date", (q: any) =>
+        q.eq("scheduledDate", legacyIsoDateKey(dateKey)),
+      )
+      .collect(),
+  ]);
+
+  const deduped = new Map<string, any>();
+  for (const appointment of [...normalizedAppointments, ...legacyAppointments]) {
+    deduped.set(appointment._id, appointment);
+  }
+
+  return [...deduped.values()].filter((appointment) => appointment.status !== "cancelled");
+}
+
+// Helper function for availability checking
+async function checkSlotAvailability(
+  ctx: any,
+  dateInput: string,
+  startTime: string,
+  duration: number,
+): Promise<SlotAvailability> {
+  const dateKey = normalizeDateKey(dateInput);
+  const businessHours = await getBusinessHoursForDate(ctx, dateKey);
 
   if (!businessHours) {
     return { available: false, reason: "Business closed on this day" };
@@ -116,15 +170,12 @@ async function checkSlotAvailability(
   // Check if requested time is within business hours
   const requestedStart = startTime;
   const requestedEndMinutes =
-    parseInt(startTime.split(":")[0]) * 60 +
-    parseInt(startTime.split(":")[1]) +
+    parseInt(startTime.split(":")[0], 10) * 60 +
+    parseInt(startTime.split(":")[1], 10) +
     duration;
   const requestedEnd = `${Math.floor(requestedEndMinutes / 60)
     .toString()
-    .padStart(
-      2,
-      "0",
-    )}:${(requestedEndMinutes % 60).toString().padStart(2, "0")}`;
+    .padStart(2, "0")}:${(requestedEndMinutes % 60).toString().padStart(2, "0")}`;
 
   if (
     requestedStart < businessHours.startTime ||
@@ -134,11 +185,7 @@ async function checkSlotAvailability(
   }
 
   // Check for time blocks
-  const timeBlocks = await ctx.db
-    .query("timeBlocks")
-    .withIndex("by_date", (q: any) => q.eq("date", date))
-    .collect();
-
+  const timeBlocks = await getTimeBlocksForDate(ctx, dateKey);
   for (const block of timeBlocks) {
     if (requestedStart < block.endTime && requestedEnd > block.startTime) {
       return { available: false, reason: `Blocked: ${block.reason}` };
@@ -146,27 +193,78 @@ async function checkSlotAvailability(
   }
 
   // Check for existing appointments
-  const appointments = await ctx.db
-    .query("appointments")
-    .withIndex("by_date", (q: any) => q.eq("scheduledDate", date))
-    .filter((q: any) => q.neq(q.field("status"), "cancelled"))
-    .collect();
-
-  for (const apt of appointments) {
-    const aptEndMinutes =
-      parseInt(apt.scheduledTime.split(":")[0]) * 60 +
-      parseInt(apt.scheduledTime.split(":")[1]) +
-      apt.duration;
-    const aptEnd = `${Math.floor(aptEndMinutes / 60)
+  const appointments = await getAppointmentsForDate(ctx, dateKey);
+  for (const appointment of appointments) {
+    const occupiedDuration = Math.max(
+      appointment.duration || 0,
+      BOOKING_BLOCK_MINUTES,
+    );
+    const appointmentEndMinutes =
+      parseInt(appointment.scheduledTime.split(":")[0], 10) * 60 +
+      parseInt(appointment.scheduledTime.split(":")[1], 10) +
+      occupiedDuration;
+    const appointmentEnd = `${Math.floor(appointmentEndMinutes / 60)
       .toString()
-      .padStart(2, "0")}:${(aptEndMinutes % 60).toString().padStart(2, "0")}`;
+      .padStart(2, "0")}:${(appointmentEndMinutes % 60)
+      .toString()
+      .padStart(2, "0")}`;
 
-    if (requestedStart < aptEnd && requestedEnd > apt.scheduledTime) {
+    if (requestedStart < appointmentEnd && requestedEnd > appointment.scheduledTime) {
       return { available: false, reason: "Time slot already booked" };
     }
   }
 
   return { available: true, reason: null };
+}
+
+function isDateKeyToday(dateKey: string): boolean {
+  const todayKey = new Date().toISOString().split("T")[0];
+  return dateKey === todayKey;
+}
+
+function isFutureSlotForToday(dateKey: string, time: string): boolean {
+  if (!isDateKeyToday(dateKey)) {
+    return true;
+  }
+
+  const now = new Date();
+  const [hours, minutes] = time.split(":").map(Number);
+  const slot = new Date(now);
+  slot.setHours(hours, minutes, 0, 0);
+  return slot > now;
+}
+
+async function hasAtLeastOneBookableSlotForDate(ctx: any, dateKey: string) {
+  const businessHours = await getBusinessHoursForDate(ctx, dateKey);
+  if (!businessHours) {
+    return false;
+  }
+
+  const startMinutes = timeToMinutes(businessHours.startTime);
+  const endMinutes = timeToMinutes(businessHours.endTime);
+
+  for (
+    let minutes = startMinutes;
+    minutes + BOOKING_BLOCK_MINUTES <= endMinutes;
+    minutes += 15
+  ) {
+    const slotTime = minutesToTime(minutes);
+    if (!isFutureSlotForToday(dateKey, slotTime)) {
+      continue;
+    }
+
+    const availability = await checkSlotAvailability(
+      ctx,
+      dateKey,
+      slotTime,
+      BOOKING_BLOCK_MINUTES,
+    );
+    if (availability.available) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Check availability for booking
@@ -190,44 +288,39 @@ export const checkAvailability = query({
 export const getAvailableTimeSlots = query({
   args: {
     date: v.string(),
-    serviceDuration: v.number(), // in minutes (for display, we block 2 hours)
+    serviceDuration: v.number(), // retained for API compatibility
   },
   handler: async (ctx, args) => {
-    // Get day of week (0 = Sunday)
-    const dayOfWeek = new Date(args.date).getDay();
+    if (!args.date) {
+      return [];
+    }
 
-    // Get business hours for this day
-    const businessHours = await ctx.db
-      .query("availability")
-      .filter((q: any) =>
-        q.and(
-          q.eq(q.field("dayOfWeek"), dayOfWeek),
-          q.eq(q.field("isActive"), true),
-        ),
-      )
-      .first();
+    const dateKey = normalizeDateKey(args.date);
+    const businessHours = await getBusinessHoursForDate(ctx, dateKey);
 
     if (!businessHours) {
       return []; // No business hours for this day
     }
 
     // Generate time slots in 15-minute intervals
-    // Use 120 minutes (2 hours) for blocking to account for 90-min services + buffer
-    const blockDuration = 120; // 2 hours in minutes
     const slots = [];
     const startMinutes = timeToMinutes(businessHours.startTime);
     const endMinutes = timeToMinutes(businessHours.endTime);
 
     // Only generate start times where start + blockDuration <= business close
-    for (let minutes = startMinutes; minutes + blockDuration <= endMinutes; minutes += 15) {
+    for (
+      let minutes = startMinutes;
+      minutes + BOOKING_BLOCK_MINUTES <= endMinutes;
+      minutes += 15
+    ) {
       const timeString = minutesToTime(minutes);
 
-      // Check if this slot is available (using 2-hour block)
+      // Check if this slot is available
       const availability = await checkSlotAvailability(
         ctx,
-        args.date,
+        dateKey,
         timeString,
-        blockDuration,
+        BOOKING_BLOCK_MINUTES,
       );
 
       slots.push({
@@ -239,6 +332,35 @@ export const getAvailableTimeSlots = query({
     }
 
     return slots;
+  },
+});
+
+export const getNextBookableDate = query({
+  args: {
+    fromDate: v.optional(v.string()),
+    horizonDays: v.optional(v.number()),
+  },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const startDateKey = normalizeDateKey(args.fromDate ?? new Date().toISOString());
+    const requestedHorizon = args.horizonDays ?? NEXT_BOOKABLE_DATE_HORIZON_DAYS;
+    const horizonDays = Math.min(
+      MAX_NEXT_BOOKABLE_HORIZON_DAYS,
+      Math.max(1, Math.floor(requestedHorizon)),
+    );
+
+    for (let offset = 0; offset < horizonDays; offset += 1) {
+      const candidateDate = addDaysToDateKey(startDateKey, offset);
+      const hasBookableSlot = await hasAtLeastOneBookableSlotForDate(
+        ctx,
+        candidateDate,
+      );
+      if (hasBookableSlot) {
+        return candidateDate;
+      }
+    }
+
+    return null;
   },
 });
 

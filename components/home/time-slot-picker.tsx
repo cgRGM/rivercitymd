@@ -60,17 +60,13 @@ export function TimeSlotPicker({
   // Note: perform this check on client side for immediate feedback, 
   // though backend should also handle it.
   const now = new Date();
-  const selectedDate = new Date(date);
-  const isToday =
-    selectedDate.getDate() === now.getDate() &&
-    selectedDate.getMonth() === now.getMonth() &&
-    selectedDate.getFullYear() === now.getFullYear();
+  const selectedDateKey = date.includes("T") ? date.split("T")[0] : date;
+  const todayKey = now.toISOString().split("T")[0];
+  const isToday = selectedDateKey === todayKey;
 
   const filteredSlots = slots.filter((slot) => {
     if (!isToday) return true;
-    const [hours, minutes] = slot.time.split(":").map(Number);
-    const slotDate = new Date(selectedDate);
-    slotDate.setHours(hours, minutes, 0, 0);
+    const slotDate = new Date(`${selectedDateKey}T${slot.time}:00`);
     return slotDate > now;
   });
 

@@ -38,6 +38,21 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
             },
           );
           if (userRole?.type === "admin") {
+            const readiness = await fetchQuery(
+              api.setupReadiness.getPublicBookingReadiness,
+              {},
+              {
+                url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+                token: token,
+              },
+            );
+
+            if (!readiness.isReady) {
+              return NextResponse.redirect(
+                new URL("/admin/settings?setup=required", req.url),
+              );
+            }
+
             return NextResponse.redirect(new URL("/admin", req.url));
           }
           return NextResponse.redirect(new URL("/dashboard", req.url));
@@ -81,6 +96,22 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
       if (!hasCompleted) {
         return NextResponse.redirect(new URL("/onboarding", req.url));
+      }
+
+      if (userRole.type === "admin") {
+        const readiness = await fetchQuery(
+          api.setupReadiness.getPublicBookingReadiness,
+          {},
+          {
+            url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+            token: token,
+          },
+        );
+        if (!readiness.isReady) {
+          return NextResponse.redirect(
+            new URL("/admin/settings?setup=required", req.url),
+          );
+        }
       }
 
       return NextResponse.redirect(
@@ -131,6 +162,22 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
           // ADMIN - Full access to /admin, redirect from /dashboard to /admin
           if (role === "admin") {
+            if (isAdminRoute(req) && !url.pathname.startsWith("/admin/settings")) {
+              const readiness = await fetchQuery(
+                api.setupReadiness.getPublicBookingReadiness,
+                {},
+                {
+                  url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+                  token: token,
+                },
+              );
+              if (!readiness.isReady) {
+                return NextResponse.redirect(
+                  new URL("/admin/settings?setup=required", req.url),
+                );
+              }
+            }
+
             if (isCustomerRoute(req)) {
               return NextResponse.redirect(new URL("/admin", req.url));
             }
@@ -198,8 +245,35 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
       },
     );
 
-    // If onboarding is complete in Convex, allow access (middleware will handle routing)
+    // If onboarding is complete in Convex, apply role-based routing and setup enforcement.
     if (hasCompleted) {
+      if (userRole.type === "admin") {
+        if (isAdminRoute(req) && !url.pathname.startsWith("/admin/settings")) {
+          const readiness = await fetchQuery(
+            api.setupReadiness.getPublicBookingReadiness,
+            {},
+            {
+              url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+              token: token,
+            },
+          );
+          if (!readiness.isReady) {
+            return NextResponse.redirect(
+              new URL("/admin/settings?setup=required", req.url),
+            );
+          }
+        }
+
+        if (isCustomerRoute(req)) {
+          return NextResponse.redirect(new URL("/admin", req.url));
+        }
+        if (isAdminRoute(req)) {
+          return NextResponse.next();
+        }
+      } else if (isAdminRoute(req)) {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+
       return NextResponse.next();
     }
 

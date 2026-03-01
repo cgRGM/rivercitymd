@@ -2,12 +2,26 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import AppointmentModal from "@/components/home/appointment-modal";
 import { ArrowRight, Sparkles, MapPin, Phone } from "lucide-react";
 
 export default function HeroSection() {
   const [bookingOpen, setBookingOpen] = useState(false);
+  const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
+
+  const handleBookNow = () => {
+    if (bookingReadiness && !bookingReadiness.isReady) {
+      window.location.href = "/sign-up";
+      return;
+    }
+    if (bookingReadiness === undefined) {
+      return;
+    }
+    setBookingOpen(true);
+  };
 
   return (
     <>
@@ -43,7 +57,8 @@ export default function HeroSection() {
                 <Button
                   size="lg"
                   className="text-lg h-14 px-8 group"
-                  onClick={() => setBookingOpen(true)}
+                  disabled={bookingReadiness === undefined}
+                  onClick={handleBookNow}
                 >
                   Book Your Detail
                   <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />

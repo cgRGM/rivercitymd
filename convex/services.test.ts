@@ -4,6 +4,39 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
+async function seedBookingSetup(t: any) {
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("businessInfo", {
+      name: "River City Mobile Detailing",
+      owner: "Owner Name",
+      address: "123 Main St",
+      cityStateZip: "Little Rock, AR 72201",
+      country: "USA",
+    });
+    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek += 1) {
+      await ctx.db.insert("availability", {
+        dayOfWeek,
+        startTime: "08:00",
+        endTime: "18:00",
+        isActive: true,
+      });
+    }
+  });
+}
+
+async function expectConvexErrorCode(
+  promise: Promise<unknown>,
+  expectedCode: string,
+) {
+  try {
+    await promise;
+    throw new Error("Expected mutation to throw");
+  } catch (error: any) {
+    const errorCode = error?.data?.code ?? String(error?.message ?? "");
+    expect(String(errorCode)).toContain(expectedCode);
+  }
+}
+
 describe("services", () => {
   test("create and list services", async () => {
     const t = convexTest(schema, modules);
@@ -166,6 +199,73 @@ describe("services", () => {
     });
   });
 
+  test("create rejects services with zero pricing across all sizes", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-zero-create@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-zero-create@test.com",
+    });
+
+    await expectConvexErrorCode(
+      asAdmin.mutation(api.services.create, {
+        name: "Broken Pricing",
+        description: "Invalid zero-price service",
+        basePriceSmall: 0,
+        basePriceMedium: 0,
+        basePriceLarge: 0,
+        duration: 45,
+      }),
+      "INVALID_SERVICE_PRICING",
+    );
+  });
+
+  test("update rejects services when pricing is set to zero across all sizes", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-zero-update@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-zero-update@test.com",
+    });
+
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Valid Service",
+      description: "Starts valid",
+      basePriceSmall: 25,
+      basePriceMedium: 30,
+      basePriceLarge: 35,
+      duration: 45,
+    });
+
+    await expectConvexErrorCode(
+      asAdmin.mutation(api.services.update, {
+        serviceId,
+        name: "Now Invalid",
+        description: "No valid prices",
+        basePriceSmall: 0,
+        basePriceMedium: 0,
+        basePriceLarge: 0,
+        duration: 45,
+        isActive: true,
+      }),
+      "INVALID_SERVICE_PRICING",
+    );
+  });
+
   test("delete service", async () => {
     const t = convexTest(schema, modules);
 
@@ -214,6 +314,7 @@ describe("services", () => {
 
   test("cannot delete service that is booked - duplicate", async () => {
     const t = convexTest(schema, modules);
+    await seedBookingSetup(t);
 
     // Create admin user
     const adminId = await t.run(async (ctx) => {

@@ -4,8 +4,39 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
-// 2024-12-02 is Monday (dayOfWeek 1) in UTC; set TZ so getDay() is consistent
-const TEST_DATE = "2024-12-02";
+const SUNDAY = "2024-12-01";
+const MONDAY = "2024-12-02";
+const TUESDAY = "2024-12-03";
+
+async function insertAvailabilityForDay(
+  t: any,
+  args: { dayOfWeek: number; startTime: string; endTime: string; isActive?: boolean },
+) {
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("availability", {
+      dayOfWeek: args.dayOfWeek,
+      startTime: args.startTime,
+      endTime: args.endTime,
+      isActive: args.isActive ?? true,
+    });
+  });
+}
+
+async function insertActiveService(t: any) {
+  return await t.run(async (ctx: any) => {
+    return await ctx.db.insert("services", {
+      name: "Wash",
+      description: "Wash",
+      basePrice: 50,
+      basePriceSmall: 45,
+      basePriceMedium: 50,
+      basePriceLarge: 55,
+      duration: 60,
+      serviceType: "standard",
+      isActive: true,
+    });
+  });
+}
 
 describe("availability", () => {
   beforeAll(() => {
@@ -37,7 +68,7 @@ describe("availability", () => {
 
     await t.run(async (ctx) => {
       await ctx.db.insert("timeBlocks", {
-        date: TEST_DATE,
+        date: MONDAY,
         startTime: "10:00",
         endTime: "12:00",
         reason: "Lunch break",
@@ -47,7 +78,7 @@ describe("availability", () => {
     });
 
     const slots = await t.query(api.availability.getAvailableTimeSlots, {
-      date: TEST_DATE,
+      date: MONDAY,
       serviceDuration: 60,
     });
 
@@ -88,7 +119,7 @@ describe("availability", () => {
 
     await t.run(async (ctx) => {
       await ctx.db.insert("timeBlocks", {
-        date: TEST_DATE,
+        date: MONDAY,
         startTime: "07:00",
         endTime: "09:00",
         reason: "Before open",
@@ -98,7 +129,7 @@ describe("availability", () => {
     });
 
     const slots = await t.query(api.availability.getAvailableTimeSlots, {
-      date: TEST_DATE,
+      date: MONDAY,
       serviceDuration: 60,
     });
 
@@ -109,7 +140,7 @@ describe("availability", () => {
     expect(firstSlot.available).toBe(true);
   });
 
-  test("existing appointment with 2-hour block makes overlapping slots unavailable", async () => {
+  test("existing appointment enforces 2-hour minimum spacing between starts", async () => {
     const t = convexTest(schema, modules);
 
     const userId = await t.run(async (ctx) => {
@@ -134,23 +165,7 @@ describe("availability", () => {
       });
     });
 
-    const categoryId = await t.run(async (ctx) => {
-      return await ctx.db.insert("serviceCategories", {
-        name: "Wash",
-        type: "standard",
-      });
-    });
-
-    const serviceId = await t.run(async (ctx) => {
-      return await ctx.db.insert("services", {
-        name: "Wash",
-        description: "Wash",
-        basePrice: 50,
-        duration: 60,
-        categoryId,
-        isActive: true,
-      });
-    });
+    const serviceId = await insertActiveService(t);
 
     const vehicleId = await t.run(async (ctx) => {
       return await ctx.db.insert("vehicles", {
@@ -175,7 +190,7 @@ describe("availability", () => {
         userId,
         vehicleIds: [vehicleId],
         serviceIds: [serviceId],
-        scheduledDate: TEST_DATE,
+        scheduledDate: MONDAY,
         scheduledTime: "10:00",
         duration: 60,
         location: {
@@ -191,7 +206,7 @@ describe("availability", () => {
     });
 
     const slots = await t.query(api.availability.getAvailableTimeSlots, {
-      date: TEST_DATE,
+      date: MONDAY,
       serviceDuration: 60,
     });
 
@@ -209,6 +224,147 @@ describe("availability", () => {
     expect(nineSlot?.reason).toBe("Time slot already booked");
 
     const elevenFifteenSlot = slots.find((s) => s.time === "11:15");
-    expect(elevenFifteenSlot?.available).toBe(true);
+    expect(elevenFifteenSlot?.available).toBe(false);
+    expect(elevenFifteenSlot?.reason).toBe("Time slot already booked");
+
+    const twelveSlot = slots.find((s) => s.time === "12:00");
+    expect(twelveSlot?.available).toBe(true);
+  });
+
+  test("next bookable date skips closed days", async () => {
+    const t = convexTest(schema, modules);
+
+    await insertAvailabilityForDay(t, {
+      dayOfWeek: 1, // Monday
+      startTime: "09:00",
+      endTime: "17:00",
+    });
+
+    const nextBookableDate = await t.query(api.availability.getNextBookableDate, {
+      fromDate: SUNDAY,
+      horizonDays: 7,
+    });
+    expect(nextBookableDate).toBe(MONDAY);
+  });
+
+  test("next bookable date skips days where all slots are blocked", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-blocked@test.com",
+        role: "admin",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    await insertAvailabilityForDay(t, {
+      dayOfWeek: 1, // Monday
+      startTime: "09:00",
+      endTime: "17:00",
+    });
+    await insertAvailabilityForDay(t, {
+      dayOfWeek: 2, // Tuesday
+      startTime: "09:00",
+      endTime: "17:00",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("timeBlocks", {
+        date: MONDAY,
+        startTime: "09:00",
+        endTime: "17:00",
+        reason: "Out all day",
+        type: "time_off",
+        createdBy: adminId,
+      });
+    });
+
+    const nextBookableDate = await t.query(api.availability.getNextBookableDate, {
+      fromDate: MONDAY,
+      horizonDays: 7,
+    });
+    expect(nextBookableDate).toBe(TUESDAY);
+  });
+
+  test("appointments shorter than 120 minutes still block a full 2-hour window", async () => {
+    const t = convexTest(schema, modules);
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Client",
+        email: "short-apt@test.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-short-apt@test.com",
+        role: "admin",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const serviceId = await insertActiveService(t);
+
+    const vehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2021,
+        make: "Toyota",
+        model: "Corolla",
+      });
+    });
+
+    await insertAvailabilityForDay(t, {
+      dayOfWeek: 1, // Monday
+      startTime: "06:00",
+      endTime: "17:00",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: MONDAY,
+        scheduledTime: "07:00",
+        duration: 30,
+        location: {
+          street: "123 Main",
+          city: "City",
+          state: "AR",
+          zip: "72001",
+        },
+        status: "confirmed",
+        totalPrice: 50,
+        createdBy: adminId,
+      });
+    });
+
+    const blocked = await t.query(api.availability.checkAvailability, {
+      date: MONDAY,
+      startTime: "08:45",
+      duration: 120,
+    });
+    expect(blocked.available).toBe(false);
+    expect(blocked.reason).toBe("Time slot already booked");
+
+    const earliestAllowed = await t.query(api.availability.checkAvailability, {
+      date: MONDAY,
+      startTime: "09:00",
+      duration: 120,
+    });
+    expect(earliestAllowed.available).toBe(true);
   });
 });

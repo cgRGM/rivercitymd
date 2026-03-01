@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -65,6 +65,7 @@ export function ScheduleAppointmentForm({
 
   const clients = useQuery(api.users.list);
   const services = useQuery(api.services.list);
+  const nextBookableDate = useQuery(api.availability.getNextBookableDate, {});
   const createAppointment = useMutation(api.appointments.create);
 
   const form = useForm<FormData>({
@@ -89,6 +90,23 @@ export function ScheduleAppointmentForm({
     api.vehicles.getByUser,
     selectedUserId ? { userId: selectedUserId as Id<"users"> } : "skip",
   );
+
+  useEffect(() => {
+    if (!open || !nextBookableDate) {
+      return;
+    }
+    const existingDate = form.getValues("scheduledDate");
+    if (!existingDate) {
+      form.setValue("scheduledDate", nextBookableDate, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("scheduledTime", "", {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [form, nextBookableDate, open]);
 
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);

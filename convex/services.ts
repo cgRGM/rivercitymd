@@ -5,9 +5,10 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { getUserIdFromIdentity } from "./auth";
 import { internal, api } from "./_generated/api";
+import { hasAnyPositiveServicePrice, normalizeServiceType } from "./lib/pricing";
 
 const SERVICE_TYPE_LABELS = {
   standard: "Standard Services",
@@ -15,9 +16,19 @@ const SERVICE_TYPE_LABELS = {
   subscription: "Subscription Plans",
 } as const;
 
-const normalizeServiceType = (
-  serviceType?: "standard" | "addon" | "subscription",
-) => serviceType ?? "standard";
+function assertHasPositivePrice(args: {
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+  basePrice?: number;
+}) {
+  if (!hasAnyPositiveServicePrice(args)) {
+    throw new ConvexError({
+      code: "INVALID_SERVICE_PRICING",
+      message: "At least one vehicle size price must be greater than $0.",
+    });
+  }
+}
 
 // === Legacy Categories ===
 
@@ -246,6 +257,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
+    assertHasPositivePrice(args);
 
     // Calculate basePrice for backwards compatibility (use medium if available)
     const basePrice =
@@ -306,6 +318,7 @@ export const update = mutation({
     if (!userId) throw new Error("Not authenticated");
 
     const { serviceId, ...updates } = args;
+    assertHasPositivePrice(updates);
 
     // Calculate basePrice for backwards compatibility
     const basePrice =

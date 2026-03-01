@@ -56,6 +56,7 @@ export function DashboardAppointmentForm({
   const currentUser = useQuery(api.users.getCurrentUser);
   const userVehicles = useQuery(api.vehicles.getMyVehicles);
   const services = useQuery(api.services.list);
+  const nextBookableDate = useQuery(api.availability.getNextBookableDate, {});
   const createAppointment = useMutation(api.appointments.create);
   const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
 
@@ -84,6 +85,23 @@ export function DashboardAppointmentForm({
       form.setValue("zip", currentUser.address.zip);
     }
   }, [currentUser, form]);
+
+  React.useEffect(() => {
+    if (!open || !nextBookableDate) {
+      return;
+    }
+    const existingDate = form.getValues("scheduledDate");
+    if (!existingDate) {
+      form.setValue("scheduledDate", nextBookableDate, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("scheduledTime", "", {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [form, nextBookableDate, open]);
 
   const onSubmit = async (data: FormData) => {
     if (!currentUser || !userVehicles || !services) return;

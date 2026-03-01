@@ -166,6 +166,11 @@ export default function AppointmentModal({
   */
 
   const services = useQuery(api.services.list);
+  const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
+  const nextBookableDate = useQuery(
+    api.availability.getNextBookableDate,
+    open && bookingReadiness?.isReady ? {} : "skip",
+  );
   const createUserAndAppointment = useMutation(
     api.users.createUserWithAppointment,
   );
@@ -222,6 +227,27 @@ export default function AppointmentModal({
       }
     }
   }, [isLoaded, isSignedIn, user, step2Form, setStep2Data, step2Data]);
+
+  useEffect(() => {
+    if (!open || currentStep !== 1 || !bookingReadiness?.isReady || !nextBookableDate) {
+      return;
+    }
+
+    const existingDate = step1Form.getValues("scheduledDate");
+    if (existingDate) {
+      return;
+    }
+
+    const defaultDate = new Date(`${nextBookableDate}T00:00:00.000Z`);
+    step1Form.setValue("scheduledDate", defaultDate, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    step1Form.setValue("scheduledTime", "", {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  }, [bookingReadiness?.isReady, currentStep, nextBookableDate, open, step1Form]);
 
   // Step 5 form is no longer needed as we use Clerk components
 
@@ -350,8 +376,8 @@ export default function AppointmentModal({
     }
   };
 
-  // Check if services are available
-  const hasServices = services && services.length > 0;
+  // Check if active services are available
+  const hasServices = services?.some((service) => service.isActive) ?? false;
 
   const onSubmit = async () => {
     // Validate that all required data is present
@@ -410,7 +436,7 @@ export default function AppointmentModal({
         })),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serviceIds: (step4Data?.serviceIds || []) as any,
-        scheduledDate: new Date(step1Data.scheduledDate).toISOString(),
+        scheduledDate: new Date(step1Data.scheduledDate).toISOString().split("T")[0],
         scheduledTime: step1Data.scheduledTime,
         locationNotes: step1Data.locationNotes,
       });
@@ -443,8 +469,10 @@ export default function AppointmentModal({
       }
     } catch (error) {
       console.error("Booking error:", error);
+      const maybeConvexError = error as { data?: { message?: string } };
       toast.error(
-        error instanceof Error ? error.message : "Failed to create appointment",
+        maybeConvexError?.data?.message ||
+          (error instanceof Error ? error.message : "Failed to create appointment"),
       );
     } finally {
       setIsLoading(false);
@@ -473,7 +501,7 @@ export default function AppointmentModal({
   };
 
   // Show loading state while data is being fetched
-  if (services === undefined) {
+  if (services === undefined || bookingReadiness === undefined) {
     return (
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -485,6 +513,36 @@ export default function AppointmentModal({
           </DialogHeader>
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (!bookingReadiness.isReady) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-center">
+              Booking Coming Soon
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              Online booking is still being configured.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-center py-4">
+            <p className="text-muted-foreground mb-4">
+              Create an account now and we&apos;ll keep you updated when booking opens.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => (window.location.href = "/sign-up")}>
+                Get Started
+              </Button>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -593,6 +651,10 @@ export default function AppointmentModal({
                                 date.getTime() + userTimezoneOffset,
                               );
                               field.onChange(adjustedDate);
+                              step1Form.setValue("scheduledTime", "", {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                              });
                             }}
                             className="bg-background-50 border-gray-200"
                           />
@@ -609,7 +671,14 @@ export default function AppointmentModal({
                       <FormLabel>Preferred Time</FormLabel>
                       <FormControl>
                         <TimeSlotPicker 
-                          date={step1Form.watch("scheduledDate")?.toISOString() ?? ""}
+                          date={
+                            step1Form.watch("scheduledDate") instanceof Date
+                              ? step1Form
+                                  .watch("scheduledDate")!
+                                  .toISOString()
+                                  .split("T")[0]
+                              : ""
+                          }
                           selectedTime={field.value}
                           onTimeSelect={(time) => field.onChange(time)}
                         />

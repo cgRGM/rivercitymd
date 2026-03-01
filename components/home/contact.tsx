@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MapPin, Phone, Clock } from "lucide-react";
@@ -10,6 +12,18 @@ import AppointmentModal from "@/components/home/appointment-modal";
 
 export default function ContactSection() {
   const [bookingOpen, setBookingOpen] = useState(false);
+  const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
+
+  const handleBookNow = () => {
+    if (bookingReadiness && !bookingReadiness.isReady) {
+      window.location.href = "/sign-up";
+      return;
+    }
+    if (bookingReadiness === undefined) {
+      return;
+    }
+    setBookingOpen(true);
+  };
 
   return (
     <>
@@ -133,7 +147,8 @@ export default function ContactSection() {
                     </p>
                     <Button
                       className="w-full"
-                      onClick={() => setBookingOpen(true)}
+                      disabled={bookingReadiness === undefined}
+                      onClick={handleBookNow}
                     >
                       Schedule Service
                     </Button>

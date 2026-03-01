@@ -6,10 +6,12 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { BOOKING_BLOCK_MINUTES, normalizeDateKey } from "./lib/booking";
+import { getEffectiveServicePrice, normalizeServiceType } from "./lib/pricing";
 
 interface StripeInvoiceVehicleInput {
   size?: "small" | "medium" | "large";
@@ -64,6 +66,63 @@ async function ensureStripeCustomerId(
   const stripeCustomer = await customerResponse.json();
   await updateStripeCustomerId(stripeCustomer.id);
   return stripeCustomer.id;
+}
+
+async function assertBookingSetupReady(ctx: any) {
+  const readiness = await ctx.runQuery(internal.setupReadiness.getBookingReadinessInternal, {});
+  if (!readiness.isReady) {
+    throw new ConvexError({
+      code: "BOOKING_SETUP_INCOMPLETE",
+      message:
+        "Booking is temporarily unavailable while business settings are being completed.",
+      blockers: readiness.blockers.map((blocker: any) => blocker.code),
+    });
+  }
+}
+
+function assertBookableServices(
+  services: Array<Doc<"services">>,
+  selectedServiceIds: Array<Id<"services">>,
+  vehicleSize: "small" | "medium" | "large",
+) {
+  if (selectedServiceIds.length === 0) {
+    throw new ConvexError({
+      code: "SERVICE_NOT_BOOKABLE",
+      message: "Please select at least one service.",
+    });
+  }
+
+  if (services.length !== selectedServiceIds.length) {
+    throw new ConvexError({
+      code: "SERVICE_NOT_BOOKABLE",
+      message: "One or more selected services are unavailable.",
+    });
+  }
+
+  for (const service of services) {
+    if (!service.isActive) {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: `Service \"${service.name}\" is inactive.`,
+      });
+    }
+
+    const serviceType = normalizeServiceType(service.serviceType);
+    if (serviceType !== "standard" && serviceType !== "addon" && serviceType !== "subscription") {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: `Service \"${service.name}\" is not bookable.`,
+      });
+    }
+
+    const price = getEffectiveServicePrice(service, vehicleSize);
+    if (price <= 0) {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: `Service \"${service.name}\" is missing valid pricing.`,
+      });
+    }
+  }
 }
 
 // Get count of pending appointments (admin only)
@@ -204,45 +263,55 @@ export const create = mutation({
   }> => {
     const authUserId = await getUserIdFromIdentity(ctx);
     if (!authUserId) throw new Error("Not authenticated");
+    await assertBookingSetupReady(ctx);
 
-    const services = await Promise.all(
-      args.serviceIds.map((id) => ctx.db.get(id)),
-    );
-    const validServices = services.filter((s: any) => s !== null);
-    if (validServices.length !== args.serviceIds.length) {
-      throw new Error("One or more services not found");
+    if (args.vehicleIds.length === 0) {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: "Please select at least one vehicle.",
+      });
     }
+
+    const scheduledDateKey = normalizeDateKey(args.scheduledDate);
 
     // Get vehicle sizes to calculate proper pricing
     const vehicles = await Promise.all(
       args.vehicleIds.map((id) => ctx.db.get(id)),
     );
-    const validVehicles = vehicles.filter((v) => v !== null);
+    const validVehicles = vehicles.filter((vehicle) => vehicle !== null);
+    if (validVehicles.length !== args.vehicleIds.length) {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: "One or more selected vehicles are unavailable.",
+      });
+    }
+    const vehicleSize = getVehicleSize(validVehicles);
+
+    const services = await Promise.all(args.serviceIds.map((id) => ctx.db.get(id)));
+    const validServices = services.filter(
+      (service): service is Doc<"services"> => service !== null,
+    );
+    assertBookableServices(validServices, args.serviceIds, vehicleSize);
+
+    const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
+      date: scheduledDateKey,
+      startTime: args.scheduledTime,
+      duration: BOOKING_BLOCK_MINUTES,
+    });
+    if (!slotAvailability.available) {
+      throw new ConvexError({
+        code: "TIME_SLOT_UNAVAILABLE",
+        message: slotAvailability.reason || "Selected time is no longer available.",
+      });
+    }
 
     const totalPrice =
-      validServices.reduce((sum, service) => {
-        // Use the first vehicle's size for pricing (assuming uniform pricing)
-        const vehicleSize = validVehicles[0]?.size || "medium";
-        let price = service!.basePriceMedium || service!.basePrice || 0;
-
-        if (vehicleSize === "small") {
-          price =
-            service!.basePriceSmall ||
-            service!.basePriceMedium ||
-            service!.basePrice ||
-            0;
-        } else if (vehicleSize === "large") {
-          price =
-            service!.basePriceLarge ||
-            service!.basePriceMedium ||
-            service!.basePrice ||
-            0;
-        }
-
-        return sum + price;
-      }, 0) * args.vehicleIds.length;
+      validServices.reduce(
+        (sum, service) => sum + getEffectiveServicePrice(service, vehicleSize),
+        0,
+      ) * args.vehicleIds.length;
     const duration = validServices.reduce(
-      (sum, service) => sum + (service!.duration || 0),
+      (sum, service) => sum + (service.duration || 0),
       0,
     );
 
@@ -252,7 +321,7 @@ export const create = mutation({
         userId: args.userId,
         vehicleIds: args.vehicleIds,
         serviceIds: args.serviceIds,
-        scheduledDate: args.scheduledDate,
+        scheduledDate: scheduledDateKey,
         scheduledTime: args.scheduledTime,
         duration,
         location: {
@@ -276,27 +345,12 @@ export const create = mutation({
     // not when appointment is created. This is handled in the appointment completion flow.
 
     // Calculate invoice items
-    const vehicleSize = validVehicles[0]?.size || "medium";
     const items = validServices.map((service) => {
-      // Calculate the correct price based on vehicle size
-      let unitPrice = service!.basePriceMedium || service!.basePrice || 0;
-      if (vehicleSize === "small") {
-        unitPrice =
-          service!.basePriceSmall ||
-          service!.basePriceMedium ||
-          service!.basePrice ||
-          0;
-      } else if (vehicleSize === "large") {
-        unitPrice =
-          service!.basePriceLarge ||
-          service!.basePriceMedium ||
-          service!.basePrice ||
-          0;
-      }
+      const unitPrice = getEffectiveServicePrice(service, vehicleSize);
 
       return {
-        serviceId: service!._id,
-        serviceName: service!.name,
+        serviceId: service._id,
+        serviceName: service.name,
         quantity: args.vehicleIds.length,
         unitPrice,
         totalPrice: unitPrice * args.vehicleIds.length,
@@ -325,7 +379,7 @@ export const create = mutation({
     const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     // Create invoice date
-    const appointmentDate = new Date(args.scheduledDate);
+    const appointmentDate = new Date(`${scheduledDateKey}T00:00:00.000Z`);
     const dueDate = new Date(appointmentDate);
     dueDate.setDate(dueDate.getDate() + 30);
 
@@ -340,7 +394,7 @@ export const create = mutation({
       total,
       status: "draft", // Start as draft, will be sent after deposit is paid
       dueDate: dueDate.toISOString().split("T")[0],
-      notes: `Invoice for appointment on ${args.scheduledDate}`,
+      notes: `Invoice for appointment on ${scheduledDateKey}`,
       depositAmount,
       depositPaid: false,
       remainingBalance,

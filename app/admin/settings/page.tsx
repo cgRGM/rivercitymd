@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -20,6 +21,7 @@ import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 
 const businessSchema = z.object({
   name: z.string().min(1, "Business name is required"),
@@ -64,6 +66,7 @@ const DEFAULT_NOTIFICATION_SETTINGS: AdminNotificationSettings = {
 export default function SettingsPage() {
   const business = useQuery(api.business.get);
   const businessHours = useQuery(api.availability.getBusinessHours);
+  const setupReadiness = useQuery(api.setupReadiness.getAdminSetupReadiness);
   const updateBusiness = useMutation(api.business.update);
   const setBusinessHours = useMutation(api.availability.setBusinessHours);
 
@@ -237,6 +240,32 @@ export default function SettingsPage() {
     }
   };
 
+  const blockers = new Set(setupReadiness?.blockers.map((blocker) => blocker.code) || []);
+  const setupChecklistItems = [
+    {
+      code: "missing_business_info",
+      label: "Complete business information",
+      description: "Name, owner, address, and country are required.",
+      actionLabel: "Business section",
+      actionHref: "#business-information",
+    },
+    {
+      code: "missing_availability",
+      label: "Configure operating hours",
+      description: "Set at least one active day with a minimum 2-hour window.",
+      actionLabel: "Hours section",
+      actionHref: "#operating-hours",
+    },
+    {
+      code: "missing_bookable_service_pricing",
+      label: "Add a priced standard service",
+      description:
+        "At least one active standard service must have pricing greater than $0.",
+      actionLabel: "Go to services",
+      actionHref: "/admin/services",
+    },
+  ] as const;
+
   return (
     <div className="space-y-6 animate-fade-in max-w-4xl">
       <div>
@@ -248,8 +277,64 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      <Card
+        className={
+          setupReadiness && !setupReadiness.isReady
+            ? "border-amber-300 bg-amber-50/50 dark:bg-amber-950/20"
+            : "border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20"
+        }
+      >
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {setupReadiness && !setupReadiness.isReady ? (
+              <AlertCircle className="h-5 w-5 text-amber-600" />
+            ) : (
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            )}
+            Setup Checklist
+          </CardTitle>
+          <CardDescription>
+            {setupReadiness && !setupReadiness.isReady
+              ? "Complete these items before booking can go live."
+              : "Booking setup is complete."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {setupChecklistItems.map((item) => {
+            const isBlocked = blockers.has(item.code);
+            return (
+              <div
+                key={item.code}
+                className="flex items-start justify-between gap-4 rounded-lg border p-3"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium">{item.label}</p>
+                  <p className="text-sm text-muted-foreground">{item.description}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {isBlocked ? (
+                    <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                      Required
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      Complete
+                    </span>
+                  )}
+                  {isBlocked && (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={item.actionHref}>{item.actionLabel}</Link>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
       {/* Business Information */}
-      <Card className="animate-fade-in-up">
+      <Card id="business-information" className="animate-fade-in-up">
         <CardHeader>
           <CardTitle>Business Information</CardTitle>
           <CardDescription>
@@ -341,7 +426,11 @@ export default function SettingsPage() {
       </Card>
 
       {/* Operating Hours */}
-      <Card className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+      <Card
+        id="operating-hours"
+        className="animate-fade-in-up"
+        style={{ animationDelay: "100ms" }}
+      >
         <CardHeader>
           <CardTitle>Operating Hours</CardTitle>
           <CardDescription>

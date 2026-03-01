@@ -40,7 +40,16 @@ const formSchema = z.object({
   features: z.array(z.string()).optional(),
   icon: z.string().optional(),
   includedServiceIds: z.array(z.string()).optional(),
-});
+}).refine(
+  (data) =>
+    data.basePriceSmall > 0 ||
+    data.basePriceMedium > 0 ||
+    data.basePriceLarge > 0,
+  {
+    message: "At least one vehicle size price must be greater than $0.",
+    path: ["basePriceMedium"],
+  },
+);
 
 type FormData = z.infer<typeof formSchema>;
 

@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function PricingSection() {
   // Fetch services
   const servicesQuery = useQuery(api.services.list);
+  const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
 
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<
@@ -32,6 +33,17 @@ export function PricingSection() {
       (service) =>
         service.isActive && (service.serviceType === "standard" || !service.serviceType),
     ) || [];
+
+  const handleBookNow = () => {
+    if (bookingReadiness && !bookingReadiness.isReady) {
+      window.location.href = "/sign-up";
+      return;
+    }
+    if (bookingReadiness === undefined) {
+      return;
+    }
+    setBookingOpen(true);
+  };
 
   // Handle loading state
   if (servicesQuery === undefined) {
@@ -242,7 +254,8 @@ export function PricingSection() {
                          <Button 
                            className="w-full" 
                            variant="outline"
-                           onClick={() => setBookingOpen(true)}
+                           disabled={bookingReadiness === undefined}
+                           onClick={handleBookNow}
                          >
                            Select {service.name}
                          </Button>
@@ -264,7 +277,8 @@ export function PricingSection() {
           >
             <Button
               size="lg"
-              onClick={() => setBookingOpen(true)}
+              disabled={bookingReadiness === undefined}
+              onClick={handleBookNow}
               className="bg-primary hover:bg-primary/90 text-primary-foreground px-10 py-6 text-lg rounded-full shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
             >
               <Calendar className="w-5 h-5 mr-2" />
