@@ -3,29 +3,9 @@ import { expect, test, describe } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
+import { seedBookingSetup } from "./testUtils/bookingSetup";
 
 const APPOINTMENT_TEST_DATE = "2024-12-02"; // Monday (dayOfWeek 1)
-
-async function seedBookingSetup(t: any) {
-  await t.run(async (ctx: any) => {
-    await ctx.db.insert("businessInfo", {
-      name: "River City Mobile Detailing",
-      owner: "Owner Name",
-      address: "123 Main St",
-      cityStateZip: "Little Rock, AR 72201",
-      country: "USA",
-    });
-
-    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek += 1) {
-      await ctx.db.insert("availability", {
-        dayOfWeek,
-        startTime: "08:00",
-        endTime: "18:00",
-        isActive: true,
-      });
-    }
-  });
-}
 
 async function expectConvexErrorCode(
   promise: Promise<unknown>,
@@ -269,6 +249,210 @@ describe("appointments", () => {
       date: "2024-12-01",
     });
     expect(dateAppointments.length).toBe(1);
+  });
+
+  test("list/getById enforce owner-or-admin scoping", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, { includeBookableService: false });
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-scope@example.com",
+        role: "admin",
+      });
+    });
+    const ownerId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Owner",
+        email: "owner-scope@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+    const otherUserId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Other",
+        email: "other-scope@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Scope Service",
+        description: "Test service",
+        basePrice: 75,
+        basePriceMedium: 75,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const ownerVehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId: ownerId,
+        year: 2022,
+        make: "Toyota",
+        model: "Camry",
+        size: "medium",
+      });
+    });
+    const otherVehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId: otherUserId,
+        year: 2021,
+        make: "Honda",
+        model: "Accord",
+        size: "medium",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-scope@example.com",
+    });
+    const asOwner = t.withIdentity({
+      subject: ownerId,
+      email: "owner-scope@example.com",
+    });
+
+    const ownerAppointment = await asAdmin.mutation(api.appointments.create, {
+      userId: ownerId,
+      vehicleIds: [ownerVehicleId],
+      serviceIds: [serviceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Springfield",
+      state: "IL",
+      zip: "62701",
+    });
+    const otherAppointment = await asAdmin.mutation(api.appointments.create, {
+      userId: otherUserId,
+      vehicleIds: [otherVehicleId],
+      serviceIds: [serviceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "13:00",
+      street: "456 Oak St",
+      city: "Springfield",
+      state: "IL",
+      zip: "62702",
+    });
+
+    const ownerList = await asOwner.query(api.appointments.list, {});
+    expect(ownerList).toHaveLength(1);
+    expect(ownerList[0]._id).toBe(ownerAppointment.appointmentId);
+
+    const ownerRecord = await asOwner.query(api.appointments.getById, {
+      appointmentId: ownerAppointment.appointmentId,
+    });
+    expect(ownerRecord?._id).toBe(ownerAppointment.appointmentId);
+
+    await expect(
+      asOwner.query(api.appointments.getById, {
+        appointmentId: otherAppointment.appointmentId,
+      }),
+    ).rejects.toThrow("Access denied");
+
+    const adminList = await asAdmin.query(api.appointments.list, {});
+    expect(adminList.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("non-admin cannot create appointments for other users", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, { includeBookableService: false });
+
+    const callerUserId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Caller",
+        email: "caller-create@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+    const targetUserId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Target",
+        email: "target-create@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Create Guard Service",
+        description: "Service",
+        basePrice: 80,
+        basePriceMedium: 80,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const callerVehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId: callerUserId,
+        year: 2022,
+        make: "Mazda",
+        model: "CX-5",
+        size: "medium",
+      });
+    });
+    const targetVehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId: targetUserId,
+        year: 2022,
+        make: "Ford",
+        model: "Escape",
+        size: "medium",
+      });
+    });
+
+    const asCaller = t.withIdentity({
+      subject: callerUserId,
+      email: "caller-create@example.com",
+    });
+
+    await expect(
+      asCaller.mutation(api.appointments.create, {
+        userId: targetUserId,
+        vehicleIds: [targetVehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: APPOINTMENT_TEST_DATE,
+        scheduledTime: "10:00",
+        street: "123 Main St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      }),
+    ).rejects.toThrow("Access denied");
+
+    const ownAppointment = await asCaller.mutation(api.appointments.create, {
+      userId: callerUserId,
+      vehicleIds: [callerVehicleId],
+      serviceIds: [serviceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "13:00",
+      street: "123 Main St",
+      city: "Springfield",
+      state: "IL",
+      zip: "62701",
+    });
+    expect(ownAppointment.appointmentId).toBeDefined();
+    expect(ownAppointment.invoiceId).toBeDefined();
   });
 
   test("update appointment status", async () => {

@@ -1304,9 +1304,12 @@ export const handleWebhook = action({
         console.log(`Invoice paid: ${stripeInvoice.id}`);
 
         // Find our invoice by Stripe invoice ID
-        const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
-          stripeInvoiceId: stripeInvoice.id,
-        });
+        const ourInvoice = await ctx.runQuery(
+          internal.invoices.getByStripeIdInternal,
+          {
+            stripeInvoiceId: stripeInvoice.id,
+          },
+        );
 
         if (ourInvoice && ourInvoice.status !== "paid") {
           // Update invoice status to paid
@@ -1344,9 +1347,12 @@ export const handleWebhook = action({
         console.log(`Invoice payment failed: ${invoice.id}`);
 
         // Find our invoice by Stripe invoice ID
-        const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
-          stripeInvoiceId: invoice.id,
-        });
+        const ourInvoice = await ctx.runQuery(
+          internal.invoices.getByStripeIdInternal,
+          {
+            stripeInvoiceId: invoice.id,
+          },
+        );
 
         if (ourInvoice) {
           // Could add a payment_failed status or log the failure
@@ -1360,13 +1366,16 @@ export const handleWebhook = action({
         console.log(`Invoice voided: ${invoice.id}`);
 
         // Find our invoice by Stripe invoice ID
-        const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
-          stripeInvoiceId: invoice.id,
-        });
+        const ourInvoice = await ctx.runQuery(
+          internal.invoices.getByStripeIdInternal,
+          {
+            stripeInvoiceId: invoice.id,
+          },
+        );
 
         if (ourInvoice) {
           // Mark as voided/overdue
-          await ctx.runMutation(api.invoices.updateStatus, {
+          await ctx.runMutation(internal.invoices.updateStatusInternal, {
             invoiceId: ourInvoice._id,
             status: "overdue",
           });
@@ -1600,7 +1609,7 @@ export const syncPaymentStatus = action({
         );
 
         if (paymentIntent.status === "succeeded" && !invoice.depositPaid) {
-          await ctx.runMutation(api.invoices.updateDepositStatus, {
+          await ctx.runMutation(internal.invoices.updateDepositStatusInternal, {
             invoiceId: args.invoiceId,
             depositPaid: true,
             depositPaymentIntentId: invoice.depositPaymentIntentId,
@@ -1636,7 +1645,7 @@ export const syncPaymentStatus = action({
         );
 
         if (matchingPaymentIntent) {
-          await ctx.runMutation(api.invoices.updateDepositStatus, {
+          await ctx.runMutation(internal.invoices.updateDepositStatusInternal, {
             invoiceId: args.invoiceId,
             depositPaid: true,
             depositPaymentIntentId: matchingPaymentIntent.id,
@@ -1666,7 +1675,7 @@ export const syncPaymentStatus = action({
           );
 
           if (paymentIntent.status === "succeeded" && invoice.status !== "paid") {
-            await ctx.runMutation(api.invoices.updateStatus, {
+            await ctx.runMutation(internal.invoices.updateStatusInternal, {
               invoiceId: args.invoiceId,
               status: "paid",
               paidDate: new Date().toISOString().split("T")[0],
@@ -1687,7 +1696,7 @@ export const syncPaymentStatus = action({
           { method: "GET" },
         );
         if (stripeInvoice.status === "paid") {
-          await ctx.runMutation(api.invoices.updateStatus, {
+          await ctx.runMutation(internal.invoices.updateStatusInternal, {
             invoiceId: args.invoiceId,
             status: "paid",
             paidDate: new Date().toISOString().split("T")[0],

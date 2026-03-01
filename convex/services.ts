@@ -2,12 +2,14 @@ import {
   query,
   mutation,
   action,
+  internalAction,
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
-import { internal, api } from "./_generated/api";
+import { getUserIdFromIdentity, requireAdmin } from "./auth";
+import { internal } from "./_generated/api";
 import { hasAnyPositiveServicePrice, normalizeServiceType } from "./lib/pricing";
 
 const SERVICE_TYPE_LABELS = {
@@ -28,6 +30,147 @@ function assertHasPositivePrice(args: {
       message: "At least one vehicle size price must be greater than $0.",
     });
   }
+}
+
+async function createStripeProductForService(ctx: any, serviceId: Id<"services">) {
+  // Get the service data
+  const service = await ctx.runQuery(internal.services.getServiceById, {
+    serviceId,
+  });
+
+  if (!service) throw new Error("Service not found");
+
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeSecretKey) {
+    // No-op when Stripe key is missing (e.g. test env) to avoid writes after test transaction
+    console.warn(
+      "STRIPE_SECRET_KEY not set, skipping createStripeProduct for service",
+      serviceId,
+    );
+    return;
+  }
+
+  const serviceType = normalizeServiceType(service.serviceType);
+  const productBody = new URLSearchParams({
+    name: service.name,
+    description: service.description || "",
+    "metadata[serviceId]": serviceId,
+    "metadata[serviceType]": serviceType,
+  });
+  if (service.categoryId) {
+    productBody.append("metadata[categoryId]", service.categoryId);
+  }
+
+  // Create Stripe product using HTTP fetch (no SDK)
+  const productResponse = await fetch("https://api.stripe.com/v1/products", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${stripeSecretKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: productBody,
+  });
+
+  if (!productResponse.ok) {
+    const errorText = await productResponse.text();
+    throw new Error(
+      `Stripe product creation failed: ${productResponse.status} ${errorText}`,
+    );
+  }
+
+  const product = await productResponse.json();
+
+  // Create prices for each vehicle size
+  const prices = [];
+
+  if (service.basePriceSmall && service.basePriceSmall > 0) {
+    const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stripeSecretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        product: product.id,
+        unit_amount: Math.round(service.basePriceSmall * 100).toString(),
+        currency: "usd",
+        "metadata[serviceId]": serviceId,
+        "metadata[vehicleSize]": "small",
+      }),
+    });
+
+    if (!priceResponse.ok) {
+      const errorText = await priceResponse.text();
+      throw new Error(
+        `Stripe small price creation failed: ${priceResponse.status} ${errorText}`,
+      );
+    }
+
+    const price = await priceResponse.json();
+    prices.push(price);
+  }
+
+  if (service.basePriceMedium && service.basePriceMedium > 0) {
+    const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stripeSecretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        product: product.id,
+        unit_amount: Math.round(service.basePriceMedium * 100).toString(),
+        currency: "usd",
+        "metadata[serviceId]": serviceId,
+        "metadata[vehicleSize]": "medium",
+      }),
+    });
+
+    if (!priceResponse.ok) {
+      const errorText = await priceResponse.text();
+      throw new Error(
+        `Stripe medium price creation failed: ${priceResponse.status} ${errorText}`,
+      );
+    }
+
+    const price = await priceResponse.json();
+    prices.push(price);
+  }
+
+  if (service.basePriceLarge && service.basePriceLarge > 0) {
+    const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stripeSecretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        product: product.id,
+        unit_amount: Math.round(service.basePriceLarge * 100).toString(),
+        currency: "usd",
+        "metadata[serviceId]": serviceId,
+        "metadata[vehicleSize]": "large",
+      }),
+    });
+
+    if (!priceResponse.ok) {
+      const errorText = await priceResponse.text();
+      throw new Error(
+        `Stripe large price creation failed: ${priceResponse.status} ${errorText}`,
+      );
+    }
+
+    const price = await priceResponse.json();
+    prices.push(price);
+  }
+
+  // Update service with Stripe product ID and price IDs
+  // Note: Deposit is now a separate product managed via depositSettings
+  await ctx.runMutation(internal.services.updateStripeIds, {
+    serviceId,
+    stripeProductId: product.id,
+    stripePriceIds: prices.map((p) => p.id),
+  });
 }
 
 // === Legacy Categories ===
@@ -51,8 +194,7 @@ export const createCategory = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     return await ctx.db.insert("serviceCategories", {
       name: args.name,
@@ -69,144 +211,17 @@ export const createStripeProduct = action({
     serviceId: v.id("services"),
   },
   handler: async (ctx, args) => {
-    // Get the service data
-    const service = await ctx.runQuery(internal.services.getServiceById, {
-      serviceId: args.serviceId,
-    });
+    await requireAdmin(ctx);
+    await createStripeProductForService(ctx, args.serviceId);
+  },
+});
 
-    if (!service) throw new Error("Service not found");
-
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeSecretKey) {
-      // No-op when Stripe key is missing (e.g. test env) to avoid writes after test transaction
-      console.warn(
-        "STRIPE_SECRET_KEY not set, skipping createStripeProduct for service",
-        args.serviceId,
-      );
-      return;
-    }
-
-    const serviceType = normalizeServiceType(service.serviceType);
-    const productBody = new URLSearchParams({
-      name: service.name,
-      description: service.description || "",
-      "metadata[serviceId]": args.serviceId,
-      "metadata[serviceType]": serviceType,
-    });
-    if (service.categoryId) {
-      productBody.append("metadata[categoryId]", service.categoryId);
-    }
-
-    // Create Stripe product using HTTP fetch (no SDK)
-    const productResponse = await fetch("https://api.stripe.com/v1/products", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeSecretKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: productBody,
-    });
-
-    if (!productResponse.ok) {
-      const errorText = await productResponse.text();
-      throw new Error(
-        `Stripe product creation failed: ${productResponse.status} ${errorText}`,
-      );
-    }
-
-    const product = await productResponse.json();
-
-    // Create prices for each vehicle size
-    const prices = [];
-
-    if (service.basePriceSmall && service.basePriceSmall > 0) {
-      const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${stripeSecretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          product: product.id,
-          unit_amount: Math.round(service.basePriceSmall * 100).toString(),
-          currency: "usd",
-          "metadata[serviceId]": args.serviceId,
-          "metadata[vehicleSize]": "small",
-        }),
-      });
-
-      if (!priceResponse.ok) {
-        const errorText = await priceResponse.text();
-        throw new Error(
-          `Stripe small price creation failed: ${priceResponse.status} ${errorText}`,
-        );
-      }
-
-      const price = await priceResponse.json();
-      prices.push(price);
-    }
-
-    if (service.basePriceMedium && service.basePriceMedium > 0) {
-      const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${stripeSecretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          product: product.id,
-          unit_amount: Math.round(service.basePriceMedium * 100).toString(),
-          currency: "usd",
-          "metadata[serviceId]": args.serviceId,
-          "metadata[vehicleSize]": "medium",
-        }),
-      });
-
-      if (!priceResponse.ok) {
-        const errorText = await priceResponse.text();
-        throw new Error(
-          `Stripe medium price creation failed: ${priceResponse.status} ${errorText}`,
-        );
-      }
-
-      const price = await priceResponse.json();
-      prices.push(price);
-    }
-
-    if (service.basePriceLarge && service.basePriceLarge > 0) {
-      const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${stripeSecretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          product: product.id,
-          unit_amount: Math.round(service.basePriceLarge * 100).toString(),
-          currency: "usd",
-          "metadata[serviceId]": args.serviceId,
-          "metadata[vehicleSize]": "large",
-        }),
-      });
-
-      if (!priceResponse.ok) {
-        const errorText = await priceResponse.text();
-        throw new Error(
-          `Stripe large price creation failed: ${priceResponse.status} ${errorText}`,
-        );
-      }
-
-      const price = await priceResponse.json();
-      prices.push(price);
-    }
-
-    // Update service with Stripe product ID and price IDs
-    // Note: Deposit is now a separate product managed via depositSettings
-    await ctx.runMutation(internal.services.updateStripeIds, {
-      serviceId: args.serviceId,
-      stripeProductId: product.id,
-      stripePriceIds: prices.map((p) => p.id),
-    });
+export const createStripeProductInternal = internalAction({
+  args: {
+    serviceId: v.id("services"),
+  },
+  handler: async (ctx, args) => {
+    await createStripeProductForService(ctx, args.serviceId);
   },
 });
 
@@ -255,8 +270,7 @@ export const create = mutation({
     icon: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
     assertHasPositivePrice(args);
 
     // Calculate basePrice for backwards compatibility (use medium if available)
@@ -282,9 +296,13 @@ export const create = mutation({
     });
 
     // Schedule Stripe product creation (async, external API)
-    await ctx.scheduler.runAfter(0, api.services.createStripeProduct, {
-      serviceId,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.services.createStripeProductInternal,
+      {
+        serviceId,
+      },
+    );
 
     return serviceId;
   },
@@ -314,8 +332,7 @@ export const update = mutation({
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const { serviceId, ...updates } = args;
     assertHasPositivePrice(updates);
@@ -352,8 +369,7 @@ export const deleteService = mutation({
     serviceId: v.id("services"),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     // Check if service is being used in any appointments
     const appointments = await ctx.db.query("appointments").collect();
@@ -415,8 +431,7 @@ export const updateStripeProduct = mutation({
     serviceId: v.id("services"),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const service = await ctx.db.get(args.serviceId);
     if (!service) throw new Error("Service not found");

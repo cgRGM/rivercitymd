@@ -3,26 +3,7 @@ import { expect, test, describe } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
-
-async function seedBookingSetup(t: any) {
-  await t.run(async (ctx: any) => {
-    await ctx.db.insert("businessInfo", {
-      name: "River City Mobile Detailing",
-      owner: "Owner Name",
-      address: "123 Main St",
-      cityStateZip: "Little Rock, AR 72201",
-      country: "USA",
-    });
-    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek += 1) {
-      await ctx.db.insert("availability", {
-        dayOfWeek,
-        startTime: "08:00",
-        endTime: "18:00",
-        isActive: true,
-      });
-    }
-  });
-}
+import { seedBookingSetup } from "./testUtils/bookingSetup";
 
 async function expectConvexErrorCode(
   promise: Promise<unknown>,
@@ -310,6 +291,89 @@ describe("services", () => {
     // Verify deletion
     const services = await t.query(api.services.list, {});
     expect(services.length).toBe(0);
+  });
+
+  test("non-admin cannot call privileged service mutations", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-guard@test.com",
+        role: "admin",
+      });
+    });
+    const clientId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Client",
+        email: "client-guard@test.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const asAdmin = t.withIdentity({ subject: adminId, email: "admin-guard@test.com" });
+    const asClient = t.withIdentity({
+      subject: clientId,
+      email: "client-guard@test.com",
+    });
+
+    const categoryId = await asAdmin.mutation(api.services.createCategory, {
+      name: "Guard Category",
+      type: "standard",
+    });
+
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Guard Service",
+      description: "Admin-only mutation guard test",
+      basePriceSmall: 40,
+      basePriceMedium: 50,
+      basePriceLarge: 60,
+      duration: 45,
+      categoryId,
+    });
+
+    await expect(
+      asClient.mutation(api.services.createCategory, {
+        name: "Blocked Category",
+        type: "standard",
+      }),
+    ).rejects.toThrow("Admin access required");
+
+    await expect(
+      asClient.mutation(api.services.create, {
+        name: "Blocked Create",
+        description: "Should fail",
+        basePriceSmall: 10,
+        basePriceMedium: 15,
+        basePriceLarge: 20,
+        duration: 30,
+      }),
+    ).rejects.toThrow("Admin access required");
+
+    await expect(
+      asClient.mutation(api.services.update, {
+        serviceId,
+        name: "Blocked Update",
+        description: "Should fail",
+        basePriceSmall: 45,
+        basePriceMedium: 55,
+        basePriceLarge: 65,
+        duration: 50,
+        categoryId,
+        isActive: true,
+      }),
+    ).rejects.toThrow("Admin access required");
+
+    await expect(
+      asClient.mutation(api.services.deleteService, { serviceId }),
+    ).rejects.toThrow("Admin access required");
+
+    await expect(
+      asClient.mutation(api.services.updateStripeProduct, { serviceId }),
+    ).rejects.toThrow("Admin access required");
   });
 
   test("cannot delete service that is booked - duplicate", async () => {

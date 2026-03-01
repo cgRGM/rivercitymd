@@ -3,27 +3,9 @@ import { expect, test, describe } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
+import { seedBookingSetup } from "./testUtils/bookingSetup";
 
 const BOOKING_TEST_DATE = "2024-12-02"; // Monday (dayOfWeek 1)
-
-async function seedBookingSetup(t: any) {
-  await t.run(async (ctx: any) => {
-    await ctx.db.insert("businessInfo", {
-      name: "River City Mobile Detailing",
-      owner: "Owner Name",
-      address: "123 Main St",
-      cityStateZip: "Little Rock, AR 72201",
-      country: "USA",
-    });
-
-    await ctx.db.insert("availability", {
-      dayOfWeek: 1,
-      startTime: "08:00",
-      endTime: "18:00",
-      isActive: true,
-    });
-  });
-}
 
 async function expectConvexErrorCode(
   promise: Promise<unknown>,
@@ -102,6 +84,72 @@ describe("users", () => {
       make: "Toyota",
       model: "Camry",
       color: "Gray",
+    });
+  });
+
+  test("onboarding profile completion preserves dashboard role routing", async () => {
+    const t = convexTest(schema, modules);
+
+    const clerkClientId = "clerk_onboarding_client";
+    const clientUserId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        email: "route-client@example.com",
+        clerkUserId: clerkClientId,
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const asClient = t.withIdentity({
+      subject: clerkClientId,
+      email: "route-client@example.com",
+    });
+    await asClient.mutation(api.users.createUserProfile, {
+      name: "Routing Client",
+      phone: "555-1010",
+      address: {
+        street: "10 Route St",
+        city: "Little Rock",
+        state: "AR",
+        zip: "72201",
+      },
+      vehicles: [
+        {
+          year: 2022,
+          make: "Toyota",
+          model: "Corolla",
+          color: "Blue",
+        },
+      ],
+    });
+
+    const clientRole = await asClient.query(api.auth.getUserRole, {});
+    expect(clientRole).toMatchObject({
+      type: "client",
+      userId: clientUserId,
+    });
+
+    const clerkAdminId = "clerk_onboarding_admin";
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        email: "route-admin@example.com",
+        clerkUserId: clerkAdminId,
+        role: "admin",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: clerkAdminId,
+      email: "route-admin@example.com",
+    });
+    const adminRole = await asAdmin.query(api.auth.getUserRole, {});
+    expect(adminRole).toMatchObject({
+      type: "admin",
     });
   });
 

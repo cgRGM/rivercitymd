@@ -29,6 +29,7 @@ import type * as services from "../services.js";
 import type * as setupReadiness from "../setupReadiness.js";
 import type * as sms from "../sms.js";
 import type * as stripeClient from "../stripeClient.js";
+import type * as testUtils_bookingSetup from "../testUtils/bookingSetup.js";
 import type * as users from "../users.js";
 import type * as vehicles from "../vehicles.js";
 
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   setupReadiness: typeof setupReadiness;
   sms: typeof sms;
   stripeClient: typeof stripeClient;
+  "testUtils/bookingSetup": typeof testUtils_bookingSetup;
   users: typeof users;
   vehicles: typeof vehicles;
 }>;

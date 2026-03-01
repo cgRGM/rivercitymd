@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { api, internal, components } from "./_generated/api";
+import { internal, components } from "./_generated/api";
 import { resend } from "./emails";
 import { registerTwilioRoutes } from "./sms";
 import { Webhook } from "svix";
@@ -265,9 +265,12 @@ registerRoutes(http, components.stripe, {
       const stripeInvoice = event.data.object;
 
       // Find our invoice by Stripe invoice ID
-      const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
-        stripeInvoiceId: stripeInvoice.id,
-      });
+      const ourInvoice = await ctx.runQuery(
+        internal.invoices.getByStripeIdInternal,
+        {
+          stripeInvoiceId: stripeInvoice.id,
+        },
+      );
 
       if (ourInvoice && ourInvoice.status !== "paid") {
         // Update invoice status to paid
@@ -307,9 +310,12 @@ registerRoutes(http, components.stripe, {
       const invoice = event.data.object;
 
       // Find our invoice by Stripe invoice ID
-      const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
-        stripeInvoiceId: invoice.id,
-      });
+      const ourInvoice = await ctx.runQuery(
+        internal.invoices.getByStripeIdInternal,
+        {
+          stripeInvoiceId: invoice.id,
+        },
+      );
 
       if (ourInvoice) {
         console.log(`Payment failed for our invoice ${ourInvoice._id}`);
@@ -322,13 +328,16 @@ registerRoutes(http, components.stripe, {
       const invoice = event.data.object;
 
       // Find our invoice by Stripe invoice ID
-      const ourInvoice = await ctx.runQuery(api.invoices.getByStripeId, {
-        stripeInvoiceId: invoice.id,
-      });
+      const ourInvoice = await ctx.runQuery(
+        internal.invoices.getByStripeIdInternal,
+        {
+          stripeInvoiceId: invoice.id,
+        },
+      );
 
       if (ourInvoice) {
         // Mark as voided/overdue
-        await ctx.runMutation(api.invoices.updateStatus, {
+        await ctx.runMutation(internal.invoices.updateStatusInternal, {
           invoiceId: ourInvoice._id,
           status: "overdue",
         });

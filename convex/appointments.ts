@@ -177,23 +177,50 @@ export const list = query({
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
+    const isAdminUser = await isAdmin(ctx);
 
-    let appointmentsQuery;
-    if (args.date) {
-      appointmentsQuery = ctx.db
-        .query("appointments")
-        .withIndex("by_date", (q) => q.eq("scheduledDate", args.date!));
-    } else {
-      appointmentsQuery = ctx.db.query("appointments");
+    if (isAdminUser) {
+      let appointmentsQuery;
+      if (args.date) {
+        appointmentsQuery = ctx.db
+          .query("appointments")
+          .withIndex("by_date", (q) => q.eq("scheduledDate", args.date!));
+      } else {
+        appointmentsQuery = ctx.db.query("appointments");
+      }
+
+      if (args.status) {
+        return (await appointmentsQuery.collect()).filter(
+          (apt) => apt.status === args.status,
+        );
+      }
+
+      return await appointmentsQuery.collect();
     }
+
+    if (args.date) {
+      const byDate = await ctx.db
+        .query("appointments")
+        .withIndex("by_date", (q) => q.eq("scheduledDate", args.date!))
+        .collect();
+
+      const ownByDate = byDate.filter((appointment) => appointment.userId === userId);
+      if (args.status) {
+        return ownByDate.filter((appointment) => appointment.status === args.status);
+      }
+      return ownByDate;
+    }
+
+    const ownAppointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
 
     if (args.status) {
-      return (await appointmentsQuery.collect()).filter(
-        (apt) => apt.status === args.status,
-      );
+      return ownAppointments.filter((appointment) => appointment.status === args.status);
     }
 
-    return await appointmentsQuery.collect();
+    return ownAppointments;
   },
 });
 
@@ -203,7 +230,18 @@ export const getById = query({
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
-    return await ctx.db.get(args.appointmentId);
+
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) {
+      return null;
+    }
+
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && appointment.userId !== userId) {
+      throw new Error("Access denied");
+    }
+
+    return appointment;
   },
 });
 
@@ -265,6 +303,11 @@ export const create = mutation({
     if (!authUserId) throw new Error("Not authenticated");
     await assertBookingSetupReady(ctx);
 
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && args.userId !== authUserId) {
+      throw new Error("Access denied");
+    }
+
     if (args.vehicleIds.length === 0) {
       throw new ConvexError({
         code: "SERVICE_NOT_BOOKABLE",
@@ -284,6 +327,9 @@ export const create = mutation({
         code: "SERVICE_NOT_BOOKABLE",
         message: "One or more selected vehicles are unavailable.",
       });
+    }
+    if (validVehicles.some((vehicle) => vehicle.userId !== args.userId)) {
+      throw new Error("Invalid vehicle selection");
     }
     const vehicleSize = getVehicleSize(validVehicles);
 
@@ -374,7 +420,10 @@ export const create = mutation({
     const remainingBalance = Math.max(0, total - depositAmount);
 
     // Generate invoice number
-    const invoiceCountResult = await ctx.runQuery(api.invoices.getCount, {});
+    const invoiceCountResult = await ctx.runQuery(
+      internal.invoices.getCountInternal,
+      {},
+    );
     const invoiceCount: number = invoiceCountResult.count;
     const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
@@ -1181,7 +1230,9 @@ export const createStripeInvoice = action({
 
     // Otherwise, create a new invoice (for backward compatibility)
     // Generate invoice number
-    const invoiceCount = (await ctx.runQuery(api.invoices.getCount, {})).count;
+    const invoiceCount = (
+      await ctx.runQuery(internal.invoices.getCountInternal, {})
+    ).count;
     const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     // Create invoice items for Convex
@@ -1208,7 +1259,7 @@ export const createStripeInvoice = action({
     const total = subtotal + tax;
 
     // Store invoice in Convex with Stripe data
-    await ctx.runMutation(api.invoices.create, {
+    await ctx.runMutation(internal.invoices.createInternal, {
       appointmentId: args.appointmentId,
       userId: args.userId,
       invoiceNumber,
@@ -1381,7 +1432,9 @@ export const createStripeInvoiceInternal = internalAction({
       return null;
     }
 
-    const invoiceCount = (await ctx.runQuery(api.invoices.getCount, {})).count;
+    const invoiceCount = (
+      await ctx.runQuery(internal.invoices.getCountInternal, {})
+    ).count;
     const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     const items = args.services.map((service) => {
@@ -1405,7 +1458,7 @@ export const createStripeInvoiceInternal = internalAction({
     const tax = 0;
     const total = subtotal + tax;
 
-    await ctx.runMutation(api.invoices.create, {
+    await ctx.runMutation(internal.invoices.createInternal, {
       appointmentId: args.appointmentId,
       userId: args.userId,
       invoiceNumber,
@@ -1525,7 +1578,7 @@ export const chargeDeposit = internalAction({
       );
 
       // Update invoice with payment intent ID
-      await ctx.runMutation(api.invoices.updateDepositStatus, {
+      await ctx.runMutation(internal.invoices.updateDepositStatusInternal, {
         invoiceId: args.invoiceId,
         depositPaid: false, // Will be updated via webhook when payment succeeds
         depositPaymentIntentId: paymentIntent.id,

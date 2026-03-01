@@ -3,6 +3,7 @@ import { expect, test, describe, vi, beforeEach, beforeAll } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules, stripeFetchMock } from "./test.setup";
+import { seedBookingSetup } from "./testUtils/bookingSetup";
 
 describe("payments", () => {
   beforeAll(() => {
@@ -42,6 +43,11 @@ describe("payments", () => {
     userId: any,
     adminId: any,
   ) {
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
     const categoryId = await t.run(async (ctx: any) => {
       return await ctx.db.insert("serviceCategories", {
         name: "Test Category",
@@ -72,13 +78,6 @@ describe("payments", () => {
         make: "Toyota",
         model: "Camry",
         color: "Blue",
-      });
-    });
-
-    await t.run(async (ctx: any) => {
-      await ctx.db.insert("depositSettings", {
-        amountPerVehicle: 50,
-        isActive: true,
       });
     });
 
@@ -272,6 +271,103 @@ describe("payments", () => {
       return await ctx.db.get(userId);
     });
     expect(updatedUser?.stripeCustomerId).toBe(`cus_test_${userId}`);
+  });
+
+  test("guest booking flow creates user/appointment/invoice and returns checkout URL", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: false,
+    });
+
+    const serviceId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("services", {
+        name: "Guest Flow Service",
+        description: "Guest booking service",
+        basePrice: 120,
+        basePriceMedium: 120,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const booking = await t.mutation(api.users.createUserWithAppointment, {
+      name: "Guest Booker",
+      email: "guest-booker@example.com",
+      phone: "555-3030",
+      address: {
+        street: "123 Guest St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      vehicles: [
+        {
+          year: 2021,
+          make: "Honda",
+          model: "Civic",
+          size: "medium",
+          color: "Black",
+        },
+      ],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-02",
+      scheduledTime: "10:00",
+    });
+
+    const appointment = await t.run(async (ctx: any) => {
+      return await ctx.db.get(booking.appointmentId);
+    });
+    const invoice = await t.run(async (ctx: any) => {
+      return await ctx.db.get(booking.invoiceId);
+    });
+    expect(appointment?._id).toBe(booking.appointmentId);
+    expect(invoice?._id).toBe(booking.invoiceId);
+
+    const successUrl =
+      "https://example.com/sign-up?after=booking&redirect=%2Fdashboard%2Fappointments";
+    const cancelUrl = "https://example.com/booking/cancel";
+
+    let checkoutRequestBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("checkout/sessions")) {
+          if (options?.body instanceof URLSearchParams) {
+            checkoutRequestBody = options.body.toString();
+          } else if (typeof options?.body === "string") {
+            checkoutRequestBody = options.body;
+          }
+          return {
+            ok: true,
+            json: async () => ({
+              id: "cs_guest_123",
+              url: "https://checkout.stripe.com/guest",
+            }),
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const checkout = await t.action(api.payments.createBookingCheckout, {
+      appointmentId: booking.appointmentId,
+      invoiceId: booking.invoiceId,
+      successUrl,
+      cancelUrl,
+      name: "Guest Booker",
+      email: "guest-booker@example.com",
+      phone: "555-3030",
+    });
+
+    expect(checkout.sessionId).toBe("cs_guest_123");
+    expect(checkout.url).toBe("https://checkout.stripe.com/guest");
+
+    const bodyParams = new URLSearchParams(checkoutRequestBody);
+    expect(bodyParams.get("success_url")).toBe(successUrl);
+    expect(bodyParams.get("cancel_url")).toBe(cancelUrl);
   });
 
   test("handle webhook - checkout.session.completed for deposit", async () => {

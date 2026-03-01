@@ -4,10 +4,60 @@ import {
   internalQuery,
   internalMutation,
 } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { getUserIdFromIdentity, requireAdmin } from "./auth";
+import { getUserIdFromIdentity, isAdmin, requireAdmin } from "./auth";
 import { components } from "./_generated/api";
+
+const invoiceStatusValidator = v.union(
+  v.literal("draft"),
+  v.literal("sent"),
+  v.literal("paid"),
+  v.literal("overdue"),
+);
+
+const invoiceCreateArgs = {
+  appointmentId: v.id("appointments"),
+  userId: v.id("users"),
+  invoiceNumber: v.string(),
+  items: v.array(
+    v.object({
+      serviceId: v.id("services"),
+      serviceName: v.string(),
+      quantity: v.number(),
+      unitPrice: v.number(),
+      totalPrice: v.number(),
+    }),
+  ),
+  subtotal: v.number(),
+  tax: v.number(),
+  total: v.number(),
+  status: invoiceStatusValidator,
+  dueDate: v.string(),
+  stripeInvoiceId: v.optional(v.string()),
+  stripeInvoiceUrl: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  depositAmount: v.optional(v.number()),
+  depositPaid: v.optional(v.boolean()),
+  depositPaymentIntentId: v.optional(v.string()),
+  remainingBalance: v.optional(v.number()),
+  finalPaymentIntentId: v.optional(v.string()),
+} as const;
+
+async function requireInvoiceReadAccess(
+  ctx: QueryCtx | MutationCtx,
+  invoice: Doc<"invoices">,
+  userId: Id<"users">,
+) {
+  if (invoice.userId === userId) {
+    return;
+  }
+  if (await isAdmin(ctx)) {
+    return;
+  }
+  throw new Error("Access denied");
+}
 
 // Get all invoices
 export const list = query({
@@ -24,15 +74,29 @@ export const list = query({
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
+    const isAdminUser = await isAdmin(ctx);
 
-    if (args.status) {
-      return await ctx.db
-        .query("invoices")
-        .withIndex("by_status", (q) => q.eq("status", args.status!))
-        .collect();
+    if (isAdminUser) {
+      if (args.status) {
+        return await ctx.db
+          .query("invoices")
+          .withIndex("by_status", (q) => q.eq("status", args.status!))
+          .collect();
+      }
+
+      return await ctx.db.query("invoices").collect();
     }
 
-    return await ctx.db.query("invoices").collect();
+    const userInvoices = await ctx.db
+      .query("invoices")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    if (args.status) {
+      return userInvoices.filter((invoice) => invoice.status === args.status);
+    }
+
+    return userInvoices;
   },
 });
 
@@ -42,17 +106,44 @@ export const getById = query({
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
-    return await ctx.db.get(args.invoiceId);
+
+    const invoice = await ctx.db.get(args.invoiceId);
+    if (!invoice) {
+      return null;
+    }
+
+    await requireInvoiceReadAccess(ctx, invoice, userId);
+    return invoice;
   },
 });
 
-// Get invoice by Stripe invoice ID (for webhooks)
+// Get invoice by Stripe invoice ID (owner or admin)
 export const getByStripeId = query({
   args: { stripeInvoiceId: v.string() },
   handler: async (ctx, args) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const invoice = await ctx.db
+      .query("invoices")
+      .filter((q) => q.eq(q.field("stripeInvoiceId"), args.stripeInvoiceId))
+      .first();
+
+    if (!invoice) {
+      return null;
+    }
+
+    await requireInvoiceReadAccess(ctx, invoice, userId);
+    return invoice;
+  },
+});
+
+export const getByStripeIdInternal = internalQuery({
+  args: { stripeInvoiceId: v.string() },
+  handler: async (ctx, args): Promise<Doc<"invoices"> | null> => {
     return await ctx.db
       .query("invoices")
-      .filter((q) => q.eq("stripeInvoiceId", args.stripeInvoiceId))
+      .filter((q) => q.eq(q.field("stripeInvoiceId"), args.stripeInvoiceId))
       .first();
   },
 });
@@ -61,12 +152,22 @@ export const getByStripeId = query({
 export const getByAppointment = query({
   args: { appointmentId: v.id("appointments") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const invoice = await ctx.db
       .query("invoices")
       .withIndex("by_appointment", (q) =>
         q.eq("appointmentId", args.appointmentId),
       )
       .first();
+
+    if (!invoice) {
+      return null;
+    }
+
+    await requireInvoiceReadAccess(ctx, invoice, userId);
+    return invoice;
   },
 });
 
@@ -82,6 +183,16 @@ export const getByIdInternal = internalQuery({
 export const getCount = query({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const invoices = await ctx.db.query("invoices").collect();
+    return { count: invoices.length };
+  },
+});
+
+export const getCountInternal = internalQuery({
+  args: {},
+  handler: async (ctx) => {
     const invoices = await ctx.db.query("invoices").collect();
     return { count: invoices.length };
   },
@@ -89,38 +200,15 @@ export const getCount = query({
 
 // Create invoice
 export const create = mutation({
-  args: {
-    appointmentId: v.id("appointments"),
-    userId: v.id("users"),
-    invoiceNumber: v.string(),
-    items: v.array(
-      v.object({
-        serviceId: v.id("services"),
-        serviceName: v.string(),
-        quantity: v.number(),
-        unitPrice: v.number(),
-        totalPrice: v.number(),
-      }),
-    ),
-    subtotal: v.number(),
-    tax: v.number(),
-    total: v.number(),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("sent"),
-      v.literal("paid"),
-      v.literal("overdue"),
-    ),
-    dueDate: v.string(),
-    stripeInvoiceId: v.optional(v.string()),
-    stripeInvoiceUrl: v.optional(v.string()),
-    notes: v.optional(v.string()),
-    depositAmount: v.optional(v.number()),
-    depositPaid: v.optional(v.boolean()),
-    depositPaymentIntentId: v.optional(v.string()),
-    remainingBalance: v.optional(v.number()),
-    finalPaymentIntentId: v.optional(v.string()),
+  args: invoiceCreateArgs,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    return await ctx.db.insert("invoices", args);
   },
+});
+
+export const createInternal = internalMutation({
+  args: invoiceCreateArgs,
   handler: async (ctx, args) => {
     return await ctx.db.insert("invoices", args);
   },
@@ -130,8 +218,7 @@ export const create = mutation({
 export const deleteInvoice = mutation({
   args: { id: v.id("invoices") },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const invoice = await ctx.db.get(args.id);
     if (invoice && invoice.status === "paid") {
@@ -146,17 +233,11 @@ export const deleteInvoice = mutation({
 export const updateStatus = mutation({
   args: {
     invoiceId: v.id("invoices"),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("sent"),
-      v.literal("paid"),
-      v.literal("overdue"),
-    ),
+    status: invoiceStatusValidator,
     paidDate: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const updateData: any = { status: args.status };
     if (args.status === "paid") {
@@ -173,12 +254,7 @@ export const updateStatus = mutation({
 export const updateStatusInternal = internalMutation({
   args: {
     invoiceId: v.id("invoices"),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("sent"),
-      v.literal("paid"),
-      v.literal("overdue"),
-    ),
+    status: invoiceStatusValidator,
     paidDate: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -200,17 +276,11 @@ export const updateDepositStatus = mutation({
     depositPaid: v.boolean(),
     depositPaymentIntentId: v.optional(v.string()),
     status: v.optional(
-      v.union(
-        v.literal("draft"),
-        v.literal("sent"),
-        v.literal("paid"),
-        v.literal("overdue"),
-      ),
+      invoiceStatusValidator,
     ),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const updateData: any = {
       depositPaid: args.depositPaid,
@@ -236,12 +306,7 @@ export const updateDepositStatusInternal = internalMutation({
     depositPaid: v.boolean(),
     depositPaymentIntentId: v.optional(v.string()),
     status: v.optional(
-      v.union(
-        v.literal("draft"),
-        v.literal("sent"),
-        v.literal("paid"),
-        v.literal("overdue"),
-      ),
+      invoiceStatusValidator,
     ),
   },
   handler: async (ctx, args) => {
@@ -269,8 +334,7 @@ export const updateFinalPayment = mutation({
     finalPaymentIntentId: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     await ctx.db.patch(args.invoiceId, {
       finalPaymentIntentId: args.finalPaymentIntentId,
@@ -299,12 +363,7 @@ export const updateStripeInvoiceData = internalMutation({
     invoiceId: v.id("invoices"),
     stripeInvoiceId: v.string(),
     stripeInvoiceUrl: v.optional(v.string()),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("sent"),
-      v.literal("paid"),
-      v.literal("overdue"),
-    ),
+    status: invoiceStatusValidator,
   },
   handler: async (ctx, args) => {
     const patchData: {

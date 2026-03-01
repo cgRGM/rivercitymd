@@ -1409,8 +1409,9 @@ export const createUserWithAppointment = mutation({
     const remainingBalance = Math.max(0, total - depositAmount);
 
     // Generate invoice number
-    const invoiceCount: number = (await ctx.runQuery(api.invoices.getCount, {}))
-      .count;
+    const invoiceCount: number = (
+      await ctx.runQuery(internal.invoices.getCountInternal, {})
+    ).count;
     const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     // Create invoice date
@@ -1650,7 +1651,7 @@ export const createUserAppointmentInvoice = action({
     }
 
     // Get user data
-    const user: Doc<"users"> | null = await ctx.runQuery(api.users.getById, {
+    const user: Doc<"users"> | null = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: args.userId,
     });
     if (!user) throw new Error("User not found");
@@ -1794,8 +1795,9 @@ export const createUserAppointmentInvoice = action({
     const sentInvoice: any = await sendResponse.json();
 
     // Generate invoice number
-    const invoiceCount: number = (await ctx.runQuery(api.invoices.getCount, {}))
-      .count;
+    const invoiceCount: number = (
+      await ctx.runQuery(internal.invoices.getCountInternal, {})
+    ).count;
     const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     // Create invoice items for Convex
@@ -1830,7 +1832,7 @@ export const createUserAppointmentInvoice = action({
     const remainingBalance = Math.max(0, total - depositAmount);
 
     // Store invoice in Convex with Stripe data
-    await ctx.runMutation(api.invoices.create, {
+    await ctx.runMutation(internal.invoices.createInternal, {
       appointmentId: args.appointmentId,
       userId: args.userId,
       invoiceNumber,
