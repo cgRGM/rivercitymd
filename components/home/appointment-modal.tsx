@@ -625,143 +625,138 @@ export default function AppointmentModal({
         {/* Step 1: Date & Location */}
         {currentStep === 1 && (
           <Form {...step1Form}>
-            <form className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={step1Form.control}
-                  name="scheduledDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Preferred Date</FormLabel>
-                      <FormControl>
-                        <Input
-                            type="date"
-                            {...field}
-                            value={
-                              field.value instanceof Date
-                                ? field.value.toISOString().split("T")[0]
-                                : field.value || ""
-                            }
-                            onChange={(e) => {
-                              const date = new Date(e.target.value);
-                              // Adjust for timezone offset to prevent day shifting
-                              const userTimezoneOffset =
-                                date.getTimezoneOffset() * 60000;
-                              const adjustedDate = new Date(
-                                date.getTime() + userTimezoneOffset,
-                              );
-                              field.onChange(adjustedDate);
-                              step1Form.setValue("scheduledTime", "", {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              });
-                            }}
-                            className="bg-background-50 border-gray-200"
-                          />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={step1Form.control}
-                  name="scheduledTime"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Preferred Time</FormLabel>
-                      <FormControl>
-                        <TimeSlotPicker 
-                          date={
-                            step1Form.watch("scheduledDate") instanceof Date
-                              ? step1Form
-                                  .watch("scheduledDate")!
-                                  .toISOString()
-                                  .split("T")[0]
-                              : ""
-                          }
-                          selectedTime={field.value}
-                          onTimeSelect={(time) => field.onChange(time)}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium">Service Location</h3>
-                <AddressInput
-                  onAddressSelect={handleAddressSelect}
-                  label="Service Address"
-                  placeholder="Search for your service address"
-                />
-                {/* Hidden form fields for validation */}
-                <FormField
-                  control={step1Form.control}
-                  name="street"
-                  render={({ field }) => (
-                  <FormItem className="hidden">
-                      <FormControl>
-                        <Input {...field} value={field.value || ""} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={step1Form.control}
-                  name="city"
-                  render={({ field }) => (
-                  <FormItem className="hidden">
-                      <FormControl>
-                        <Input {...field} value={field.value || ""} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={step1Form.control}
-                  name="state"
-                  render={({ field }) => (
-                  <FormItem className="hidden">
-                      <FormControl>
-                        <Input {...field} value={field.value || ""} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={step1Form.control}
-                  name="zip"
-                  render={({ field }) => (
-                    <FormItem className="hidden">
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={step1Form.control}
-                  name="locationNotes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Location Notes (Optional)</FormLabel>
-                      <FormControl>
-                        <Textarea
+            <form className="space-y-5">
+              <FormField
+                control={step1Form.control}
+                name="scheduledDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Preferred Date</FormLabel>
+                    <FormControl>
+                      <Input
+                          type="date"
                           {...field}
-                          placeholder="Any special instructions for finding the location"
+                          value={
+                            field.value instanceof Date
+                              ? field.value.toISOString().split("T")[0]
+                              : field.value || ""
+                          }
+                          onChange={(e) => {
+                            const date = new Date(e.target.value);
+                            // Adjust for timezone offset to prevent day shifting
+                            const userTimezoneOffset =
+                              date.getTimezoneOffset() * 60000;
+                            const adjustedDate = new Date(
+                              date.getTime() + userTimezoneOffset,
+                            );
+                            field.onChange(adjustedDate);
+                            step1Form.setValue("scheduledTime", "", {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }}
+                          className="bg-background-50 border-gray-200"
                         />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={step1Form.control}
+                name="scheduledTime"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Preferred Time</FormLabel>
+                    <FormControl>
+                      <TimeSlotPicker 
+                        date={
+                          step1Form.watch("scheduledDate") instanceof Date
+                            ? step1Form
+                                .watch("scheduledDate")!
+                                .toISOString()
+                                .split("T")[0]
+                            : ""
+                        }
+                        selectedTime={field.value}
+                        onTimeSelect={(time) => field.onChange(time)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <AddressInput
+                onAddressSelect={handleAddressSelect}
+                label="Service Address"
+                placeholder="Search for your service address"
+              />
+              {/* Hidden form fields for validation */}
+              <FormField
+                control={step1Form.control}
+                name="street"
+                render={({ field }) => (
+                <FormItem className="hidden">
+                    <FormControl>
+                      <Input {...field} value={field.value || ""} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={step1Form.control}
+                name="city"
+                render={({ field }) => (
+                <FormItem className="hidden">
+                    <FormControl>
+                      <Input {...field} value={field.value || ""} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={step1Form.control}
+                name="state"
+                render={({ field }) => (
+                <FormItem className="hidden">
+                    <FormControl>
+                      <Input {...field} value={field.value || ""} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={step1Form.control}
+                name="zip"
+                render={({ field }) => (
+                  <FormItem className="hidden">
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={step1Form.control}
+                name="locationNotes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Location Notes (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="Any special instructions for finding the location"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </form>
           </Form>
         )}

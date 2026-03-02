@@ -2,10 +2,14 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Clock } from "lucide-react";
 
 export interface TimeSlot {
   time: string;
@@ -32,33 +36,35 @@ export function TimeSlotPicker({
     serviceDuration,
   });
 
+  // No date selected — show disabled placeholder
   if (!date) {
     return (
-      <div className="text-center p-4 text-muted-foreground bg-muted/30 rounded-md border border-dashed">
-        Please select a date first
-      </div>
+      <Select disabled>
+        <SelectTrigger className="w-full bg-muted/30 border-dashed text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            <span>Select a date first</span>
+          </div>
+        </SelectTrigger>
+      </Select>
     );
   }
 
+  // Loading
   if (slots === undefined) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (slots.length === 0) {
-    return (
-      <div className="text-center p-4 text-muted-foreground bg-muted/30 rounded-md">
-        No available slots for this date.
-      </div>
+      <Select disabled>
+        <SelectTrigger className="w-full">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading times...</span>
+          </div>
+        </SelectTrigger>
+      </Select>
     );
   }
 
   // Filter out past times if the date is today
-  // Note: perform this check on client side for immediate feedback, 
-  // though backend should also handle it.
   const now = new Date();
   const selectedDateKey = date.includes("T") ? date.split("T")[0] : date;
   const todayKey = now.toISOString().split("T")[0];
@@ -70,33 +76,52 @@ export function TimeSlotPicker({
     return slotDate > now;
   });
 
-  if (filteredSlots.length === 0) {
-     return (
-      <div className="text-center p-4 text-muted-foreground bg-muted/30 rounded-md">
-        No more available slots for today.
-      </div>
+  const availableSlots = filteredSlots.filter((slot) => slot.available);
+
+  // No slots at all
+  if (filteredSlots.length === 0 || availableSlots.length === 0) {
+    return (
+      <Select disabled>
+        <SelectTrigger className="w-full bg-muted/30 text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            <span>
+              {isToday
+                ? "No more times available today"
+                : "No times available for this date"}
+            </span>
+          </div>
+        </SelectTrigger>
+      </Select>
     );
   }
 
   return (
-    <ScrollArea className="h-[200px] w-full rounded-md border p-4">
-      <div className="grid grid-cols-3 gap-2">
+    <Select value={selectedTime || ""} onValueChange={onTimeSelect}>
+      <SelectTrigger className="w-full">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-muted-foreground" />
+          <SelectValue placeholder="Select a time" />
+        </div>
+      </SelectTrigger>
+      <SelectContent>
         {filteredSlots.map((slot) => (
-          <Button
+          <SelectItem
             key={slot.time}
-            variant={selectedTime === slot.time ? "default" : "outline"}
-            className={cn(
-              "w-full text-[13px]",
-              selectedTime === slot.time && "bg-primary text-primary-foreground"
-            )}
+            value={slot.time}
             disabled={!slot.available}
-            onClick={() => onTimeSelect(slot.time)}
-            type="button"
           >
-            {slot.displayTime}
-          </Button>
+            <span className={!slot.available ? "text-muted-foreground line-through" : ""}>
+              {slot.displayTime}
+            </span>
+            {!slot.available && slot.reason && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                ({slot.reason})
+              </span>
+            )}
+          </SelectItem>
         ))}
-      </div>
-    </ScrollArea>
+      </SelectContent>
+    </Select>
   );
 }
