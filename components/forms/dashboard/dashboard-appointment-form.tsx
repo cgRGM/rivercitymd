@@ -210,7 +210,9 @@ export function DashboardAppointmentForm({
                 <FormItem>
                   <FormLabel>Select Services</FormLabel>
                   <div className="space-y-2">
-                    {services?.map((service) => (
+                    {services
+                      ?.filter((service) => service.isActive)
+                      .map((service) => (
                       <FormField
                         key={service._id}
                         control={form.control}

@@ -42,6 +42,8 @@ export default function ServicesClient({}: Props) {
   // All hooks must be called before any conditional returns
   const servicesQuery = useQuery(api.services.listWithBookingStats);
   const deleteService = useMutation(api.services.deleteService);
+  const updateService = useMutation(api.services.update);
+  const updateStripeProduct = useMutation(api.services.updateStripeProduct);
   const depositSettings = useQuery(api.depositSettings.get);
   const updateDepositSettings = useMutation(api.depositSettings.upsert);
   const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
@@ -50,6 +52,9 @@ export default function ServicesClient({}: Props) {
   const [showAddSubscriptionForm, setShowAddSubscriptionForm] = useState(false);
   const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(
+    null,
+  );
   const [serviceToDelete, setServiceToDelete] = useState<Id<"services"> | null>(null);
   const [isEditingDeposit, setIsEditingDeposit] = useState(false);
   const [depositAmount, setDepositAmount] = useState(
@@ -158,6 +163,43 @@ export default function ServicesClient({}: Props) {
       );
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const toggleServiceVisibility = async (
+    service: NonNullable<typeof servicesQuery>[number],
+  ) => {
+    setUpdatingVisibilityId(service._id);
+    try {
+      await updateService({
+        serviceId: service._id,
+        name: service.name,
+        description: service.description,
+        basePriceSmall: service.basePriceSmall ?? service.basePrice ?? 0,
+        basePriceMedium: service.basePriceMedium ?? service.basePrice ?? 0,
+        basePriceLarge: service.basePriceLarge ?? service.basePrice ?? 0,
+        duration: service.duration,
+        serviceType: service.serviceType ?? "standard",
+        categoryId: service.categoryId,
+        includedServiceIds: service.includedServiceIds,
+        features: service.features,
+        icon: service.icon,
+        isActive: !service.isActive,
+      });
+
+      if (service.stripeProductId) {
+        await updateStripeProduct({ serviceId: service._id });
+      }
+
+      toast.success(service.isActive ? "Service hidden" : "Service made visible");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to update service visibility",
+      );
+    } finally {
+      setUpdatingVisibilityId(null);
     }
   };
 
@@ -289,6 +331,13 @@ export default function ServicesClient({}: Props) {
                                 <CardDescription className="mt-1">
                                   {service.description}
                                 </CardDescription>
+                                <div className="mt-2">
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${service.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}`}
+                                  >
+                                    {service.isActive ? "Active" : "Hidden"}
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -420,8 +469,24 @@ export default function ServicesClient({}: Props) {
                             variant="outline"
                             size="sm"
                             className="flex-1"
+                            onClick={() => toggleServiceVisibility(service)}
+                            disabled={updatingVisibilityId === service._id}
+                          >
+                            {updatingVisibilityId === service._id
+                              ? "Saving..."
+                              : service.isActive
+                                ? "Hide"
+                                : "Show"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
                             onClick={() => setServiceToDelete(service._id)}
-                            disabled={deletingId === service._id}
+                            disabled={
+                              deletingId === service._id ||
+                              updatingVisibilityId === service._id
+                            }
                           >
                             <Trash2 className="w-3 h-3 mr-1" />
                             {deletingId === service._id
@@ -510,8 +575,8 @@ export default function ServicesClient({}: Props) {
           <DialogHeader>
             <DialogTitle>Are you absolutely sure?</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. This will permanently delete the
-               service from your database.
+              This permanently deletes a service only when it has never been used
+              in any appointment. For used services, hide them instead.
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-3 mt-4">

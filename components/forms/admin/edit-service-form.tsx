@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { X, Plus } from "lucide-react";
 
 const formSchema = z.object({
@@ -234,6 +235,34 @@ export function EditServiceForm({
                         }
                         value={field.value || ""}
                       />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="isActive"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <div className="flex items-center gap-3 rounded-md border p-3">
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={(checked) =>
+                            field.onChange(checked === true)
+                          }
+                        />
+                        <div>
+                          <FormLabel className="cursor-pointer">
+                            Service visible for booking
+                          </FormLabel>
+                          <p className="text-xs text-muted-foreground">
+                            Turn this off to hide the service without deleting it.
+                          </p>
+                        </div>
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

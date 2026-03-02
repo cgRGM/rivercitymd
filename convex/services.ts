@@ -371,15 +371,15 @@ export const deleteService = mutation({
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
-    // Check if service is being used in any appointments
+    // Keep historical appointment references intact by preventing hard-deletes
+    // once a service has ever been used.
     const appointments = await ctx.db.query("appointments").collect();
-    const isUsed = appointments.some(
-      (apt) =>
-        apt.serviceIds.includes(args.serviceId) && apt.status !== "cancelled",
+    const isUsed = appointments.some((apt) =>
+      apt.serviceIds.includes(args.serviceId),
     );
 
     if (isUsed) {
-      throw new Error("Cannot delete service that is currently booked");
+      throw new Error("Cannot delete service with appointment history. Hide it instead.");
     }
 
     await ctx.db.delete(args.serviceId);

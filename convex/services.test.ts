@@ -180,6 +180,68 @@ describe("services", () => {
     });
   });
 
+  test("can hide and unhide service via update", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-visibility@test.com",
+        role: "admin",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-visibility@test.com",
+    });
+
+    const categoryId = await asAdmin.mutation(api.services.createCategory, {
+      name: "Visibility Category",
+      type: "standard",
+    });
+
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Visibility Service",
+      description: "Toggle visibility test",
+      basePriceSmall: 20,
+      basePriceMedium: 25,
+      basePriceLarge: 30,
+      duration: 45,
+      categoryId,
+    });
+
+    await asAdmin.mutation(api.services.update, {
+      serviceId,
+      name: "Visibility Service",
+      description: "Toggle visibility test",
+      basePriceSmall: 20,
+      basePriceMedium: 25,
+      basePriceLarge: 30,
+      duration: 45,
+      categoryId,
+      isActive: false,
+    });
+
+    let services = await t.query(api.services.list, {});
+    expect(services[0]?.isActive).toBe(false);
+
+    await asAdmin.mutation(api.services.update, {
+      serviceId,
+      name: "Visibility Service",
+      description: "Toggle visibility test",
+      basePriceSmall: 20,
+      basePriceMedium: 25,
+      basePriceLarge: 30,
+      duration: 45,
+      categoryId,
+      isActive: true,
+    });
+
+    services = await t.query(api.services.list, {});
+    expect(services[0]?.isActive).toBe(true);
+  });
+
   test("create rejects services with zero pricing across all sizes", async () => {
     const t = convexTest(schema, modules);
 
@@ -376,7 +438,7 @@ describe("services", () => {
     ).rejects.toThrow("Admin access required");
   });
 
-  test("cannot delete service that is booked - duplicate", async () => {
+  test("cannot delete service with appointment history", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t);
 
@@ -453,6 +515,84 @@ describe("services", () => {
       asAdmin.mutation(api.services.deleteService, {
         serviceId,
       }),
-    ).rejects.toThrow("Cannot delete service that is currently booked");
+    ).rejects.toThrow("Cannot delete service with appointment history. Hide it instead.");
+  });
+
+  test("cannot delete service with cancelled appointment history", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-cancelled@test.com",
+        role: "admin",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-cancelled@test.com",
+    });
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Customer",
+        email: "customer-cancelled@test.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const vehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2022,
+        make: "Honda",
+        model: "Pilot",
+        color: "Blue",
+      });
+    });
+
+    const categoryId = await asAdmin.mutation(api.services.createCategory, {
+      name: "Cancel History Services",
+      type: "standard",
+    });
+
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Cancel History Detail",
+      description: "Service used in cancelled appointment",
+      basePriceSmall: 70,
+      basePriceMedium: 80,
+      basePriceLarge: 90,
+      duration: 90,
+      categoryId,
+    });
+
+    await t.finishInProgressScheduledFunctions();
+
+    const { appointmentId } = await asAdmin.mutation(api.appointments.create, {
+      userId,
+      vehicleIds: [vehicleId],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-07",
+      scheduledTime: "10:00",
+      street: "200 Cancel Rd",
+      city: "Springfield",
+      state: "IL",
+      zip: "62704",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(appointmentId, { status: "cancelled" });
+    });
+
+    await expect(
+      asAdmin.mutation(api.services.deleteService, {
+        serviceId,
+      }),
+    ).rejects.toThrow("Cannot delete service with appointment history. Hide it instead.");
   });
 });
