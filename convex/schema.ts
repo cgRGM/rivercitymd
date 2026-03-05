@@ -27,7 +27,7 @@ const businessNotificationSettingsValidator = v.object({
     appointmentStarted: v.boolean(),
     appointmentCompleted: v.boolean(),
     reviewSubmitted: v.boolean(),
-    mileageLogRequired: v.boolean(),
+    mileageLogRequired: v.optional(v.boolean()),
   }),
 });
 

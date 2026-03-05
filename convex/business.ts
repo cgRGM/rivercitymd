@@ -2,6 +2,82 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAdmin } from "./auth";
 
+const DEFAULT_BUSINESS_NOTIFICATION_SETTINGS = {
+  emailNotifications: true,
+  smsNotifications: true,
+  marketingEmails: false,
+  events: {
+    newCustomerOnboarded: true,
+    appointmentConfirmed: true,
+    appointmentCancelled: true,
+    appointmentRescheduled: true,
+    appointmentStarted: true,
+    appointmentCompleted: true,
+    reviewSubmitted: true,
+    mileageLogRequired: true,
+  },
+} as const;
+
+function normalizeBusinessNotificationSettings(
+  settings?: {
+    emailNotifications: boolean;
+    smsNotifications: boolean;
+    marketingEmails: boolean;
+    events: {
+      newCustomerOnboarded: boolean;
+      appointmentConfirmed: boolean;
+      appointmentCancelled: boolean;
+      appointmentRescheduled: boolean;
+      appointmentStarted: boolean;
+      appointmentCompleted: boolean;
+      reviewSubmitted: boolean;
+      mileageLogRequired?: boolean;
+    };
+  },
+) {
+  if (!settings) {
+    return undefined;
+  }
+
+  return {
+    emailNotifications:
+      settings.emailNotifications ??
+      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.emailNotifications,
+    smsNotifications:
+      settings.smsNotifications ??
+      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.smsNotifications,
+    marketingEmails:
+      settings.marketingEmails ??
+      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.marketingEmails,
+    events: {
+      newCustomerOnboarded:
+        settings.events.newCustomerOnboarded ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.newCustomerOnboarded,
+      appointmentConfirmed:
+        settings.events.appointmentConfirmed ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentConfirmed,
+      appointmentCancelled:
+        settings.events.appointmentCancelled ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentCancelled,
+      appointmentRescheduled:
+        settings.events.appointmentRescheduled ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentRescheduled,
+      appointmentStarted:
+        settings.events.appointmentStarted ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentStarted,
+      appointmentCompleted:
+        settings.events.appointmentCompleted ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentCompleted,
+      reviewSubmitted:
+        settings.events.reviewSubmitted ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.reviewSubmitted,
+      mileageLogRequired:
+        settings.events.mileageLogRequired ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.mileageLogRequired,
+    },
+  };
+}
+
 export const generateUploadUrl = mutation({
   handler: async (ctx) => {
     await requireAdmin(ctx);
@@ -18,7 +94,13 @@ export const get = query({
     const logoUrl = business.logoId
       ? await ctx.storage.getUrl(business.logoId)
       : null;
-    return { ...business, logoUrl };
+    return {
+      ...business,
+      logoUrl,
+      notificationSettings: normalizeBusinessNotificationSettings(
+        business.notificationSettings,
+      ),
+    };
   },
 });
 
@@ -44,7 +126,7 @@ export const update = mutation({
           appointmentStarted: v.boolean(),
           appointmentCompleted: v.boolean(),
           reviewSubmitted: v.boolean(),
-          mileageLogRequired: v.boolean(),
+          mileageLogRequired: v.optional(v.boolean()),
         }),
       }),
     ),
@@ -63,7 +145,9 @@ export const update = mutation({
       if (updates.country !== undefined) patchData.country = updates.country;
       if (updates.logoId !== undefined) patchData.logoId = updates.logoId;
       if (updates.notificationSettings !== undefined) {
-        patchData.notificationSettings = updates.notificationSettings;
+        patchData.notificationSettings = normalizeBusinessNotificationSettings(
+          updates.notificationSettings,
+        );
       }
 
       if (Object.keys(patchData).length === 0) {
@@ -91,7 +175,9 @@ export const update = mutation({
         cityStateZip: updates.cityStateZip,
         country: updates.country,
         logoId: updates.logoId,
-        notificationSettings: updates.notificationSettings,
+        notificationSettings: normalizeBusinessNotificationSettings(
+          updates.notificationSettings,
+        ),
       });
     }
   },
