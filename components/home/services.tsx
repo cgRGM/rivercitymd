@@ -1,14 +1,16 @@
 "use client";
 
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Sparkles, Droplets, Car, Zap, Shield, Clock } from "lucide-react";
+  Check,
+  Sparkles,
+  Droplets,
+  Car,
+  Zap,
+  Shield,
+  Clock,
+} from "lucide-react";
 import { motion } from "motion/react";
+import { cn } from "@/lib/utils";
 
 const services = [
   {
@@ -102,40 +104,65 @@ export function ServicesSection() {
           </p>
         </motion.div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
           {services.map((service, index) => {
             const Icon = service.icon;
+            const usesTwoColFeatures = service.features.length >= 4;
             return (
-              /* Added scroll-triggered staggered animation for service cards */
               <motion.div
                 key={index}
-                initial={{ opacity: 0, translateY: 30 }}
-                whileInView={{ opacity: 1, translateY: 0 }}
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
+                transition={{ duration: 0.45, delay: index * 0.1 }}
+                className="flex flex-col"
               >
-                <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 h-full">
-                  <CardHeader>
-                    <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
-                      <Icon className="w-6 h-6 text-accent" />
+                <div className="relative flex flex-col flex-1 rounded-xl border border-border/40 bg-background overflow-hidden transition-all duration-300 hover:border-border/70 hover:shadow-md group">
+                  {/* Top accent strip */}
+                  <div className="h-[3px] w-full bg-primary/70 flex-shrink-0" />
+
+                  {/* Header */}
+                  <div className="px-5 pt-5 pb-4 text-center">
+                    {/* Icon + Title inline */}
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <Icon className="w-5 h-5 text-primary flex-shrink-0" />
+                      <h3 className="text-lg font-bold tracking-tight leading-tight">
+                        {service.title}
+                      </h3>
                     </div>
-                    <CardTitle className="text-xl">{service.title}</CardTitle>
-                    <CardDescription>{service.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2">
+
+                    <p className="text-xs text-muted-foreground leading-snug">
+                      {service.description}
+                    </p>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="mx-5 h-px bg-border/40" />
+
+                  {/* Features */}
+                  <div className="px-5 py-4 flex-1">
+                    <ul
+                      className={cn(
+                        usesTwoColFeatures
+                          ? "grid grid-cols-2 gap-x-3 gap-y-1.5"
+                          : "flex flex-col gap-y-1.5",
+                      )}
+                    >
                       {service.features.map((feature, i) => (
                         <li
                           key={i}
-                          className="flex items-center gap-2 text-sm text-muted-foreground"
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-foreground/80 transition-colors"
                         >
-                          <div className="w-1.5 h-1.5 rounded-full bg-accent" />
-                          {feature}
+                          <Check
+                            className="w-3 h-3 text-primary flex-shrink-0"
+                            strokeWidth={2.5}
+                          />
+                          <span className="leading-tight">{feature}</span>
                         </li>
                       ))}
                     </ul>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               </motion.div>
             );
           })}
