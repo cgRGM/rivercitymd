@@ -18,6 +18,7 @@ const DEFAULT_BUSINESS_NOTIFICATION_SETTINGS = {
     appointmentStarted: true,
     appointmentCompleted: true,
     reviewSubmitted: true,
+    mileageLogRequired: true,
   },
 } as const;
 
@@ -53,6 +54,7 @@ const notificationEventValidator = v.union(
   v.literal("appointment_started"),
   v.literal("appointment_completed"),
   v.literal("review_submitted"),
+  v.literal("mileage_log_required"),
 );
 
 const appointmentLifecycleEventValidator = v.union(
@@ -80,7 +82,8 @@ type NotificationEvent =
   | "appointment_rescheduled"
   | "appointment_started"
   | "appointment_completed"
-  | "review_submitted";
+  | "review_submitted"
+  | "mileage_log_required";
 
 type DeliveryChannel = "email" | "sms";
 type RecipientType = "admin" | "customer";
@@ -97,6 +100,7 @@ type QueueDispatchArgs = {
   userId?: Id<"users">;
   appointmentId?: Id<"appointments">;
   reviewId?: Id<"reviews">;
+  tripLogId?: Id<"tripLogs">;
   transition?: string;
 };
 
@@ -135,6 +139,9 @@ function resolveBusinessNotificationSettings(
       reviewSubmitted:
         settings?.events?.reviewSubmitted ??
         DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.reviewSubmitted,
+      mileageLogRequired:
+        settings?.events?.mileageLogRequired ??
+        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.mileageLogRequired,
     },
   };
 }
@@ -197,7 +204,10 @@ function isEventEnabledForBusiness(
   if (event === "appointment_completed") {
     return settings.events.appointmentCompleted;
   }
-  return settings.events.reviewSubmitted;
+  if (event === "review_submitted") {
+    return settings.events.reviewSubmitted;
+  }
+  return settings.events.mileageLogRequired;
 }
 
 function isEventEnabledForCustomer(
@@ -244,6 +254,7 @@ function buildDedupeKey(args: QueueDispatchArgs): string {
     args.userId || "none",
     args.appointmentId || "none",
     args.reviewId || "none",
+    args.tripLogId || "none",
     args.transition || "none",
   ].join("|");
 }
@@ -270,6 +281,7 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
       userId: args.userId,
       appointmentId: args.appointmentId,
       reviewId: args.reviewId,
+      tripLogId: args.tripLogId,
       transition: args.transition,
       error: `Invalid or missing ${args.channel} recipient`,
       createdAt: now,
@@ -293,6 +305,7 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
     userId: args.userId,
     appointmentId: args.appointmentId,
     reviewId: args.reviewId,
+    tripLogId: args.tripLogId,
     transition: args.transition,
     createdAt: now,
     updatedAt: now,
@@ -311,6 +324,7 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
         userId: args.userId,
         appointmentId: args.appointmentId,
         reviewId: args.reviewId,
+        tripLogId: args.tripLogId,
         transition: args.transition,
       },
       {
@@ -354,6 +368,7 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
         userId: args.userId,
         appointmentId: args.appointmentId,
         reviewId: args.reviewId,
+        tripLogId: args.tripLogId,
         transition: args.transition,
       },
     );
@@ -373,6 +388,7 @@ async function buildSmsBody(
     userId?: Id<"users">;
     appointmentId?: Id<"appointments">;
     reviewId?: Id<"reviews">;
+    tripLogId?: Id<"tripLogs">;
   },
 ): Promise<string> {
   if (args.event === "new_customer_onboarded") {
@@ -394,6 +410,24 @@ async function buildSmsBody(
       userId: review.userId,
     });
     return `River City MD: New ${review.rating}-star review from ${user?.name || "a customer"}.`;
+  }
+
+  if (args.event === "mileage_log_required") {
+    if (!args.tripLogId) throw new Error("Missing tripLogId for mileage log SMS");
+    const tripLog = await ctx.runQuery(internal.tripLogs.getByIdInternal, {
+      tripLogId: args.tripLogId,
+    });
+    if (!tripLog) throw new Error("Trip log not found");
+    const appointment = tripLog.appointmentId
+      ? await ctx.runQuery(internal.appointments.getByIdInternal, {
+          appointmentId: tripLog.appointmentId,
+        })
+      : null;
+    const appointmentDate = appointment?.scheduledDate || tripLog.logDate || "unknown date";
+    if (args.recipientType === "admin") {
+      return `River City MD: Mileage log required for completed service on ${appointmentDate}. Open Admin > Logs to complete it.`;
+    }
+    return "River City MD: A required mileage log has been created.";
   }
 
   if (!args.appointmentId) {
@@ -440,6 +474,17 @@ async function deliverEmail(ctx: any, args: QueueDispatchArgs): Promise<void> {
     if (!args.reviewId) throw new Error("Missing reviewId for review email");
     await ctx.runAction(internal.emails.sendAdminReviewSubmittedNotification, {
       reviewId: args.reviewId,
+    });
+    return;
+  }
+
+  if (args.event === "mileage_log_required") {
+    if (args.recipientType !== "admin") {
+      return;
+    }
+    if (!args.tripLogId) throw new Error("Missing tripLogId for mileage log email");
+    await ctx.runAction(internal.emails.sendAdminMileageLogRequiredNotification, {
+      tripLogId: args.tripLogId,
     });
     return;
   }
@@ -496,6 +541,7 @@ async function deliverSms(ctx: any, args: QueueDispatchArgs): Promise<void> {
     userId: args.userId,
     appointmentId: args.appointmentId,
     reviewId: args.reviewId,
+    tripLogId: args.tripLogId,
   });
 
   await ctx.runAction(internal.sms.sendSms, {
@@ -686,6 +732,56 @@ export const queueReviewSubmitted = internalMutation({
   },
 });
 
+export const queueMileageLogRequired = internalMutation({
+  args: {
+    tripLogId: v.id("tripLogs"),
+    appointmentId: v.optional(v.id("appointments")),
+    transition: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const tripLog = await ctx.db.get(args.tripLogId);
+    if (!tripLog) {
+      throw new Error("Trip log not found");
+    }
+
+    const business = await ctx.db.query("businessInfo").first();
+    const settings = resolveBusinessNotificationSettings(
+      business?.notificationSettings,
+    );
+    if (!settings.events.mileageLogRequired) {
+      return null;
+    }
+
+    const adminSmsRecipient = process.env.ADMIN_NOTIFICATION_SMS_TO?.trim();
+    const transition = args.transition || "mileage_log_required";
+
+    await queueDispatch(ctx, {
+      event: "mileage_log_required",
+      channel: "email",
+      recipientType: "admin",
+      recipient: ADMIN_NOTIFICATION_EMAIL_TO,
+      userId: tripLog.userId,
+      appointmentId: args.appointmentId ?? tripLog.appointmentId,
+      tripLogId: tripLog._id,
+      transition,
+    });
+
+    await queueDispatch(ctx, {
+      event: "mileage_log_required",
+      channel: "sms",
+      recipientType: "admin",
+      recipient: adminSmsRecipient || "",
+      userId: tripLog.userId,
+      appointmentId: args.appointmentId ?? tripLog.appointmentId,
+      tripLogId: tripLog._id,
+      transition,
+    });
+
+    return null;
+  },
+});
+
 export const deliverQueuedNotification = internalAction({
   args: {
     dispatchId: v.id("notificationDispatches"),
@@ -696,6 +792,7 @@ export const deliverQueuedNotification = internalAction({
     userId: v.optional(v.id("users")),
     appointmentId: v.optional(v.id("appointments")),
     reviewId: v.optional(v.id("reviews")),
+    tripLogId: v.optional(v.id("tripLogs")),
     transition: v.optional(v.string()),
   },
   returns: deliveryResultValidator,

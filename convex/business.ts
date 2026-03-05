@@ -44,6 +44,7 @@ export const update = mutation({
           appointmentStarted: v.boolean(),
           appointmentCompleted: v.boolean(),
           reviewSubmitted: v.boolean(),
+          mileageLogRequired: v.boolean(),
         }),
       }),
     ),

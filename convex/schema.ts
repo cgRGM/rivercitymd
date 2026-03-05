@@ -27,6 +27,7 @@ const businessNotificationSettingsValidator = v.object({
     appointmentStarted: v.boolean(),
     appointmentCompleted: v.boolean(),
     reviewSubmitted: v.boolean(),
+    mileageLogRequired: v.boolean(),
   }),
 });
 
@@ -38,7 +39,18 @@ const notificationEventValidator = v.union(
   v.literal("appointment_started"),
   v.literal("appointment_completed"),
   v.literal("review_submitted"),
+  v.literal("mileage_log_required"),
 );
+
+const tripLogLocationValidator = v.object({
+  addressLabel: v.optional(v.string()),
+  street: v.optional(v.string()),
+  city: v.optional(v.string()),
+  state: v.optional(v.string()),
+  postalCode: v.optional(v.string()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
+});
 
 // Customize users table to include role and basic info
 const schema = defineSchema({
@@ -282,6 +294,66 @@ const schema = defineSchema({
     createdBy: v.id("users"),
   }).index("by_date", ["date"]),
 
+  tripLogs: defineTable({
+    source: v.union(v.literal("manual"), v.literal("appointment")),
+    appointmentId: v.optional(v.id("appointments")),
+    userId: v.optional(v.id("users")),
+    requiredForAppointment: v.boolean(),
+    status: v.union(v.literal("draft"), v.literal("completed")),
+    logDate: v.string(), // ISO date string
+    businessPurpose: v.string(),
+    start: tripLogLocationValidator,
+    stops: v.array(tripLogLocationValidator),
+    radarMiles: v.optional(v.number()),
+    finalMiles: v.optional(v.number()),
+    mileageSource: v.union(
+      v.literal("radar"),
+      v.literal("manual_override"),
+      v.literal("manual"),
+    ),
+    mileageOverrideReason: v.optional(v.string()),
+    routeArtifactKey: v.optional(v.string()),
+    routeComputedAt: v.optional(v.number()),
+    routeGeoJson: v.optional(
+      v.object({
+        type: v.literal("LineString"),
+        coordinates: v.array(v.array(v.number())),
+      }),
+    ),
+    expenseTotalCents: v.number(),
+    createdBy: v.id("users"),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_log_date", ["logDate"])
+    .index("by_status", ["status"])
+    .index("by_source", ["source"])
+    .index("by_appointment", ["appointmentId"])
+    .index("by_required_and_status", ["requiredForAppointment", "status"])
+    .index("by_date_and_status", ["logDate", "status"]),
+
+  tripLogExpenses: defineTable({
+    tripLogId: v.id("tripLogs"),
+    incurredDate: v.string(), // ISO date string
+    category: v.string(),
+    amountCents: v.number(),
+    merchant: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    receipts: v.array(
+      v.object({
+        key: v.string(),
+        fileName: v.string(),
+        contentType: v.string(),
+        sizeBytes: v.number(),
+        uploadedAt: v.number(),
+      }),
+    ),
+  })
+    .index("by_trip_log", ["tripLogId"])
+    .index("by_incurred_date", ["incurredDate"])
+    .index("by_trip_log_and_date", ["tripLogId", "incurredDate"]),
+
   notificationDispatches: defineTable({
     dedupeKey: v.string(),
     event: notificationEventValidator,
@@ -297,6 +369,7 @@ const schema = defineSchema({
     userId: v.optional(v.id("users")),
     appointmentId: v.optional(v.id("appointments")),
     reviewId: v.optional(v.id("reviews")),
+    tripLogId: v.optional(v.id("tripLogs")),
     transition: v.optional(v.string()),
     workId: v.optional(v.string()),
     error: v.optional(v.string()),

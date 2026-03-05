@@ -35,6 +35,7 @@ export default function DashboardClient({}: Props) {
     depositsChange: "0",
   };
   const upcomingAppointments = useQuery(api.appointments.getUpcoming) || [];
+  const pendingTripLogs = useQuery(api.tripLogs.getPendingRequired, { limit: 5 }) || [];
 
   const statsData = [
     {
@@ -168,6 +169,54 @@ export default function DashboardClient({}: Props) {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="animate-fade-in-up" style={{ animationDelay: "260ms" }}>
+        <CardHeader>
+          <CardTitle>Pending Trip Logs</CardTitle>
+          <CardDescription>
+            Completed services that still need mileage and expense entries
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {pendingTripLogs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No pending trip logs</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pendingTripLogs.map((log) => (
+                <div
+                  key={log._id}
+                  className="flex items-center justify-between p-3 rounded-lg border border-border"
+                >
+                  <div>
+                    <div className="font-medium">
+                      {log.appointment?.customerName || "Appointment Log"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {log.logDate} • {log.appointment?.scheduledTime || "No time"}
+                    </div>
+                  </div>
+                  <Link
+                    href={`/admin/logs/${log._id}`}
+                    className="text-sm underline text-muted-foreground hover:text-foreground"
+                  >
+                    Open
+                  </Link>
+                </div>
+              ))}
+              <div className="pt-2">
+                <Link
+                  href="/admin/logs"
+                  className="text-sm underline text-muted-foreground hover:text-foreground"
+                >
+                  View all logs
+                </Link>
+              </div>
             </div>
           )}
         </CardContent>

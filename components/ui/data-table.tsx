@@ -38,6 +38,8 @@ interface DataTableProps<TData, TValue> {
   filterPlaceholder?: string;
   searchKey?: string; // Alternative search key if filterColumn isn't enough
   onRowClick?: (row: TData) => void;
+  tableMinWidthClass?: string;
+  hideSelectionSummary?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -46,6 +48,8 @@ export function DataTable<TData, TValue>({
   filterColumn,
   filterPlaceholder = "Filter...",
   onRowClick,
+  tableMinWidthClass = "min-w-[980px]",
+  hideSelectionSummary = true,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -121,7 +125,7 @@ export function DataTable<TData, TValue>({
         </div>
       </div>
       <div className="rounded-md border">
-        <Table>
+        <Table className={tableMinWidthClass}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -173,10 +177,14 @@ export function DataTable<TData, TValue>({
         </Table>
       </div>
       <div className="flex items-center justify-end space-x-2 py-4">
-        <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of{" "}
-          {table.getFilteredRowModel().rows.length} row(s) selected.
-        </div>
+        {!hideSelectionSummary ? (
+          <div className="flex-1 text-sm text-muted-foreground">
+            {table.getFilteredSelectedRowModel().rows.length} of{" "}
+            {table.getFilteredRowModel().rows.length} row(s) selected.
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
         <div className="space-x-2">
           <Button
             variant="outline"

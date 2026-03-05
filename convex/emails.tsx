@@ -817,3 +817,81 @@ export const sendAdminAppointmentNotification = internalAction({
     });
   },
 });
+
+export const sendAdminMileageLogRequiredNotification = internalAction({
+  args: {
+    tripLogId: v.id("tripLogs"),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const tripLog = await ctx.runQuery(internal.tripLogs.getByIdInternal, {
+      tripLogId: args.tripLogId,
+    });
+    if (!tripLog) return;
+
+    const appointment = tripLog.appointmentId
+      ? await ctx.runQuery(internal.appointments.getByIdInternal, {
+          appointmentId: tripLog.appointmentId,
+        })
+      : null;
+    const customer = appointment
+      ? await ctx.runQuery(internal.users.getByIdInternal, {
+          userId: appointment.userId,
+        })
+      : null;
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    const destination = tripLog.stops[0];
+    const destinationLabel =
+      destination?.addressLabel ||
+      [destination?.street, destination?.city, destination?.state, destination?.postalCode]
+        .filter(Boolean)
+        .join(", ") ||
+      "Not set";
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">Mileage Log Required</h2>
+        <p style="color: #666; font-size: 16px; line-height: 1.6;">
+          A completed appointment needs a trip and expense log for tax records.
+        </p>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin: 20px 0;">
+          <h3 style="color: #333; margin-top: 0;">Log Details</h3>
+          <p style="margin: 5px 0;"><strong>Log ID:</strong> ${tripLog._id}</p>
+          <p style="margin: 5px 0;"><strong>Log Date:</strong> ${tripLog.logDate}</p>
+          <p style="margin: 5px 0;"><strong>Business Purpose:</strong> ${tripLog.businessPurpose || "Not set"}</p>
+          <p style="margin: 5px 0;"><strong>Destination:</strong> ${destinationLabel}</p>
+          ${
+            appointment
+              ? `<p style="margin: 5px 0;"><strong>Appointment:</strong> ${appointment.scheduledDate} ${appointment.scheduledTime}</p>`
+              : ""
+          }
+          ${
+            customer
+              ? `<p style="margin: 5px 0;"><strong>Customer:</strong> ${customer.name || "Unknown"} (${customer.email || "no email"})</p>`
+              : ""
+          }
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.CONVEX_SITE_URL || "https://patient-wombat-877.convex.site"}/admin/logs"
+             style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+            Complete Trip Log
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">
+          This is an automated notification from ${business.name}.
+        </p>
+      </div>
+    `;
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <notifications@rivercitymd.com>`,
+      to: "dustin@rivercitymd.com",
+      subject: `Mileage log required - ${tripLog.logDate}`,
+      html,
+    });
+  },
+});

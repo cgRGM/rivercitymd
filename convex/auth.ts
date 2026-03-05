@@ -326,8 +326,16 @@ export async function isAdmin(
     return false;
   }
 
-  // For actions, we can't query directly - use identity.orgId as fallback
-  // or return false (actions should use queries/mutations for role checks)
+  // For actions, resolve user via internal queries and use stored role.
+  const userId = await getUserIdFromIdentity(ctx);
+  if (userId) {
+    const user = await ctx.runQuery(internal.users.getByIdInternal, { userId });
+    if (user?.role === "admin") {
+      return true;
+    }
+  }
+
+  // Fallback: check identity.orgId if available.
   return !!identity.orgId;
 }
 
@@ -354,10 +362,21 @@ export async function requireAdmin(
     throw new Error("Admin access required");
   }
 
-  // For actions, check identity.orgId as fallback
-  if (!identity.orgId) {
-    throw new Error("Admin access required");
+  // For actions, resolve user via internal queries and use stored role.
+  const userId = await getUserIdFromIdentity(ctx);
+  if (userId) {
+    const user = await ctx.runQuery(internal.users.getByIdInternal, { userId });
+    if (user?.role === "admin") {
+      return;
+    }
   }
+
+  // Fallback: check identity.orgId if available.
+  if (identity.orgId) {
+    return;
+  }
+
+  throw new Error("Admin access required");
 }
 
 // Diagnostic query to inspect identity object (for debugging)

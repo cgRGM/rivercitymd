@@ -749,6 +749,16 @@ export const updateStatus = mutation({
       await ctx.scheduler.runAfter(0, internal.emails.sendCustomerReviewRequestEmail, {
         appointmentId: args.appointmentId,
       });
+
+      if (shouldScheduleNotificationJobs()) {
+        await ctx.scheduler.runAfter(
+          0,
+          (internal as any).tripLogs.ensureDraftForCompletedAppointment,
+          {
+            appointmentId: args.appointmentId,
+          },
+        );
+      }
     }
 
     return args.appointmentId;
@@ -865,6 +875,16 @@ export const updateStatusInternal = internalMutation({
       await ctx.scheduler.runAfter(0, internal.emails.sendCustomerReviewRequestEmail, {
         appointmentId: args.appointmentId,
       });
+
+      if (shouldScheduleNotificationJobs()) {
+        await ctx.scheduler.runAfter(
+          0,
+          (internal as any).tripLogs.ensureDraftForCompletedAppointment,
+          {
+            appointmentId: args.appointmentId,
+          },
+        );
+      }
     }
 
     return args.appointmentId;
@@ -1507,12 +1527,26 @@ export const listWithDetails = query({
         const vehicles = await Promise.all(
           apt.vehicleIds.map((id) => ctx.db.get(id)),
         );
+        const linkedLog = await ctx.db
+          .query("tripLogs")
+          .withIndex("by_appointment", (q) => q.eq("appointmentId", apt._id))
+          .first();
 
         return {
           ...apt,
           user,
           services: services.filter((s) => s !== null),
           vehicles: vehicles.filter((v) => v !== null),
+          tripLogStatus: linkedLog
+            ? linkedLog.status
+            : apt.status === "completed"
+              ? "required"
+              : null,
+          tripLogRequiredReason:
+            !linkedLog && apt.status === "completed"
+              ? "completed_without_log"
+              : undefined,
+          tripLogId: linkedLog?._id,
         };
       }),
     );

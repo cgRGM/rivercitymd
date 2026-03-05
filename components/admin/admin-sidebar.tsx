@@ -13,6 +13,7 @@ import {
   CreditCard,
   LogOut,
   Star,
+  FileText,
 } from "lucide-react";
 import { SignOutButton } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
@@ -44,6 +45,11 @@ const menuItems = [
     title: "Appointments",
     icon: Calendar,
     href: "/admin/appointments",
+  },
+  {
+    title: "Logs",
+    icon: FileText,
+    href: "/admin/logs",
   },
   {
     title: "Customers",
@@ -85,6 +91,7 @@ export default function AdminSidebar() {
   const newCustomersCount = useQuery(api.users.getNewCustomersCount) ?? 0;
   const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin) ?? 0;
   const newReviewsCount = useQuery(api.reviews.getNewReviewsCount) ?? 0;
+  const pendingTripLogsCount = useQuery(api.tripLogs.getPendingRequiredCount) ?? 0;
 
   return (
     <Sidebar>
@@ -125,6 +132,8 @@ export default function AdminSidebar() {
                   count = unpaidInvoicesCount;
                 } else if (item.href === "/admin/reviews") {
                   count = newReviewsCount;
+                } else if (item.href === "/admin/logs") {
+                  count = pendingTripLogsCount;
                 }
 
                 return (

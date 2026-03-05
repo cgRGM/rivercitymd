@@ -45,6 +45,7 @@ type AdminNotificationSettings = {
     appointmentStarted: boolean;
     appointmentCompleted: boolean;
     reviewSubmitted: boolean;
+    mileageLogRequired: boolean;
   };
 };
 
@@ -60,6 +61,7 @@ const DEFAULT_NOTIFICATION_SETTINGS: AdminNotificationSettings = {
     appointmentStarted: true,
     appointmentCompleted: true,
     reviewSubmitted: true,
+    mileageLogRequired: true,
   },
 };
 
@@ -160,6 +162,8 @@ export default function SettingsPage() {
             business.notificationSettings?.events?.appointmentCompleted ?? true,
           reviewSubmitted:
             business.notificationSettings?.events?.reviewSubmitted ?? true,
+          mileageLogRequired:
+            business.notificationSettings?.events?.mileageLogRequired ?? true,
         },
       });
     }
@@ -240,7 +244,9 @@ export default function SettingsPage() {
     }
   };
 
-  const blockers = new Set(setupReadiness?.blockers.map((blocker) => blocker.code) || []);
+  const blockers = new Set(
+    setupReadiness?.blockers.map((blocker: { code: string }) => blocker.code) || [],
+  );
   const setupChecklistItems = [
     {
       code: "missing_business_info",
@@ -659,6 +665,23 @@ export default function SettingsPage() {
                     setNotificationSettings((prev) => ({
                       ...prev,
                       events: { ...prev.events, reviewSubmitted: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Mileage Log Required</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when completed appointments need tax log entries
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.mileageLogRequired}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, mileageLogRequired: checked },
                     }))
                   }
                 />

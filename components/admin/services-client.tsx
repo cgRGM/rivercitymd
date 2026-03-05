@@ -1,19 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useEffect, useState } from "react";
+import { ColumnDef } from "@tanstack/react-table";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import type { Id } from "@/convex/_generated/dataModel";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Plus, Edit, Trash2, AlertCircle, Check, Save, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -21,124 +17,116 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { DataTable } from "@/components/ui/data-table";
 import { toast } from "sonner";
 import { AddServiceForm } from "@/components/forms";
 import { AddAddonForm } from "@/components/admin/forms/add-addon-form";
 import { EditServiceForm } from "@/components/forms/admin/edit-service-form";
-import type { Id } from "@/convex/_generated/dataModel";
+import {
+  AlertCircle,
+  ArrowUpDown,
+  Edit,
+  MoreHorizontal,
+  Plus,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-type Props = {};
+type ServiceRecord = {
+  _id: Id<"services">;
+  name: string;
+  description: string;
+  icon?: string;
+  serviceType?: "standard" | "addon" | "subscription";
+  serviceTypeLabel?: string;
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+  basePrice?: number;
+  duration: number;
+  bookings?: number;
+  popularity?: string;
+  isActive: boolean;
+  categoryId?: Id<"serviceCategories">;
+  includedServiceIds?: Id<"services">[];
+  features?: string[];
+};
 
-const SERVICE_TYPE_ORDER = ["standard", "addon", "subscription"] as const;
-const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPE_ORDER)[number], string> =
-  {
-    standard: "Standard Services",
-    addon: "Add-on Services",
-    subscription: "Subscription Plans",
-  };
-
-export default function ServicesClient({}: Props) {
-  // All hooks must be called before any conditional returns
-  const servicesQuery = useQuery(api.services.listWithBookingStats);
+export default function ServicesClient() {
+  const servicesQuery = useQuery(api.services.listWithBookingStats) as
+    | ServiceRecord[]
+    | null
+    | undefined;
   const deleteService = useMutation(api.services.deleteService);
   const updateService = useMutation(api.services.update);
   const depositSettings = useQuery(api.depositSettings.get);
   const updateDepositSettings = useMutation(api.depositSettings.upsert);
+
   const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAddAddonForm, setShowAddAddonForm] = useState(false);
   const [showAddSubscriptionForm, setShowAddSubscriptionForm] = useState(false);
   const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(
-    null,
-  );
   const [serviceToDelete, setServiceToDelete] = useState<Id<"services"> | null>(null);
-  const [isEditingDeposit, setIsEditingDeposit] = useState(false);
-  const [depositAmount, setDepositAmount] = useState(
-    depositSettings?.amountPerVehicle ?? 50,
-  );
+  const [deletingId, setDeletingId] = useState<Id<"services"> | null>(null);
+  const [updatingVisibilityId, setUpdatingVisibilityId] = useState<Id<"services"> | null>(null);
 
-  // Update deposit amount when settings change
-  React.useEffect(() => {
+  const [isEditingDeposit, setIsEditingDeposit] = useState(false);
+  const [depositAmount, setDepositAmount] = useState(depositSettings?.amountPerVehicle ?? 50);
+
+  useEffect(() => {
     if (depositSettings) {
       setDepositAmount(depositSettings.amountPerVehicle);
     }
   }, [depositSettings]);
 
-  // Handle loading state
   if (servicesQuery === undefined) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold">Services</h2>
-            <p className="text-muted-foreground mt-1">
-              Manage your service offerings
-            </p>
+            <p className="mt-1 text-muted-foreground">Manage your service offerings</p>
           </div>
           <Skeleton className="h-9 w-32" />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <Skeleton className="h-6 w-32 mb-2" />
-                    <Skeleton className="h-4 w-48" />
-                  </div>
-                  <Skeleton className="h-6 w-16" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-4 w-16" />
-                  </div>
-                  <div className="flex justify-between">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="h-4 w-12" />
-                  </div>
-                  <div className="flex justify-between">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-4 w-14" />
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-4">
-                  <Skeleton className="h-8 flex-1" />
-                  <Skeleton className="h-8 w-16" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <CardContent className="py-10">
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-12 w-full" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  // Handle error state
   if (servicesQuery === null) {
     return (
       <div className="space-y-6">
         <div>
           <h2 className="text-3xl font-bold">Services</h2>
-          <p className="text-muted-foreground mt-1">
-            Manage your service offerings
-          </p>
+          <p className="mt-1 text-muted-foreground">Manage your service offerings</p>
         </div>
 
-        <Card className="text-center py-12">
+        <Card className="py-12 text-center">
           <CardContent>
-            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">
-              Unable to load services
-            </h3>
-            <p className="text-muted-foreground mb-6">
-              There was an error loading the services. Please try again later.
+            <AlertCircle className="mx-auto mb-4 h-16 w-16 text-destructive" />
+            <h3 className="mb-2 text-xl font-semibold">Unable to load services</h3>
+            <p className="mb-6 text-muted-foreground">
+              There was an error loading services. Please try again later.
             </p>
             <Button onClick={() => window.location.reload()}>Try Again</Button>
           </CardContent>
@@ -147,27 +135,65 @@ export default function ServicesClient({}: Props) {
     );
   }
 
+  const services = servicesQuery;
+
+  const formatDuration = (duration: number) => {
+    const hours = Math.floor(duration / 60);
+    const minutes = duration % 60;
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  };
+
+  const formatTypeLabel = (service: ServiceRecord) => {
+    if (service.serviceTypeLabel) return service.serviceTypeLabel;
+    if (service.serviceType === "addon") return "Add-on Services";
+    if (service.serviceType === "subscription") return "Subscription Plans";
+    return "Standard Services";
+  };
+
+  const formatPricing = (service: ServiceRecord) => {
+    const small = service.basePriceSmall ?? service.basePrice;
+    const medium = service.basePriceMedium ?? service.basePrice;
+    const large = service.basePriceLarge ?? service.basePrice;
+
+    const parts: string[] = [];
+    if (small !== undefined) parts.push(`S $${small.toFixed(0)}`);
+    if (medium !== undefined) parts.push(`M $${medium.toFixed(0)}`);
+    if (large !== undefined) parts.push(`L $${large.toFixed(0)}`);
+    return parts.join(" • ") || "N/A";
+  };
+
+  const popularityBadgeClass = (popularity?: string) => {
+    switch (popularity) {
+      case "Very High":
+        return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+      case "High":
+        return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+      case "Medium":
+        return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+      default:
+        return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    }
+  };
+
   const confirmDelete = async () => {
     if (!serviceToDelete) return;
 
     setDeletingId(serviceToDelete);
-    setServiceToDelete(null); // Close dialog immediately
+    setServiceToDelete(null);
 
     try {
       await deleteService({ serviceId: serviceToDelete });
       toast.success("Service deleted successfully");
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete service",
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to delete service");
     } finally {
       setDeletingId(null);
     }
   };
 
-  const toggleServiceVisibility = async (
-    service: NonNullable<typeof servicesQuery>[number],
-  ) => {
+  const toggleServiceVisibility = async (service: ServiceRecord) => {
     setUpdatingVisibilityId(service._id);
     try {
       await updateService({
@@ -188,50 +214,137 @@ export default function ServicesClient({}: Props) {
 
       toast.success(service.isActive ? "Service hidden" : "Service made visible");
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to update service visibility",
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to update service visibility");
     } finally {
       setUpdatingVisibilityId(null);
     }
   };
 
-  const servicesByType = SERVICE_TYPE_ORDER.reduce(
-    (acc, serviceType) => {
-      const filteredServices = (servicesQuery || []).filter(
-        (service) => (service.serviceType ?? "standard") === serviceType,
-      );
-      acc[serviceType] = filteredServices;
-      return acc;
+  const columns: ColumnDef<ServiceRecord>[] = [
+    {
+      id: "name",
+      accessorFn: (row) => row.name,
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Name
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => (
+        <div className="min-w-[260px]">
+          <div className="flex items-center gap-2">
+            {row.original.icon ? <span className="text-lg">{row.original.icon}</span> : null}
+            <span className="font-medium">{row.original.name}</span>
+          </div>
+          <p className="line-clamp-2 text-xs text-muted-foreground">{row.original.description}</p>
+        </div>
+      ),
     },
     {
-      standard: [],
-      addon: [],
-      subscription: [],
-    } as Record<
-      (typeof SERVICE_TYPE_ORDER)[number],
-      NonNullable<typeof servicesQuery>
-    >,
-  );
-  const getPopularityColor = (popularity: string) => {
-    switch (popularity) {
-      case "Very High":
-        return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
-      case "High":
-        return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
-      case "Medium":
-        return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
-      default:
-        return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
-    }
-  };
+      id: "serviceType",
+      accessorFn: (row) => row.serviceType ?? "standard",
+      header: "Type",
+      cell: ({ row }) => (
+        <span className="min-w-[150px] text-sm text-muted-foreground">
+          {formatTypeLabel(row.original)}
+        </span>
+      ),
+    },
+    {
+      id: "pricing",
+      accessorFn: (row) => formatPricing(row),
+      header: "Pricing",
+      cell: ({ row }) => <span className="min-w-[170px] text-sm">{formatPricing(row.original)}</span>,
+    },
+    {
+      accessorKey: "duration",
+      header: "Duration",
+      cell: ({ row }) => <span>{formatDuration(row.original.duration)}</span>,
+    },
+    {
+      id: "bookings",
+      accessorFn: (row) => row.bookings ?? 0,
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Bookings
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => <span>{row.original.bookings ?? 0}</span>,
+    },
+    {
+      id: "popularity",
+      accessorFn: (row) => row.popularity ?? "Low",
+      header: "Popularity",
+      cell: ({ row }) => (
+        <span
+          className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${popularityBadgeClass(
+            row.original.popularity,
+          )}`}
+        >
+          {row.original.popularity || "Low"}
+        </span>
+      ),
+    },
+    {
+      id: "visibility",
+      accessorFn: (row) => (row.isActive ? "active" : "hidden"),
+      header: "Visibility",
+      cell: ({ row }) => (
+        <Badge variant={row.original.isActive ? "default" : "secondary"}>
+          {row.original.isActive ? "Visible" : "Hidden"}
+        </Badge>
+      ),
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => {
+        const service = row.original;
+        const isBusy = deletingId === service._id || updatingVisibilityId === service._id;
+
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0" disabled={isBusy}>
+                <span className="sr-only">Open actions</span>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => setEditingId(service._id)}>
+                <Edit className="mr-2 h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void toggleServiceVisibility(service)}>
+                {service.isActive ? "Hide" : "Show"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => setServiceToDelete(service._id)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-3xl font-bold">Services</h2>
           {isEditingDeposit ? (
             <div className="flex items-center gap-2">
@@ -240,18 +353,14 @@ export default function ServicesClient({}: Props) {
                 type="number"
                 step="0.01"
                 value={depositAmount}
-                onChange={(e) =>
-                  setDepositAmount(parseFloat(e.target.value) || 50)
-                }
-                className="w-20"
+                onChange={(event) => setDepositAmount(parseFloat(event.target.value) || 50)}
+                className="w-24"
               />
               <Button
                 size="sm"
                 onClick={async () => {
                   try {
-                    await updateDepositSettings({
-                      amountPerVehicle: depositAmount,
-                    });
+                    await updateDepositSettings({ amountPerVehicle: depositAmount });
                     setIsEditingDeposit(false);
                     toast.success("Deposit amount updated");
                   } catch {
@@ -259,7 +368,7 @@ export default function ServicesClient({}: Props) {
                   }
                 }}
               >
-                <Save className="w-4 h-4" />
+                <Save className="h-4 w-4" />
               </Button>
               <Button
                 size="sm"
@@ -269,241 +378,36 @@ export default function ServicesClient({}: Props) {
                   setDepositAmount(depositSettings?.amountPerVehicle ?? 50);
                 }}
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </Button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 Deposit: ${depositSettings?.amountPerVehicle ?? 50} per vehicle
               </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setIsEditingDeposit(true)}
-              >
-                <Edit className="w-4 h-4" />
+              <Button size="sm" variant="ghost" onClick={() => setIsEditingDeposit(true)}>
+                <Edit className="h-4 w-4" />
               </Button>
             </div>
           )}
         </div>
+
         <Button onClick={() => setShowServiceTypeDialog(true)}>
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus className="mr-2 h-4 w-4" />
           Create a Service
         </Button>
       </div>
 
-      <div className="space-y-8">
-        {SERVICE_TYPE_ORDER.map((serviceType) => (
-          <div key={serviceType} className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-semibold">
-                {SERVICE_TYPE_LABELS[serviceType]}
-              </h3>
-            </div>
+      <DataTable
+        columns={columns}
+        data={services}
+        filterColumn="name"
+        filterPlaceholder="Search services by name..."
+        tableMinWidthClass="min-w-[1340px]"
+      />
 
-            <div className="overflow-x-auto">
-              <div className="flex gap-6 min-w-max pb-4">
-                {servicesByType[serviceType]?.map(
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  (service: any, index: number) => (
-                    <Card
-                      key={service._id}
-                      className="w-80 flex-shrink-0 animate-fade-in-up hover:shadow-lg transition-all"
-                      style={{ animationDelay: `${index * 50}ms` }}
-                    >
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3">
-                              {service.icon && (
-                                <div className="text-2xl">{service.icon}</div>
-                              )}
-                              <div className="flex-1">
-                                <CardTitle className="text-xl">
-                                  {service.name}
-                                </CardTitle>
-                                <CardDescription className="mt-1">
-                                  {service.description}
-                                </CardDescription>
-                                <div className="mt-2">
-                                  <span
-                                    className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${service.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}`}
-                                  >
-                                    {service.isActive ? "Active" : "Hidden"}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setEditingId(service._id)}
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setServiceToDelete(service._id)}
-                              disabled={deletingId === service._id}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {/* Features */}
-                        {service.features && service.features.length > 0 && (
-                          <div className="space-y-2">
-                            <div className="text-sm text-muted-foreground">
-                              Features:
-                            </div>
-                            <ul className="text-sm space-y-1">
-                              {service.features
-                                .slice(0, 3)
-                                .map((feature: string, i: number) => (
-                                  <li
-                                    key={i}
-                                    className="flex items-center gap-2"
-                                  >
-                                    <Check className="w-3 h-3 text-accent" />
-                                    {feature}
-                                  </li>
-                                ))}
-                              {service.features.length > 3 && (
-                                <li className="text-muted-foreground">
-                                  +{service.features.length - 3} more features
-                                </li>
-                              )}
-                            </ul>
-                          </div>
-                        )}
-
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <div className="text-xs text-muted-foreground mb-1">
-                              Small
-                            </div>
-                            <div className="font-semibold">
-                              $
-                              {service.basePriceSmall?.toFixed(2) ||
-                                service.basePrice?.toFixed(2) ||
-                                "N/A"}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground mb-1">
-                              Medium
-                            </div>
-                            <div className="font-semibold">
-                              $
-                              {service.basePriceMedium?.toFixed(2) ||
-                                service.basePrice?.toFixed(2) ||
-                                "N/A"}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground mb-1">
-                              Large
-                            </div>
-                            <div className="font-semibold">
-                              $
-                              {service.basePriceLarge?.toFixed(2) ||
-                                service.basePrice?.toFixed(2) ||
-                                "N/A"}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-4 border-t border-border">
-                          <div>
-                            <div className="text-sm text-muted-foreground">
-                              Duration
-                            </div>
-                            <div className="font-medium">
-                              {Math.floor(service.duration / 60)}h{" "}
-                              {service.duration % 60}m
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-muted-foreground">
-                              Bookings
-                            </div>
-                            <div className="font-medium">
-                              {service.bookings} this month
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-muted-foreground">
-                            Popularity:
-                          </span>
-                          <span
-                            className={`px-2 py-1 rounded-full text-xs font-medium ${getPopularityColor(service.popularity)}`}
-                          >
-                            {service.popularity}
-                          </span>
-                        </div>
-
-                        <div className="flex gap-2 pt-4 border-t border-border">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => setEditingId(service._id)}
-                          >
-                            <Edit className="w-3 h-3 mr-1" />
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => toggleServiceVisibility(service)}
-                            disabled={updatingVisibilityId === service._id}
-                          >
-                            {updatingVisibilityId === service._id
-                              ? "Saving..."
-                              : service.isActive
-                                ? "Hide"
-                                : "Show"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => setServiceToDelete(service._id)}
-                            disabled={
-                              deletingId === service._id ||
-                              updatingVisibilityId === service._id
-                            }
-                          >
-                            <Trash2 className="w-3 h-3 mr-1" />
-                            {deletingId === service._id
-                              ? "Deleting..."
-                              : "Delete"}
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ),
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Service Type Selection Dialog */}
-      <Dialog
-        open={showServiceTypeDialog}
-        onOpenChange={setShowServiceTypeDialog}
-      >
+      <Dialog open={showServiceTypeDialog} onOpenChange={setShowServiceTypeDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Create New Service</DialogTitle>
@@ -514,7 +418,7 @@ export default function ServicesClient({}: Props) {
           <div className="grid gap-3">
             <Button
               variant="outline"
-              className="justify-start h-auto p-4"
+              className="h-auto justify-start p-4"
               onClick={() => {
                 setShowServiceTypeDialog(false);
                 setShowAddForm(true);
@@ -529,7 +433,7 @@ export default function ServicesClient({}: Props) {
             </Button>
             <Button
               variant="outline"
-              className="justify-start h-auto p-4"
+              className="h-auto justify-start p-4"
               onClick={() => {
                 setShowServiceTypeDialog(false);
                 setShowAddAddonForm(true);
@@ -544,7 +448,7 @@ export default function ServicesClient({}: Props) {
             </Button>
             <Button
               variant="outline"
-              className="justify-start h-auto p-4"
+              className="h-auto justify-start p-4"
               onClick={() => {
                 setShowServiceTypeDialog(false);
                 setShowAddSubscriptionForm(true);
@@ -561,30 +465,20 @@ export default function ServicesClient({}: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={!!serviceToDelete}
-        onOpenChange={(open) => !open && setServiceToDelete(null)}
-      >
+      <Dialog open={!!serviceToDelete} onOpenChange={(open) => !open && setServiceToDelete(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Are you absolutely sure?</DialogTitle>
             <DialogDescription>
-              This permanently deletes a service only when it has never been used
-              in any appointment. For used services, hide them instead.
+              This permanently deletes a service only when it has never been used in any appointment.
+              For used services, hide them instead.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end gap-3 mt-4">
-            <Button
-              variant="outline"
-              onClick={() => setServiceToDelete(null)}
-            >
+          <div className="mt-4 flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setServiceToDelete(null)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmDelete}
-            >
+            <Button variant="destructive" onClick={confirmDelete}>
               Delete Service
             </Button>
           </div>
@@ -592,10 +486,7 @@ export default function ServicesClient({}: Props) {
       </Dialog>
 
       <AddServiceForm open={showAddForm} onOpenChange={setShowAddForm} />
-      <AddAddonForm
-        open={showAddAddonForm}
-        onOpenChange={setShowAddAddonForm}
-      />
+      <AddAddonForm open={showAddAddonForm} onOpenChange={setShowAddAddonForm} />
       <AddServiceForm
         open={showAddSubscriptionForm}
         onOpenChange={setShowAddSubscriptionForm}

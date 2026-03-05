@@ -1,28 +1,40 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { ColumnDef } from "@tanstack/react-table";
 import { api } from "@/convex/_generated/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Star, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { DataTable } from "@/components/ui/data-table";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
+import {
+  AlertCircle,
+  ArrowUpDown,
+  MoreHorizontal,
+  Star,
+} from "lucide-react";
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-type Props = {};
+type ReviewRecord = {
+  _id: string;
+  customerName: string;
+  customerEmail: string;
+  rating: number;
+  comment?: string;
+  isPublic: boolean;
+  reviewDate: string;
+  appointmentDate: string | null;
+  services: Array<{ _id: string; name: string }>;
+};
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -30,7 +42,7 @@ function StarRating({ rating }: { rating: number }) {
       {[1, 2, 3, 4, 5].map((star) => (
         <Star
           key={star}
-          className={`w-4 h-4 ${
+          className={`h-4 w-4 ${
             star <= rating
               ? "fill-yellow-400 text-yellow-400"
               : "fill-gray-200 text-gray-200"
@@ -41,7 +53,7 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-export default function ReviewsClient({}: Props) {
+export default function ReviewsClient() {
   const reviewsQuery = useQuery(api.reviews.listForAdmin);
 
   if (reviewsQuery === undefined) {
@@ -73,27 +85,133 @@ export default function ReviewsClient({}: Props) {
         </div>
         <Card>
           <CardContent className="py-12 text-center">
-            <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Access Denied</h3>
-            <p className="text-muted-foreground">
-              You must be an admin to view reviews.
-            </p>
+            <AlertCircle className="mx-auto mb-4 h-16 w-16 text-destructive" />
+            <h3 className="mb-2 text-xl font-semibold">Access Denied</h3>
+            <p className="text-muted-foreground">You must be an admin to view reviews.</p>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const reviews = reviewsQuery as any[];
+  const reviews = reviewsQuery as ReviewRecord[];
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     });
+
+  const copyText = async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(successMessage);
+    } catch {
+      toast.error("Failed to copy");
+    }
   };
+
+  const columns: ColumnDef<ReviewRecord>[] = [
+    {
+      accessorKey: "customerName",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Customer
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => (
+        <div className="min-w-[180px]">
+          <p className="font-medium">{row.original.customerName}</p>
+          <p className="text-xs text-muted-foreground">{row.original.customerEmail}</p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "rating",
+      header: "Rating",
+      cell: ({ row }) => <StarRating rating={row.original.rating} />,
+    },
+    {
+      id: "services",
+      accessorFn: (row) => row.services.map((service) => service.name).join(", "),
+      header: "Services",
+      cell: ({ row }) => {
+        const names = row.original.services.map((service) => service.name).join(", ");
+        return <span className="min-w-[180px] text-sm">{names || "-"}</span>;
+      },
+    },
+    {
+      accessorKey: "comment",
+      header: "Comment",
+      cell: ({ row }) =>
+        row.original.comment ? (
+          <span className="block min-w-[220px] max-w-[340px] truncate text-sm">
+            {row.original.comment}
+          </span>
+        ) : (
+          <span className="text-sm italic text-muted-foreground">No comment</span>
+        ),
+    },
+    {
+      accessorKey: "reviewDate",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Date
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => <span>{formatDate(row.original.reviewDate)}</span>,
+    },
+    {
+      accessorKey: "isPublic",
+      header: "Visibility",
+      cell: ({ row }) => (
+        <Badge variant={row.original.isPublic ? "default" : "outline"}>
+          {row.original.isPublic ? "Public" : "Private"}
+        </Badge>
+      ),
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-8 w-8 p-0">
+              <span className="sr-only">Open actions</span>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => void copyText(row.original._id, "Copied review ID")}
+            >
+              Copy review ID
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() =>
+                row.original.customerEmail
+                  ? void copyText(row.original.customerEmail, "Copied customer email")
+                  : toast.error("No email available")
+              }
+            >
+              Copy customer email
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -104,73 +222,13 @@ export default function ReviewsClient({}: Props) {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All Reviews</CardTitle>
-          <CardDescription>
-            Customer feedback and ratings for your services
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {reviews.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Star className="w-16 h-16 mx-auto mb-4 opacity-50" />
-              <p>No reviews yet</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Rating</TableHead>
-                  <TableHead>Comment</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                {reviews.map((review: any) => (
-                  <TableRow key={review._id}>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{review.customerName}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {review.customerEmail}
-                        </div>
-                        {review.appointmentDate && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            Appointment: {formatDate(review.appointmentDate)}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <StarRating rating={review.rating} />
-                    </TableCell>
-                    <TableCell className="max-w-md">
-                      {review.comment ? (
-                        <p className="text-sm">{review.comment}</p>
-                      ) : (
-                        <span className="text-muted-foreground text-sm italic">
-                          No comment
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatDate(review.reviewDate)}</TableCell>
-                    <TableCell>
-                      <Badge variant={review.isPublic ? "default" : "outline"}>
-                        {review.isPublic ? "Public" : "Private"}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <DataTable
+        columns={columns}
+        data={reviews}
+        filterColumn="customerName"
+        filterPlaceholder="Search by customer..."
+        tableMinWidthClass="min-w-[1120px]"
+      />
     </div>
   );
 }
-
