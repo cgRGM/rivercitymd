@@ -4,34 +4,28 @@ import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Check, Calendar } from "lucide-react";
 import AppointmentModal from "@/components/home/appointment-modal";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 export function PricingSection() {
-  // Fetch services
   const servicesQuery = useQuery(api.services.list);
-  const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
+  const bookingReadiness = useQuery(
+    api.setupReadiness.getPublicBookingReadiness,
+  );
 
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<
     "small" | "medium" | "large"
   >("medium");
 
-  // Transform services data for display - show all active services
   const mainServices =
     servicesQuery?.filter(
       (service) =>
-        service.isActive && (service.serviceType === "standard" || !service.serviceType),
+        service.isActive &&
+        (service.serviceType === "standard" || !service.serviceType),
     ) || [];
 
   const handleBookNow = () => {
@@ -39,13 +33,11 @@ export function PricingSection() {
       window.location.href = "/sign-up";
       return;
     }
-    if (bookingReadiness === undefined) {
-      return;
-    }
+    if (bookingReadiness === undefined) return;
     setBookingOpen(true);
   };
 
-  // Handle loading state
+  // Loading state
   if (servicesQuery === undefined) {
     return (
       <section
@@ -54,46 +46,37 @@ export function PricingSection() {
       >
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-12">
-            <Skeleton className="h-12 w-96 mx-auto mb-4" />
-            <Skeleton className="h-6 w-80 mx-auto mb-8" />
-            <Skeleton className="h-12 w-64 mx-auto" />
+            <Skeleton className="h-10 w-80 mx-auto mb-4" />
+            <Skeleton className="h-5 w-64 mx-auto mb-8" />
+            <Skeleton className="h-10 w-56 mx-auto" />
           </div>
-          <div className="-mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-            <div
-              className="flex overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-4 pb-2 sm:gap-6 sm:max-w-7xl sm:mx-auto"
-              aria-label="Service pricing cards"
-            >
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="flex-shrink-0 snap-center w-[min(85vw,320px)] sm:w-[min(380px,max(320px,44vw))] lg:w-[min(400px,max(300px,24vw))]"
-                >
-                  <Card className="h-full">
-                    <CardHeader className="text-center pb-4">
-                      <Skeleton className="h-8 w-8 mx-auto mb-2" />
-                      <Skeleton className="h-6 w-32 mx-auto mb-2" />
-                      <Skeleton className="h-4 w-48 mx-auto mb-4" />
-                      <Skeleton className="h-8 w-24 mx-auto" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2 mb-4">
-                        {Array.from({ length: 4 }).map((_, j) => (
-                          <Skeleton key={j} className="h-4 w-full" />
-                        ))}
-                      </div>
-                      <Skeleton className="h-10 w-full" />
-                    </CardContent>
-                  </Card>
+          {/* Skeleton cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5 max-w-5xl mx-auto">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i}>
+                <div className="rounded-xl border border-border/40 bg-background overflow-hidden">
+                  <div className="h-0.5 w-full bg-border/50" />
+                  <div className="p-5 space-y-3">
+                    <Skeleton className="h-5 w-36 mx-auto" />
+                    <Skeleton className="h-3 w-48 mx-auto" />
+                    <Skeleton className="h-8 w-20 mx-auto mt-2" />
+                    <Skeleton className="h-3 w-16 mx-auto" />
+                    <div className="pt-2 border-t border-border/30 grid grid-cols-2 gap-1.5">
+                      {Array.from({ length: 6 }).map((_, j) => (
+                        <Skeleton key={j} className="h-3 w-full" />
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
     );
   }
 
-  // Handle error state
+  // Error state
   if (servicesQuery === null) {
     return (
       <section
@@ -117,6 +100,7 @@ export function PricingSection() {
         className="py-24 bg-gradient-to-b from-background to-secondary/20"
       >
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Heading */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -127,8 +111,7 @@ export function PricingSection() {
             <h2 className="text-4xl sm:text-5xl font-bold mb-4 text-balance">
               Transparent pricing for quality service
             </h2>
-
-            <p className="text-lg text-muted-foreground mb-4">
+            <p className="text-lg text-muted-foreground mb-2">
               Professional mobile detailing services for all vehicle sizes
             </p>
             <p className="text-sm text-muted-foreground">
@@ -136,51 +119,50 @@ export function PricingSection() {
             </p>
           </motion.div>
 
-          {/* Vehicle Size Selection */}
+          {/* Vehicle Size Tabs */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="max-w-xl mx-auto mb-12"
+            className="max-w-xl mx-auto mb-10"
           >
-            <p className="text-center text-muted-foreground mb-6">
+            <p className="text-center text-sm text-muted-foreground mb-5">
               Select your vehicle type to see accurate pricing
             </p>
-            <Tabs
-              value={selectedSize}
-              onValueChange={(value) =>
-                setSelectedSize(value as "small" | "medium" | "large")
-              }
-              className="w-full"
+            <div
+              role="tablist"
+              className="flex w-full rounded-lg border border-border/40 bg-secondary/40 p-1 gap-1"
             >
-              <TabsList className="grid w-full grid-cols-3 h-auto p-1 bg-secondary/50">
-                <TabsTrigger
-                  value="small"
-                  className="text-xs sm:text-sm py-3 data-[state=active]:bg-background"
+              {(
+                [
+                  { value: "small", label: "Small / Compact" },
+                  { value: "medium", label: "Mid-Size SUV" },
+                  { value: "large", label: "Truck / Large" },
+                ] as const
+              ).map(({ value, label }) => (
+                <button
+                  key={value}
+                  role="tab"
+                  aria-selected={selectedSize === value}
+                  onClick={() => setSelectedSize(value)}
+                  className={cn(
+                    "flex-1 rounded-md py-2.5 text-xs sm:text-sm font-medium transition-colors outline-none focus-visible:outline-none",
+                    selectedSize === value
+                      ? "bg-background text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
                 >
-                  Small / Compact
-                </TabsTrigger>
-                <TabsTrigger
-                  value="medium"
-                  className="text-xs sm:text-sm py-3 data-[state=active]:bg-background"
-                >
-                  Mid-Size SUV
-                </TabsTrigger>
-                <TabsTrigger
-                  value="large"
-                  className="text-xs sm:text-sm py-3 data-[state=active]:bg-background"
-                >
-                  Truck / Large
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+                  {label}
+                </button>
+              ))}
+            </div>
           </motion.div>
 
-          {/* Services */}
-          <div className="-mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          {/* Cards */}
+          <div className="max-w-5xl mx-auto">
             <div
-              className="flex items-stretch overflow-x-auto overflow-y-visible snap-x snap-mandatory scroll-smooth gap-6 pb-8 max-w-7xl mx-auto"
+              className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5"
               aria-label="Service pricing cards"
             >
               {mainServices.map((service, index) => {
@@ -191,89 +173,118 @@ export function PricingSection() {
                       ? service.basePriceMedium
                       : service.basePriceLarge;
 
+                const usesTwoColFeatures =
+                  service.features && service.features.length >= 4;
+
                 return (
                   <motion.div
                     key={service._id}
-                    initial={{ opacity: 0, y: 30 }}
+                    initial={{ opacity: 0, y: 24 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: "-50px" }}
-                    transition={{ duration: 0.5, delay: index * 0.1 }}
-                    className="flex-shrink-0 snap-center w-[85vw] sm:w-[380px] lg:w-[400px] flex flex-col"
+                    transition={{ duration: 0.45, delay: index * 0.1 }}
+                    className="flex flex-col"
                   >
-                    <Card className="relative hover:shadow-2xl transition-all duration-300 flex-1 border-border/50 bg-background/50 backdrop-blur-sm overflow-hidden group">
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                      
-                      <CardHeader className="text-center pb-6 pt-8">
-                        {service.icon && (
-                          <div className="text-5xl mb-4 transform group-hover:scale-110 transition-transform duration-300 drop-shadow-sm">
-                             {service.icon}
-                          </div>
-                        )}
-                        <CardTitle className="text-2xl font-bold tracking-tight">
-                          {service.name}
-                        </CardTitle>
-                        <CardDescription className="text-sm mt-2 line-clamp-2 min-h-[2.5rem]">
-                          {service.description}
-                        </CardDescription>
-                        
-                        <div className="mt-6 flex items-baseline justify-center gap-1">
-                          <span className="text-sm font-medium text-muted-foreground">$</span>
-                          <span className="text-4xl font-extrabold text-foreground tracking-tight">
-                            {price?.toFixed(0) || "N/A"}
-                          </span>
-                          {price ? <span className="text-sm font-medium text-muted-foreground">.00</span> : null}
+                    <div className="relative flex flex-col flex-1 rounded-xl border border-border/40 bg-background overflow-hidden transition-all duration-300 hover:border-border/70 hover:shadow-md group">
+                      {/* Top accent strip */}
+                      <div className="h-[3px] w-full bg-primary/70 flex-shrink-0" />
+
+                      {/* Header */}
+                      <div className="px-5 pt-5 pb-4 text-center">
+                        {/* Icon + Title inline */}
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          {service.icon && (
+                            <span className="text-xl leading-none">
+                              {service.icon}
+                            </span>
+                          )}
+                          <h3 className="text-lg font-bold tracking-tight leading-tight">
+                            {service.name}
+                          </h3>
                         </div>
-                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mt-2">
-                            Approx. {Math.floor(service.duration / 60)}h{" "}
-                            {service.duration % 60 > 0 ? `${service.duration % 60}m` : ""}
+
+                        {service.description && (
+                          <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
+                            {service.description}
                           </p>
-                      </CardHeader>
-                      
-                      <CardContent className="space-y-6">
-                        <div className="w-full h-px bg-border/50" />
-                        
-                        {service.features && service.features.length > 0 && (
-                          <ul className="space-y-3 px-2">
+                        )}
+
+                        {/* Price */}
+                        <div className="mt-4 flex items-baseline justify-center gap-0.5">
+                          <span className="text-sm font-medium text-muted-foreground">
+                            $
+                          </span>
+                          <span className="text-3xl font-bold text-foreground tracking-tight">
+                            {price?.toFixed(0) ?? "N/A"}
+                          </span>
+                          {price != null && (
+                            <span className="text-xs font-medium text-muted-foreground">
+                              .00
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest mt-1">
+                          Approx.&nbsp;{Math.floor(service.duration / 60)}h
+                          {service.duration % 60 > 0
+                            ? ` ${service.duration % 60}m`
+                            : ""}
+                        </p>
+                      </div>
+
+                      {/* Divider */}
+                      <div className="mx-5 h-px bg-border/40" />
+
+                      {/* Features */}
+                      {service.features && service.features.length > 0 && (
+                        <div className="px-5 py-4 flex-1">
+                          <ul
+                            className={cn(
+                              usesTwoColFeatures
+                                ? "grid grid-cols-2 gap-x-3 gap-y-1.5"
+                                : "flex flex-col gap-y-1.5",
+                            )}
+                          >
                             {service.features.map((feature, i) => (
                               <li
                                 key={i}
-                                className="flex items-start gap-3 text-sm group/item"
+                                className="flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-foreground/80 transition-colors"
                               >
-                                <div className="mt-0.5 rounded-full bg-primary/10 p-1 group-hover/item:bg-primary/20 transition-colors">
-                                   <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" strokeWidth={3} />
-                                </div>
-                                <span className="text-muted-foreground group-hover/item:text-foreground transition-colors leading-tight pt-0.5">{feature}</span>
+                                <Check
+                                  className="w-3 h-3 text-primary flex-shrink-0"
+                                  strokeWidth={2.5}
+                                />
+                                <span className="leading-tight">{feature}</span>
                               </li>
                             ))}
                           </ul>
-                        )}
-                      </CardContent>
-                      
-                       {/* Mobile-only "Book" button within card for better UX on small screens */}
-                       <div className="p-6 pt-0 mt-auto sm:hidden">
-                         <Button 
-                           className="w-full" 
-                           variant="outline"
-                           disabled={bookingReadiness === undefined}
-                           onClick={handleBookNow}
-                         >
-                           Select {service.name}
-                         </Button>
-                       </div>
-                    </Card>
+                        </div>
+                      )}
+
+                      {/* Mobile book button */}
+                      <div className="px-5 pb-5 pt-0 mt-auto sm:hidden">
+                        <Button
+                          className="w-full h-8 text-xs"
+                          variant="outline"
+                          disabled={bookingReadiness === undefined}
+                          onClick={handleBookNow}
+                        >
+                          Select {service.name}
+                        </Button>
+                      </div>
+                    </div>
                   </motion.div>
                 );
               })}
             </div>
           </div>
 
-          {/* CTA Button - Desktop/Tablet mostly */}
+          {/* Desktop CTA */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.4 }}
-            className="text-center mt-12 sm:mt-16"
+            className="text-center mt-10 sm:mt-14"
           >
             <Button
               size="lg"
