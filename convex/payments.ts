@@ -1,9 +1,18 @@
-import { action, internalAction, mutation, query } from "./_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { getUserIdFromIdentity, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { stripeClient } from "./stripeClient";
+
+const paymentsInternal: any = (internal as any).payments;
 
 // Helper function to get Stripe secret key from environment
 function getStripeSecretKey(): string {
@@ -744,13 +753,86 @@ export const getPaymentMethods = query({
   },
 });
 
+export const getPaymentMethodByStripeIdForUserInternal = internalQuery({
+  args: {
+    userId: v.id("users"),
+    stripePaymentMethodId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("paymentMethods")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .filter((q) =>
+        q.eq(q.field("stripePaymentMethodId"), args.stripePaymentMethodId),
+      )
+      .first();
+  },
+});
+
+export const getDefaultPaymentMethodForUserInternal = internalQuery({
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("paymentMethods")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.eq(q.field("isDefault"), true))
+      .first();
+  },
+});
+
+export const getPaymentMethodByIdInternal = internalQuery({
+  args: {
+    paymentMethodId: v.id("paymentMethods"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.paymentMethodId);
+  },
+});
+
+export const createPaymentMethodInternal = internalMutation({
+  args: {
+    userId: v.id("users"),
+    stripePaymentMethodId: v.string(),
+    type: v.union(v.literal("card"), v.literal("bank_account")),
+    last4: v.string(),
+    brand: v.optional(v.string()),
+    isDefault: v.boolean(),
+    createdAt: v.string(),
+  },
+  returns: v.id("paymentMethods"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("paymentMethods", {
+      userId: args.userId,
+      stripePaymentMethodId: args.stripePaymentMethodId,
+      type: args.type,
+      last4: args.last4,
+      brand: args.brand,
+      isDefault: args.isDefault,
+      createdAt: args.createdAt,
+    });
+  },
+});
+
+export const deletePaymentMethodInternal = internalMutation({
+  args: {
+    paymentMethodId: v.id("paymentMethods"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.paymentMethodId);
+    return null;
+  },
+});
+
 // Add a payment method
-export const addPaymentMethod = mutation({
+export const addPaymentMethod = action({
   args: {
     paymentMethodId: v.string(), // Stripe payment method ID
   },
   returns: v.id("paymentMethods"),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"paymentMethods">> => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
@@ -760,22 +842,25 @@ export const addPaymentMethod = mutation({
     );
 
     // Check if this payment method already exists
-    const existing = await ctx.db
-      .query("paymentMethods")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .filter((q) => q.eq("stripePaymentMethodId", args.paymentMethodId))
-      .first();
+    const existing = await ctx.runQuery(
+      paymentsInternal.getPaymentMethodByStripeIdForUserInternal,
+      {
+        userId,
+        stripePaymentMethodId: args.paymentMethodId,
+      },
+    );
 
     if (existing) {
       throw new Error("Payment method already exists");
     }
 
     // Check if user has any default payment method
-    const hasDefault = await ctx.db
-      .query("paymentMethods")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .filter((q) => q.eq(q.field("isDefault"), true))
-      .first();
+    const hasDefault = await ctx.runQuery(
+      paymentsInternal.getDefaultPaymentMethodForUserInternal,
+      {
+        userId,
+      },
+    );
 
     const paymentMethodDoc = {
       userId,
@@ -793,7 +878,10 @@ export const addPaymentMethod = mutation({
       createdAt: new Date().toISOString(),
     };
 
-    return await ctx.db.insert("paymentMethods", paymentMethodDoc);
+    return await ctx.runMutation(
+      paymentsInternal.createPaymentMethodInternal,
+      paymentMethodDoc,
+    );
   },
 });
 
@@ -825,14 +913,19 @@ export const setDefaultPaymentMethod = mutation({
 });
 
 // Delete a payment method
-export const deletePaymentMethod = mutation({
+export const deletePaymentMethod = action({
   args: { paymentMethodId: v.id("paymentMethods") },
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const paymentMethod = await ctx.db.get(args.paymentMethodId);
+    const paymentMethod = await ctx.runQuery(
+      paymentsInternal.getPaymentMethodByIdInternal,
+      {
+        paymentMethodId: args.paymentMethodId,
+      },
+    );
     if (!paymentMethod || paymentMethod.userId !== userId) {
       throw new Error("Payment method not found");
     }
@@ -846,7 +939,9 @@ export const deletePaymentMethod = mutation({
     );
 
     // Delete from database
-    await ctx.db.delete(args.paymentMethodId);
+    await ctx.runMutation(paymentsInternal.deletePaymentMethodInternal, {
+      paymentMethodId: args.paymentMethodId,
+    });
 
     return null;
   },

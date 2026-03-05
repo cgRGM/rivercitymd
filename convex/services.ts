@@ -39,6 +39,10 @@ async function createStripeProductForService(ctx: any, serviceId: Id<"services">
   });
 
   if (!service) throw new Error("Service not found");
+  if (service.stripeProductId) {
+    await updateStripeProductForService(ctx, serviceId);
+    return;
+  }
 
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey) {
@@ -171,6 +175,50 @@ async function createStripeProductForService(ctx: any, serviceId: Id<"services">
     stripeProductId: product.id,
     stripePriceIds: prices.map((p) => p.id),
   });
+}
+
+async function updateStripeProductForService(ctx: any, serviceId: Id<"services">) {
+  const service = await ctx.runQuery(internal.services.getServiceById, {
+    serviceId,
+  });
+
+  if (!service) throw new Error("Service not found");
+  if (!service.stripeProductId) throw new Error("Service has no Stripe product");
+
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeSecretKey) {
+    // No-op when Stripe key is missing (e.g. test env) to avoid scheduled action failures
+    console.warn(
+      "STRIPE_SECRET_KEY not set, skipping updateStripeProduct for service",
+      serviceId,
+    );
+    return service.stripeProductId;
+  }
+
+  const updateResponse = await fetch(
+    `https://api.stripe.com/v1/products/${service.stripeProductId}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stripeSecretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        name: service.name,
+        description: service.description || "",
+        active: service.isActive ? "true" : "false",
+      }),
+    },
+  );
+
+  if (!updateResponse.ok) {
+    const errorText = await updateResponse.text();
+    throw new Error(
+      `Stripe product update failed: ${updateResponse.status} ${errorText}`,
+    );
+  }
+
+  return service.stripeProductId;
 }
 
 // === Legacy Categories ===
@@ -335,6 +383,8 @@ export const update = mutation({
     await requireAdmin(ctx);
 
     const { serviceId, ...updates } = args;
+    const existingService = await ctx.db.get(serviceId);
+    if (!existingService) throw new Error("Service not found");
     assertHasPositivePrice(updates);
 
     // Calculate basePrice for backwards compatibility
@@ -359,6 +409,13 @@ export const update = mutation({
       isActive: updates.isActive,
       basePrice, // For backwards compatibility
     });
+
+    if (existingService.stripeProductId) {
+      await ctx.scheduler.runAfter(0, internal.services.createStripeProductInternal, {
+        serviceId,
+      });
+    }
+
     return serviceId;
   },
 });
@@ -438,34 +495,9 @@ export const updateStripeProduct = mutation({
     if (!service.stripeProductId)
       throw new Error("Service has no Stripe product");
 
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeSecretKey) {
-      throw new Error("STRIPE_SECRET_KEY environment variable is not set");
-    }
-
-    // Update Stripe product using HTTP
-    const updateResponse = await fetch(
-      `https://api.stripe.com/v1/products/${service.stripeProductId}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${stripeSecretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          name: service.name,
-          description: service.description || "",
-          active: service.isActive ? "true" : "false",
-        }),
-      },
-    );
-
-    if (!updateResponse.ok) {
-      const errorText = await updateResponse.text();
-      throw new Error(
-        `Stripe product update failed: ${updateResponse.status} ${errorText}`,
-      );
-    }
+    await ctx.scheduler.runAfter(0, internal.services.createStripeProductInternal, {
+      serviceId: args.serviceId,
+    });
 
     return service.stripeProductId;
   },

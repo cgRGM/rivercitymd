@@ -75,7 +75,6 @@ export function EditServiceForm({
     serviceId ? { serviceId } : "skip",
   );
   const updateService = useMutation(api.services.update);
-  const updateStripeProduct = useMutation(api.services.updateStripeProduct);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -130,11 +129,6 @@ export function EditServiceForm({
         icon: data.icon,
         isActive: data.isActive,
       });
-
-      // Update Stripe product if it exists
-      if (service?.stripeProductId) {
-        await updateStripeProduct({ serviceId });
-      }
 
       toast.success("Service updated successfully");
       onOpenChange(false);

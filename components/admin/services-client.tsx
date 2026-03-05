@@ -43,7 +43,6 @@ export default function ServicesClient({}: Props) {
   const servicesQuery = useQuery(api.services.listWithBookingStats);
   const deleteService = useMutation(api.services.deleteService);
   const updateService = useMutation(api.services.update);
-  const updateStripeProduct = useMutation(api.services.updateStripeProduct);
   const depositSettings = useQuery(api.depositSettings.get);
   const updateDepositSettings = useMutation(api.depositSettings.upsert);
   const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
@@ -186,10 +185,6 @@ export default function ServicesClient({}: Props) {
         icon: service.icon,
         isActive: !service.isActive,
       });
-
-      if (service.stripeProductId) {
-        await updateStripeProduct({ serviceId: service._id });
-      }
 
       toast.success(service.isActive ? "Service hidden" : "Service made visible");
     } catch (error) {

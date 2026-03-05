@@ -34,6 +34,9 @@ describe("payments", () => {
         stripeCustomerId: withStripeCustomer ? "cus_test_123" : undefined,
       });
     });
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(userId, { clerkUserId: userId });
+    });
     return userId;
   }
 
@@ -569,6 +572,170 @@ describe("payments", () => {
       last4: "4242",
       brand: "visa",
     });
+  });
+
+  test("add payment method action creates record and sets default", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("/payment_methods/pm_new_123")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "pm_new_123",
+              type: "card",
+              card: { last4: "4242", brand: "visa" },
+            }),
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
+
+    const createdId = await asUser.action(api.payments.addPaymentMethod, {
+      paymentMethodId: "pm_new_123",
+    });
+
+    const stored = await t.run(async (ctx: any) => {
+      return await ctx.db.get(createdId);
+    });
+
+    expect(stored?.stripePaymentMethodId).toBe("pm_new_123");
+    expect(stored?.isDefault).toBe(true);
+    expect(stored?.last4).toBe("4242");
+  });
+
+  test("add payment method action rejects duplicates", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.insert("paymentMethods", {
+        userId,
+        stripePaymentMethodId: "pm_dup_123",
+        type: "card",
+        last4: "4242",
+        brand: "visa",
+        isDefault: true,
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("/payment_methods/pm_dup_123")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "pm_dup_123",
+              type: "card",
+              card: { last4: "4242", brand: "visa" },
+            }),
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
+
+    await expect(
+      asUser.action(api.payments.addPaymentMethod, {
+        paymentMethodId: "pm_dup_123",
+      }),
+    ).rejects.toThrow("Payment method already exists");
+  });
+
+  test("delete payment method action detaches from Stripe and removes db row", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+
+    const paymentMethodId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("paymentMethods", {
+        userId,
+        stripePaymentMethodId: "pm_delete_123",
+        type: "card",
+        last4: "4242",
+        brand: "visa",
+        isDefault: true,
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    const detachCalls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (
+          urlString.includes("/payment_methods/pm_delete_123/detach") &&
+          options?.method === "POST"
+        ) {
+          detachCalls.push(urlString);
+          return { ok: true, json: async () => ({ id: "pm_delete_123" }) } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
+
+    await asUser.action(api.payments.deletePaymentMethod, {
+      paymentMethodId,
+    });
+
+    const deleted = await t.run(async (ctx: any) => {
+      return await ctx.db.get(paymentMethodId);
+    });
+
+    expect(detachCalls.length).toBe(1);
+    expect(deleted).toBeNull();
+  });
+
+  test("delete payment method action enforces ownership", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await createTestUser(t, true);
+    const otherUserId = await createTestUser(t, true);
+
+    const paymentMethodId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("paymentMethods", {
+        userId: ownerId,
+        stripePaymentMethodId: "pm_owner_only_123",
+        type: "card",
+        last4: "4242",
+        brand: "visa",
+        isDefault: true,
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    const asOtherUser = t.withIdentity({
+      subject: otherUserId,
+      email: "other@test.com",
+    });
+
+    await expect(
+      asOtherUser.action(api.payments.deletePaymentMethod, {
+        paymentMethodId,
+      }),
+    ).rejects.toThrow("Payment method not found");
   });
 
   test("create payment intent", async () => {

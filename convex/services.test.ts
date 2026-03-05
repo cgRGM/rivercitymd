@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { expect, test, describe } from "vitest";
+import { expect, test, describe, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
@@ -240,6 +240,76 @@ describe("services", () => {
 
     services = await t.query(api.services.list, {});
     expect(services[0]?.isActive).toBe(true);
+  });
+
+  test("update does not call fetch in mutation when service has stripeProductId", async () => {
+    const t = convexTest(schema, modules);
+    process.env.STRIPE_SECRET_KEY = "sk_test_mock_key";
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-stripe-sync@test.com",
+        role: "admin",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-stripe-sync@test.com",
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Stripe Sync Service",
+        description: "Ensures visibility changes sync Stripe asynchronously",
+        basePrice: 25,
+        basePriceSmall: 20,
+        basePriceMedium: 25,
+        basePriceLarge: 30,
+        duration: 45,
+        isActive: true,
+        stripeProductId: "prod_visibility_sync_test",
+      });
+    });
+
+    const previousFetch = globalThis.fetch;
+
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("fetch should not be called from mutation context");
+        }),
+      );
+
+      await asAdmin.mutation(api.services.update, {
+        serviceId,
+        name: "Stripe Sync Service",
+        description: "Ensures visibility changes sync Stripe asynchronously",
+        basePriceSmall: 20,
+        basePriceMedium: 25,
+        basePriceLarge: 30,
+        duration: 45,
+        isActive: false,
+      });
+
+      await asAdmin.mutation(api.services.update, {
+        serviceId,
+        name: "Stripe Sync Service",
+        description: "Ensures visibility changes sync Stripe asynchronously",
+        basePriceSmall: 20,
+        basePriceMedium: 25,
+        basePriceLarge: 30,
+        duration: 45,
+        isActive: true,
+      });
+    } finally {
+      vi.stubGlobal("fetch", previousFetch as typeof globalThis.fetch);
+    }
+
+    const service = await asAdmin.query(api.services.getById, { serviceId });
+    expect(service?.isActive).toBe(true);
   });
 
   test("create rejects services with zero pricing across all sizes", async () => {
