@@ -1,0 +1,40 @@
+name: Chore
+description: Track maintenance, refactors, or tooling work.
+title: "chore: "
+labels:
+  - type:chore
+  - status:backlog
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use title format: `chore: <short summary>`.
+  - type: textarea
+    id: problem_goal
+    attributes:
+      label: Problem / Goal
+      description: What maintenance work is needed and why?
+      placeholder: |
+        This chore is needed because...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Define the completion checklist.
+      value: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: agents_links
+    attributes:
+      label: Relevant .agents files (optional)
+      description: Link skill files or related guidance to follow.
+      placeholder: |
+        - `.agents/skills/convex-best-practices/SKILL.md`
+    validations:
+      required: false
+

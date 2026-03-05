@@ -1,0 +1,41 @@
+name: Feature
+description: Plan and track new functionality.
+title: "feat: "
+labels:
+  - type:feature
+  - status:backlog
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use title format: `feat: <short summary>`.
+  - type: textarea
+    id: problem_goal
+    attributes:
+      label: Problem / Goal
+      description: What user or business problem are we solving?
+      placeholder: |
+        We need to...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Provide a checklist that defines done.
+      value: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: agents_links
+    attributes:
+      label: Relevant .agents files (optional)
+      description: Link skill files or related guidance to follow.
+      placeholder: |
+        - `.agents/skills/convex-functions/SKILL.md`
+        - `.agents/skills/vercel-react-best-practices/SKILL.md`
+    validations:
+      required: false
+

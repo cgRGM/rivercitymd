@@ -1,0 +1,43 @@
+name: Bug
+description: Track a defect or regression.
+title: "fix: "
+labels:
+  - type:bug
+  - status:backlog
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use title format: `fix: <short summary>`.
+  - type: textarea
+    id: problem_goal
+    attributes:
+      label: Problem / Goal
+      description: What is broken, and what should happen instead?
+      placeholder: |
+        Current behavior:
+        Expected behavior:
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Define observable checks for the fix.
+      value: |
+        - [ ] Reproduces before the fix
+        - [ ] Failsafe/guard is added where needed
+        - [ ] Passes after the fix
+    validations:
+      required: true
+  - type: textarea
+    id: agents_links
+    attributes:
+      label: Relevant .agents files (optional)
+      description: Link skill files or related guidance to follow.
+      placeholder: |
+        - `.agents/skills/convex-security-check/SKILL.md`
+        - `.agents/skills/convex-functions/SKILL.md`
+    validations:
+      required: false
+
