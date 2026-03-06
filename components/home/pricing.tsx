@@ -51,7 +51,7 @@ export function PricingSection() {
             <Skeleton className="h-10 w-56 mx-auto" />
           </div>
           {/* Skeleton cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5 max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5 max-w-6xl mx-auto">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i}>
                 <div className="rounded-xl border border-border/40 bg-background overflow-hidden">
@@ -162,7 +162,7 @@ export function PricingSection() {
           {/* Cards */}
           <div className="max-w-6xl mx-auto">
             <div
-              className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5"
               aria-label="Service pricing cards"
             >
               {mainServices.map((service, index) => {
