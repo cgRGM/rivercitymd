@@ -1,165 +1,386 @@
-# River City MD Agent Operating Guide
+---
+applyTo: "**/*.{ts,tsx,js,jsx}"
+---
 
-GitHub is the source of truth for planning and status. Agents must not manage delivery state only in local context.
+# GitHub‑Driven Development Workflow
 
-## Non-Negotiable Delivery Loop
+This file defines how autonomous agents should plan, implement, test, and ship code using **GitHub Issues, GitHub Projects, and Pull Requests as the source of truth**.
 
-Every work item follows this loop:
+The goal is to enforce a reliable **Plan → Branch → Implement → Test → PR → Merge → Ship** workflow while integrating tightly with the GitHub CLI (`gh`).
 
-1. Plan.
-2. Create issue.
-3. Create feature branch.
-4. Implement.
-5. Test.
-6. Open PR.
-7. Review.
-8. Merge to `main` (or `develop` then `main` if that flow exists).
-9. Close issue.
+Reference:
+https://cli.github.com/manual/gh
 
-No direct implementation on `main`.
+---
 
-## GitHub Workflow to Create and Enforce
+# Core Principles
 
-### 1) Issues (Required)
+1. **GitHub is the source of truth**
+   - Issues define work
+   - Projects track progress
+   - PRs ship code
 
-Use the issue templates in `.github/ISSUE_TEMPLATE/`:
+2. **Never push directly to `main` or `master`**
 
-- `feature.yml`
-- `bug.yml`
-- `chore.yml`
+3. **Every change must trace to a GitHub Issue**
 
-Each issue must include:
+4. **All work flows through a Pull Request**
 
-- Title prefix:
-  - `feat: ...`
-  - `fix: ...`
-  - `chore: ...`
-- Problem/goal description.
-- Acceptance criteria checklist.
-- Optional links to relevant `.agents` files.
+5. **Project status must reflect real development state**
 
-### 2) Branching Rules (Required)
+---
 
-Branch from `main` unless the repo is explicitly using `develop` as integration.
+# Development Lifecycle
 
-Required branch naming:
+Agents must follow this lifecycle.
 
-- `feat/<slug>-<issueNumber>`
-- `fix/<slug>-<issueNumber>`
-- `chore/<slug>-<issueNumber>`
+1. Discover or create Issue
+2. Ensure repository Project exists
+3. Add Issue to Project (Backlog)
+4. Enter Plan Mode
+5. Create branch
+6. Implement
+7. Run quality gates
+8. Preview if applicable
+9. Open Pull Request
+10. Update Project status
+11. Address CI/review
+12. Merge
+13. Mark Project item Done
 
-Examples:
+---
 
-- `feat/admin-trip-log-filters-142`
-- `fix/payment-intent-timeout-203`
-- `chore/update-convex-tests-187`
+# Plan Mode (Required Before Coding)
 
-### 3) Pull Requests (Required)
+Before generating code, the agent must:
 
-Use `.github/pull_request_template.md`.
+1. Read the GitHub Issue
+2. Extract acceptance criteria
+3. Identify affected files
+4. Identify required tests
+5. Define implementation strategy
+6. Confirm branch strategy
 
-PR title:
+Plan output should include:
 
-- Mirror issue title style (`feat: ...`, `fix: ...`, `chore: ...`).
+- Issue link
+- Implementation steps
+- File changes
+- Test strategy
+- Branch name
+- PR plan
 
-PR body must include:
+Agents must **not begin coding until Plan Mode completes**.
 
-- Summary.
-- Implementation notes.
-- Testing notes.
-- `Closes #<issueNumber>`.
+---
 
-### 4) GitHub Project Board (Required)
+# GitHub CLI Operational Commands
 
-Use one GitHub Project board for this repo with columns:
+Agents should use `gh` for GitHub interactions.
 
-- `Backlog`
-- `In Progress`
-- `In Review`
-- `Done`
+## Verify authentication
 
-State transitions:
+```bash
+gh auth status
+```
 
-- Issue created -> `Backlog`
-- Branch created and coding started -> `In Progress`
-- PR opened -> `In Review`
-- PR merged and issue closed -> `Done`
+## Confirm repository context
 
-Agents must keep card state current whenever they create or modify an issue/PR.
+```bash
+gh repo view
+```
 
-## Project Reality (Current Repo Layout)
+---
 
-- Frontend: Next.js App Router in `app/`
-- Shared UI/components: `components/` (includes `components/ui`, admin, dashboard, home)
-- Backend/business logic: Convex domain modules in `convex/`
-- Data model: `convex/schema.ts`
-- Tests: Vitest and `convex/*.test.ts`
-- CI: `.github/workflows/test.yml` runs lint, build, test on push/PR
-- Agent skill system: `.agents/skills/*`
+# Issue Workflow
 
-## `.agents` Is the First Stop Before Planning or Coding
+## List Issues
 
-Before creating a plan or writing code:
+```bash
+gh issue list --state open
+```
 
-1. Inspect `.agents/skills/`.
-2. Open relevant `SKILL.md`.
-3. Follow any linked companion docs (`AGENTS.md`, `rules/*.md`, `LICENSE.txt`, etc.).
+## Search Issues
 
-## Domain Chronicle (`.agents/skills`)
+```bash
+gh issue list --search "<keywords>"
+```
 
-| Domain / Skill | Path | Purpose | Supports | Consult When | Related Files |
-|---|---|---|---|---|---|
-| Scope control | `.agents/skills/avoid-feature-creep/` | Prevent unnecessary scope growth | MVP scoping, backlog control, feature triage | Requests add “one more feature” or scope drifts | `SKILL.md` |
-| Skill discovery | `.agents/skills/find-skills/` | Find/install additional external skills | Capability discovery and extension | Local skills do not cover the request | `SKILL.md` |
-| Frontend design | `.agents/skills/frontend-design/` | Distinctive, production-quality UI | Page/component styling and UX polish | Building/redesigning UI | `SKILL.md`, `LICENSE.txt` |
-| React/Next performance | `.agents/skills/vercel-react-best-practices/` | React/Next performance guidance | Refactors, bundle/render/data-flow tuning | Touching React/Next behavior or perf | `SKILL.md`, `AGENTS.md`, `rules/*.md` |
-| Convex umbrella index | `.agents/skills/convex/` | Routes to Convex sub-skills | Picking correct Convex guidance | Any backend/data task in `convex/` | `SKILL.md` |
-| Convex function patterns | `.agents/skills/convex-functions/` | Query/mutation/action/http patterns | Backend function design | Writing/updating Convex functions | `SKILL.md` |
-| Convex schema + validation | `.agents/skills/convex-schema-validator/` | Schema modeling and validators | Table/index design | Changing `convex/schema.ts` | `SKILL.md` |
-| Convex best practices | `.agents/skills/convex-best-practices/` | Production Convex patterns | Organization, idempotency, errors | Any substantial Convex change | `SKILL.md` |
-| Convex realtime | `.agents/skills/convex-realtime/` | Subscription/optimistic patterns | Reactive UX and pagination | Realtime behavior changes | `SKILL.md` |
-| Convex HTTP actions | `.agents/skills/convex-http-actions/` | Webhooks/API endpoints | Routing, CORS, signatures | Editing `convex/http.ts` | `SKILL.md` |
-| Convex file storage | `.agents/skills/convex-file-storage/` | Upload/storage/serving patterns | Media/file workflows | Handling files in Convex | `SKILL.md` |
-| Convex migrations | `.agents/skills/convex-migrations/` | Safe schema/data evolution | Backfills and migrations | Evolving live schema/data | `SKILL.md` |
-| Convex security quick check | `.agents/skills/convex-security-check/` | Security checklist | Fast auth/access validation | Pre-merge security pass | `SKILL.md` |
-| Convex security deep audit | `.agents/skills/convex-security-audit/` | Deep security review | Authorization/data boundary audit | High-risk auth/payment/admin changes | `SKILL.md` |
-| Convex agents | `.agents/skills/convex-agents/` | Stateful AI agents with Convex | Threads, tools, streaming, RAG | Building AI agent features | `SKILL.md` |
-| Convex cron jobs | `.agents/skills/convex-cron-jobs/` | Scheduled/background execution | Intervals, cron expressions, retries | Editing `convex/crons.ts` | `SKILL.md` |
-| Convex component authoring | `.agents/skills/convex-component-authoring/` | Reusable Convex components | Packaging and isolation | Authoring reusable modules | `SKILL.md` |
+## View Issue
 
-## Repo Conventions to Preserve
+```bash
+gh issue view <issueNumber> --comments
+```
 
-- Authentication:
-  - Frontend: Clerk hooks/components.
-  - Backend: `ctx.auth.getUserIdentity()`.
-  - User linkage: Convex `users` via `clerkUserId`.
-- Schema-first changes: update `convex/schema.ts` first or together with logic.
-- Query performance: prefer indexed queries (`withIndex`) over broad filters.
-- Validation: explicit validators for function args and returns.
-- User-visible backend errors: use `ConvexError`.
+## Create Issue
 
-## Automation Status
+```bash
+gh issue create --title "feat: ..." --body "..."
+```
 
-Implemented in-repo:
+Issue titles must follow:
 
-- `.github/workflows/pr-conventions.yml` enforces:
-  - Branch name pattern: `^(feat|fix|chore)/[a-z0-9-]+-[0-9]+$`
-  - PR title prefix: `feat:`, `fix:`, or `chore:`
-  - PR body sections: `## Summary`, `## Implementation Notes`, `## Testing Notes`
-  - Required issue link pattern: `Closes #<issueNumber>`
+- `feat:`
+- `fix:`
+- `chore:`
 
-Recommended project-board automations (configure in GitHub Project workflows or Actions):
+Example:
 
-- Auto-add new issues to project -> `Backlog`
-- Move linked issue to `In Review` when PR opens
-- Move issue to `Done` when issue closes from merged PR
-- Auto-label issue type/state from templates (`type:*`, `status:*`)
+```
+feat: add authentication middleware
+```
 
-## Maintenance Responsibility
+---
 
-When `.agents` structure, issue/PR conventions, or board workflow changes, update:
+# GitHub Project Workflow
 
-- `agents.md`
-- `copilot-instructions.md`
-- `.github/ISSUE_TEMPLATE/*`
-- `.github/pull_request_template.md`
+Every repository should have a **GitHub Project (kanban)** attached.
+
+Agents must ensure a project exists before beginning work.
+
+## Determine repo owner
+
+```bash
+gh repo view --json owner,name -q '.owner.login'
+```
+
+## List Projects
+
+```bash
+gh project list --owner <orgOrUser>
+```
+
+## View Project
+
+```bash
+gh project view <projectNumber> --owner <orgOrUser>
+```
+
+## Create Project if none exists
+
+```bash
+gh project create \
+  --owner <orgOrUser> \
+  --title "<repo-name> Project"
+```
+
+---
+
+# Project Status Mapping
+
+| Development State | Project Status |
+| ----------------- | -------------- |
+| Issue created     | Backlog        |
+| Branch created    | In Progress    |
+| PR opened         | In Review      |
+| PR merged         | Done           |
+
+---
+
+# Add Issue to Project
+
+```bash
+gh project item-add <projectNumber> \
+  --owner <orgOrUser> \
+  --url <issueUrl>
+```
+
+---
+
+# View Project Items
+
+```bash
+gh project item-list <projectNumber> \
+  --owner <orgOrUser>
+```
+
+---
+
+# Update Project Status
+
+Retrieve field IDs:
+
+```bash
+gh project view <projectNumber> \
+  --owner <orgOrUser> \
+  --format json
+```
+
+Update status:
+
+```bash
+gh project item-edit <projectNumber> \
+  --owner <orgOrUser> \
+  --id <itemId> \
+  --field-id <statusFieldId> \
+  --single-select-option-id <optionId>
+```
+
+If status update cannot be performed due to missing IDs, log the reason and continue development.
+
+---
+
+# Branch Strategy
+
+Branches must always derive from `main`.
+
+Update main first:
+
+```bash
+git checkout main
+git pull origin main
+```
+
+Create branch:
+
+```bash
+git checkout -b <type>/<slug>-<issueNumber>
+```
+
+Branch naming rules:
+
+```
+feat/<slug>-<issueNumber>
+fix/<slug>-<issueNumber>
+chore/<slug>-<issueNumber>
+```
+
+Example:
+
+```
+feat/auth-middleware-42
+```
+
+Rules:
+
+- lowercase
+- kebab-case
+- descriptive slug
+
+---
+
+# Pull Request Rules
+
+PR title must match the Issue title exactly.
+
+Required PR body:
+
+```
+## Summary
+
+## Implementation Notes
+
+## Testing Notes
+
+Closes #<issueNumber>
+```
+
+Create PR:
+
+```bash
+gh pr create \
+  --title "<issueTitle>" \
+  --body "<PR body>" \
+  --base main \
+  --head <branchName>
+```
+
+---
+
+# Merge Rules
+
+Only merge when:
+
+- CI passes
+- Tests pass
+- Review feedback resolved
+
+Merge PR:
+
+```bash
+gh pr merge --merge --delete-branch
+```
+
+After merge:
+
+- Issue closes automatically
+- Move Project item → Done
+
+---
+
+# Required Quality Gates
+
+Agents must run before PR:
+
+```bash
+pnpm check
+pnpm typecheck
+pnpm test
+```
+
+If lint fixes required:
+
+```bash
+pnpm fix
+```
+
+Follow **Ultracite standards**.
+
+---
+
+# Repository Architecture Conventions
+
+Follow existing project structure.
+
+```
+app/
+components/
+lib/
+db/
+workflows/
+```
+
+Avoid unrelated refactors.
+
+Changes must stay focused on the Issue.
+
+---
+
+# Agent Skill Routing
+
+Agents should inspect `.agents/skills` before implementing work.
+
+| Domain                      | Path                                         | Purpose                          |
+| --------------------------- | -------------------------------------------- | -------------------------------- |
+| Copywriting                 | `.agents/skills/copywriting`                 | Marketing copy frameworks        |
+| Programmatic SEO            | `.agents/skills/programmatic-seo`            | SEO page generation              |
+| SEO Audit                   | `.agents/skills/seo-audit`                   | Technical SEO diagnostics        |
+| Email Best Practices        | `.agents/skills/email-best-practices`        | Deliverability & compliance      |
+| Frontend Design             | `.agents/skills/frontend-design`             | UI design guidance               |
+| Vercel Composition Patterns | `.agents/skills/vercel-composition-patterns` | React composition                |
+| Vercel React Best Practices | `.agents/skills/vercel-react-best-practices` | Next.js performance              |
+| Workflow                    | `.agents/skills/workflow`                    | Reserved for workflow automation |
+
+Agents must inspect the relevant skill's `SKILL.md` before implementing code.
+
+---
+
+# Synchronization Rule
+
+Keep this file synchronized with:
+
+- `AGENTS.md`
+- `.github/copilot-instructions.md`
+- `.agents/workflow/*`
+
+When updating workflow rules, update all references in the same PR.
+
+---
+
+# Summary
+
+Agents must operate using:
+
+Issue → Plan → Branch → Implement → Test → PR → Merge → Done
+
+GitHub Issues and Projects must always reflect the **true state of development**.
