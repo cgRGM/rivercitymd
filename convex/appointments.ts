@@ -1840,3 +1840,42 @@ export const chargeFinalPayment = internalAction({
     }
   },
 });
+
+// Admin-only: retry failed Stripe invoice generation
+export const retryInvoiceGeneration = mutation({
+  args: {
+    invoiceId: v.id("invoices"),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const invoice = await ctx.db.get(args.invoiceId);
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+
+    if (!invoice.depositPaid) {
+      throw new Error("Deposit has not been paid yet");
+    }
+
+    if (invoice.stripeInvoiceId) {
+      throw new Error("Stripe invoice already exists");
+    }
+
+    // Clear the error and re-schedule invoice generation
+    await ctx.db.patch(args.invoiceId, {
+      invoiceGenerationError: undefined,
+    });
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.payments.createStripeInvoiceAfterDeposit,
+      {
+        invoiceId: args.invoiceId,
+        appointmentId: invoice.appointmentId,
+      },
+    );
+
+    return { success: true };
+  },
+});

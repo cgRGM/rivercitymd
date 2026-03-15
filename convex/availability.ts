@@ -98,6 +98,16 @@ export const addTimeBlock = mutation({
   },
 });
 
+export const deleteTimeBlock = mutation({
+  args: {
+    timeBlockId: v.id("timeBlocks"),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    await ctx.db.delete(args.timeBlockId);
+  },
+});
+
 async function getBusinessHoursForDate(ctx: any, dateKey: string) {
   const dayOfWeek = getUtcDayOfWeek(dateKey);
 

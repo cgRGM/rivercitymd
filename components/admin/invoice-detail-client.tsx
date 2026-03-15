@@ -1,8 +1,10 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useState } from "react";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -26,6 +28,7 @@ import {
   ExternalLink,
   Calendar,
   FileText,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -65,6 +68,22 @@ function formatDate(date: string | null | undefined) {
 
 export default function InvoiceDetailClient({ invoiceId }: Props) {
   const invoice = useQuery(api.invoices.getById, { invoiceId });
+  const retryInvoiceGeneration = useMutation(api.appointments.retryInvoiceGeneration);
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const handleRetryInvoice = async () => {
+    setIsRetrying(true);
+    try {
+      await retryInvoiceGeneration({ invoiceId });
+      toast.success("Invoice generation retried. Check back shortly.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to retry invoice generation",
+      );
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   if (invoice === undefined) {
     return (
@@ -149,6 +168,32 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
           </a>
         )}
       </div>
+
+      {/* Invoice Generation Error Banner */}
+      {invoice.invoiceGenerationError && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-start gap-4 py-4">
+            <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-destructive">
+                Stripe Invoice Generation Failed
+              </p>
+              <p className="text-sm text-muted-foreground mt-1 break-words">
+                {invoice.invoiceGenerationError}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRetryInvoice}
+              disabled={isRetrying}
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${isRetrying ? "animate-spin" : ""}`} />
+              {isRetrying ? "Retrying..." : "Retry"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">

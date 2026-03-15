@@ -186,6 +186,7 @@ const schema = defineSchema({
     notes: v.optional(v.string()),
     createdBy: v.id("users"),
     reminderScheduledId: v.optional(v.id("_scheduled_functions")),
+    isTest: v.optional(v.boolean()),
   })
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])
@@ -232,6 +233,7 @@ const schema = defineSchema({
     stripeInvoiceUrl: v.optional(v.string()),
     paymentMethodId: v.optional(v.id("paymentMethods")),
     notes: v.optional(v.string()),
+    invoiceGenerationError: v.optional(v.string()),
     // Deposit fields
     depositAmount: v.optional(v.number()), // $50 × vehicle count
     depositPaid: v.optional(v.boolean()), // true when deposit charged

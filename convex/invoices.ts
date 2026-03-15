@@ -388,6 +388,31 @@ export const updateStripeInvoiceData = internalMutation({
   },
 });
 
+// Mark invoice generation error (called when Stripe invoice creation fails)
+export const markInvoiceGenerationError = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.invoiceId, {
+      invoiceGenerationError: args.error,
+    });
+  },
+});
+
+// Clear invoice generation error (used by retry flow)
+export const clearInvoiceGenerationError = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.invoiceId, {
+      invoiceGenerationError: undefined,
+    });
+  },
+});
+
 // Internal repair mutation used by payment backfills.
 export const resetFalsePaidStateInternal = internalMutation({
   args: {

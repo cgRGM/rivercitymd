@@ -21,7 +21,23 @@ import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Trash2, Plus, Clock } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const businessSchema = z.object({
   name: z.string().min(1, "Business name is required"),
@@ -65,18 +81,39 @@ const DEFAULT_NOTIFICATION_SETTINGS: AdminNotificationSettings = {
   },
 };
 
+function formatTime12h(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const displayH = h % 12 || 12;
+  return `${displayH}:${m.toString().padStart(2, "0")} ${period}`;
+}
+
 export default function SettingsPage() {
   const business = useQuery(api.business.get);
   const businessHours = useQuery(api.availability.getBusinessHours);
   const setupReadiness = useQuery(api.setupReadiness.getAdminSetupReadiness);
   const updateBusiness = useMutation(api.business.update);
   const setBusinessHours = useMutation(api.availability.setBusinessHours);
+  const timeBlocks = useQuery(api.availability.getBlockedTimes, {
+    startDate: new Date().toISOString().split("T")[0],
+    endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+  });
+  const addTimeBlock = useMutation(api.availability.addTimeBlock);
+  const deleteTimeBlock = useMutation(api.availability.deleteTimeBlock);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isHoursLoading, setIsHoursLoading] = useState(false);
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
   const [notificationSettings, setNotificationSettings] =
     useState<AdminNotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  const [isTimeBlockDialogOpen, setIsTimeBlockDialogOpen] = useState(false);
+  const [timeBlockForm, setTimeBlockForm] = useState({
+    date: "",
+    startTime: "09:00",
+    endTime: "17:00",
+    reason: "",
+    type: "time_off" as "time_off" | "maintenance" | "other",
+  });
 
   // Business hours state - initialize with default values or loaded data
   const [hoursForm, setHoursForm] = useState(() => {
@@ -241,6 +278,30 @@ export default function SettingsPage() {
       toast.error("Failed to save notification settings");
     } finally {
       setIsNotificationsLoading(false);
+    }
+  };
+
+  const handleAddTimeBlock = async () => {
+    if (!timeBlockForm.date || !timeBlockForm.reason) {
+      toast.error("Date and reason are required");
+      return;
+    }
+    try {
+      await addTimeBlock(timeBlockForm);
+      toast.success("Time block added");
+      setIsTimeBlockDialogOpen(false);
+      setTimeBlockForm({ date: "", startTime: "09:00", endTime: "17:00", reason: "", type: "time_off" });
+    } catch {
+      toast.error("Failed to add time block");
+    }
+  };
+
+  const handleDeleteTimeBlock = async (timeBlockId: Id<"timeBlocks">) => {
+    try {
+      await deleteTimeBlock({ timeBlockId });
+      toast.success("Time block removed");
+    } catch {
+      toast.error("Failed to remove time block");
     }
   };
 
@@ -499,8 +560,145 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Time Blocks */}
+      <Card className="animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Time Blocks
+              </CardTitle>
+              <CardDescription>
+                Manage holidays, time off, and blocked periods
+              </CardDescription>
+            </div>
+            <Dialog open={isTimeBlockDialogOpen} onOpenChange={setIsTimeBlockDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Time Block
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Time Block</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="tb-date">Date</Label>
+                    <Input
+                      id="tb-date"
+                      type="date"
+                      value={timeBlockForm.date}
+                      onChange={(e) => setTimeBlockForm((prev) => ({ ...prev, date: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="tb-start">Start Time</Label>
+                      <Input
+                        id="tb-start"
+                        type="time"
+                        value={timeBlockForm.startTime}
+                        onChange={(e) => setTimeBlockForm((prev) => ({ ...prev, startTime: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="tb-end">End Time</Label>
+                      <Input
+                        id="tb-end"
+                        type="time"
+                        value={timeBlockForm.endTime}
+                        onChange={(e) => setTimeBlockForm((prev) => ({ ...prev, endTime: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="tb-reason">Reason</Label>
+                    <Input
+                      id="tb-reason"
+                      value={timeBlockForm.reason}
+                      onChange={(e) => setTimeBlockForm((prev) => ({ ...prev, reason: e.target.value }))}
+                      placeholder="e.g., Holiday, Vacation, Equipment maintenance"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="tb-type">Type</Label>
+                    <Select
+                      value={timeBlockForm.type}
+                      onValueChange={(value: "time_off" | "maintenance" | "other") =>
+                        setTimeBlockForm((prev) => ({ ...prev, type: value }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="time_off">Time Off</SelectItem>
+                        <SelectItem value="maintenance">Maintenance</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button onClick={handleAddTimeBlock} className="w-full">
+                    Add Time Block
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!timeBlocks || timeBlocks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No upcoming time blocks</p>
+          ) : (
+            <div className="space-y-3">
+              {timeBlocks.map((block) => (
+                <div
+                  key={block._id}
+                  className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{block.date}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {formatTime12h(block.startTime)} - {formatTime12h(block.endTime)}
+                      </span>
+                      <Badge
+                        variant={
+                          block.type === "time_off"
+                            ? "secondary"
+                            : block.type === "maintenance"
+                              ? "outline"
+                              : "default"
+                        }
+                      >
+                        {block.type === "time_off"
+                          ? "Time Off"
+                          : block.type === "maintenance"
+                            ? "Maintenance"
+                            : "Other"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{block.reason}</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDeleteTimeBlock(block._id as Id<"timeBlocks">)}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Notifications */}
-      <Card className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+      <Card className="animate-fade-in-up" style={{ animationDelay: "250ms" }}>
         <CardHeader>
           <CardTitle>Notifications</CardTitle>
           <CardDescription>

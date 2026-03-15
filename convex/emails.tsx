@@ -231,6 +231,7 @@ export const sendAdminDepositPaidNotification = internalAction({
   args: {
     appointmentId: v.id("appointments"),
     invoiceId: v.id("invoices"),
+    recipientOverride: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (shouldSkipEmails()) return;
@@ -274,7 +275,7 @@ export const sendAdminDepositPaidNotification = internalAction({
 
     await resend.sendEmail(ctx, {
       from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: "dustin@rivercitymd.com",
+      to: args.recipientOverride || "dustin@rivercitymd.com",
       subject: `Deposit Paid - ${user.name || user.email} - ${appointment.scheduledDate}`,
       html,
     });
@@ -285,6 +286,7 @@ export const sendAdminDepositPaidNotification = internalAction({
 export const sendAdminNewCustomerNotification = internalAction({
   args: {
     userId: v.id("users"),
+    recipientOverride: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (shouldSkipEmails()) return;
@@ -319,7 +321,7 @@ export const sendAdminNewCustomerNotification = internalAction({
 
     await resend.sendEmail(ctx, {
       from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: "dustin@rivercitymd.com",
+      to: args.recipientOverride || "dustin@rivercitymd.com",
       subject: `New Customer: ${user.name || user.email}`,
       html,
     });
@@ -330,6 +332,7 @@ export const sendAdminNewCustomerNotification = internalAction({
 export const sendAdminReviewSubmittedNotification = internalAction({
   args: {
     reviewId: v.id("reviews"),
+    recipientOverride: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (shouldSkipEmails()) return;
@@ -374,7 +377,7 @@ export const sendAdminReviewSubmittedNotification = internalAction({
 
     await resend.sendEmail(ctx, {
       from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: "dustin@rivercitymd.com",
+      to: args.recipientOverride || "dustin@rivercitymd.com",
       subject: `New Review: ${stars} from ${user.name || user.email}`,
       html,
     });
@@ -514,6 +517,7 @@ export const sendAdminAppointmentNotification = internalAction({
       v.literal("started"),
       v.literal("completed"),
     ),
+    recipientOverride: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (shouldSkipEmails()) return;
@@ -573,9 +577,29 @@ export const sendAdminAppointmentNotification = internalAction({
 
     await resend.sendEmail(ctx, {
       from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: "dustin@rivercitymd.com",
+      to: args.recipientOverride || "dustin@rivercitymd.com",
       subject: `${actionText} - ${appointment.scheduledDate} ${formattedTime}`,
       html,
+    });
+  },
+});
+
+// Generic internal action to send a raw email (used by test flows to forward admin emails)
+export const sendRawEmail = internalAction({
+  args: {
+    to: v.string(),
+    subject: v.string(),
+    html: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+    const business = await ctx.runQuery(api.business.get);
+    const fromName = business?.name || "River City MD";
+    await resend.sendEmail(ctx, {
+      from: `${fromName} <no-reply@notifications.rivercitymd.com>`,
+      to: args.to,
+      subject: args.subject,
+      html: args.html,
     });
   },
 });
@@ -583,6 +607,7 @@ export const sendAdminAppointmentNotification = internalAction({
 export const sendAdminMileageLogRequiredNotification = internalAction({
   args: {
     tripLogId: v.id("tripLogs"),
+    recipientOverride: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (shouldSkipEmails()) return;
@@ -642,7 +667,7 @@ export const sendAdminMileageLogRequiredNotification = internalAction({
 
     await resend.sendEmail(ctx, {
       from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: "dustin@rivercitymd.com",
+      to: args.recipientOverride || "dustin@rivercitymd.com",
       subject: `Mileage log required - ${tripLog.logDate}`,
       html,
     });

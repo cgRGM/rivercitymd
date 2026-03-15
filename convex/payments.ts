@@ -1164,7 +1164,19 @@ export const createStripeInvoiceAfterDeposit = internalAction({
     stripeInvoiceUrl: v.string(),
   }),
   handler: async (ctx, args) => {
-    return await createStripeInvoiceAfterDepositImpl(ctx, args);
+    try {
+      return await createStripeInvoiceAfterDepositImpl(ctx, args);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[payments] createStripeInvoiceAfterDeposit:failed invoiceId=${args.invoiceId} error=${message}`,
+      );
+      await ctx.runMutation(internal.invoices.markInvoiceGenerationError, {
+        invoiceId: args.invoiceId,
+        error: message,
+      });
+      throw error;
+    }
   },
 });
 
@@ -1897,6 +1909,7 @@ export const createBookingCheckout = action({
           emailAddress: user.email,
           ignoreExisting: true,
           redirectUrl: `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL || "http://localhost:3000"}/dashboard/appointments?payment=success`,
+          publicMetadata: { convexUserId: user._id, role: "client" },
         });
         
         console.log("Created Clerk invitation:", invitation.id);
