@@ -801,24 +801,32 @@ export const deliverQueuedNotification = internalAction({
       `[notifications] delivery attempt event=${args.event} channel=${args.channel} recipientType=${args.recipientType} dispatchId=${args.dispatchId}`,
     );
 
+    let result: DeliveryResult;
+
     if (args.channel === "email") {
       await deliverEmail(ctx, args);
-      return { delivered: true };
+      result = { delivered: true };
+    } else {
+      try {
+        await deliverSms(ctx, args);
+        result = { delivered: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(
+          `[notifications] sms delivery failed dispatchId=${args.dispatchId}: ${message}`,
+        );
+        result = { delivered: false, error: message };
+      }
     }
 
-    try {
-      await deliverSms(ctx, args);
-      return { delivered: true };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[notifications] sms delivery failed dispatchId=${args.dispatchId}: ${message}`,
-      );
-      return {
-        delivered: false,
-        error: message,
-      };
-    }
+    // Update dispatch status for scheduler-fallback path (workpool handles its own via handleNotificationCompletion)
+    await ctx.runMutation(internal.notifications.markDispatchDelivered, {
+      dispatchId: args.dispatchId,
+      delivered: result.delivered,
+      error: result.error,
+    });
+
+    return result;
   },
 });
 
@@ -877,6 +885,33 @@ export const handleNotificationCompletion = internalMutation({
     console.error(
       `[notifications] delivery failed dispatchId=${dispatch._id}: ${args.result.error}`,
     );
+    return null;
+  },
+});
+
+export const markDispatchDelivered = internalMutation({
+  args: {
+    dispatchId: v.id("notificationDispatches"),
+    delivered: v.boolean(),
+    error: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const dispatch = await ctx.db.get(args.dispatchId);
+    if (!dispatch) return null;
+    // Only update if still queued — avoid overwriting workpool completion
+    if (dispatch.status !== "queued") return null;
+
+    const now = Date.now();
+    if (args.delivered) {
+      await ctx.db.patch(dispatch._id, { status: "sent", error: undefined, updatedAt: now });
+    } else {
+      await ctx.db.patch(dispatch._id, {
+        status: "failed",
+        error: args.error || "Delivery failed",
+        updatedAt: now,
+      });
+    }
     return null;
   },
 });

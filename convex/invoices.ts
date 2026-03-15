@@ -126,7 +126,9 @@ export const getByStripeId = query({
 
     const invoice = await ctx.db
       .query("invoices")
-      .filter((q) => q.eq(q.field("stripeInvoiceId"), args.stripeInvoiceId))
+      .withIndex("by_stripe_invoice_id", (q) =>
+        q.eq("stripeInvoiceId", args.stripeInvoiceId),
+      )
       .first();
 
     if (!invoice) {
@@ -143,7 +145,9 @@ export const getByStripeIdInternal = internalQuery({
   handler: async (ctx, args): Promise<Doc<"invoices"> | null> => {
     return await ctx.db
       .query("invoices")
-      .filter((q) => q.eq(q.field("stripeInvoiceId"), args.stripeInvoiceId))
+      .withIndex("by_stripe_invoice_id", (q) =>
+        q.eq("stripeInvoiceId", args.stripeInvoiceId),
+      )
       .first();
   },
 });

@@ -47,8 +47,10 @@ type AppointmentRecord = {
   scheduledTime: string;
   status: "pending" | "confirmed" | "in_progress" | "completed" | "cancelled" | "rescheduled";
   totalPrice: number;
+  location: { street: string; city: string; state: string; zip: string; notes?: string };
   user: { name?: string; email?: string } | null;
   services: Array<{ _id: Id<"services">; name: string }>;
+  vehicles: Array<{ _id: Id<"vehicles">; year: number; make: string; model: string; color?: string }>;
   tripLogStatus: "required" | "draft" | "completed" | null;
   tripLogId?: Id<"tripLogs">;
   tripLogRequiredReason?: "completed_without_log";
@@ -244,30 +246,6 @@ export default function AppointmentsClient({}: Props) {
     }
   };
 
-  const getTripLogBadge = (tripLogStatus: AppointmentRecord["tripLogStatus"]) => {
-    if (tripLogStatus === "required") {
-      return (
-        <Badge variant="destructive" className="capitalize">
-          Required
-        </Badge>
-      );
-    }
-    if (tripLogStatus === "draft") {
-      return (
-        <Badge variant="secondary" className="capitalize">
-          Draft
-        </Badge>
-      );
-    }
-    if (tripLogStatus === "completed") {
-      return (
-        <Badge variant="default" className="capitalize">
-          Completed
-        </Badge>
-      );
-    }
-    return <span className="text-xs text-muted-foreground">N/A</span>;
-  };
 
   const columns: ColumnDef<AppointmentRecord>[] = [
     {
@@ -305,6 +283,27 @@ export default function AppointmentsClient({}: Props) {
             {services.map((service) => (
               <span key={service._id} className="text-sm">
                 {service.name}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    },
+    {
+      id: "vehicle",
+      accessorFn: (row) =>
+        row.vehicles.map((v) => `${v.year} ${v.make} ${v.model}`).join(", "),
+      header: "Vehicle",
+      cell: ({ row }) => {
+        const vehicles = row.original.vehicles;
+        if (!vehicles.length) {
+          return <span className="text-xs text-muted-foreground">N/A</span>;
+        }
+        return (
+          <div className="flex flex-col gap-1">
+            {vehicles.map((v) => (
+              <span key={v._id} className="text-sm">
+                {v.year} {v.make} {v.model}
               </span>
             ))}
           </div>
@@ -351,25 +350,15 @@ export default function AppointmentsClient({}: Props) {
       ),
     },
     {
-      id: "tripLog",
-      header: "Trip Log",
+      id: "address",
+      accessorFn: (row) => `${row.location.street} ${row.location.city}`,
+      header: "Address",
       cell: ({ row }) => {
-        const appointment = row.original;
-        const hasTripLog = Boolean(appointment.tripLogId) || appointment.tripLogStatus === "required";
-
+        const loc = row.original.location;
         return (
-          <div className="flex items-center gap-2">
-            {getTripLogBadge(appointment.tripLogStatus)}
-            {hasTripLog ? (
-              <Button
-                variant="link"
-                className="h-auto p-0 text-xs"
-                onClick={() => void handleOpenTripLog(appointment)}
-                disabled={loadingId === appointment._id}
-              >
-                Open Trip Log
-              </Button>
-            ) : null}
+          <div className="flex flex-col">
+            <span className="text-sm">{loc.street}</span>
+            <span className="text-xs text-muted-foreground">{loc.city}, {loc.state}</span>
           </div>
         );
       },
@@ -402,7 +391,8 @@ export default function AppointmentsClient({}: Props) {
       cell: ({ row }) => {
         const appointment = row.original;
         return (
-          <DropdownMenu>
+          <DropdownMenu
+          ><div onClick={(e) => e.stopPropagation()}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="h-8 w-8 p-0">
                 <span className="sr-only">Open menu</span>
@@ -459,7 +449,7 @@ export default function AppointmentsClient({}: Props) {
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu>
+          </div></DropdownMenu>
         );
       },
     },
@@ -521,7 +511,8 @@ export default function AppointmentsClient({}: Props) {
         data={filteredAppointments}
         filterColumn="customer"
         filterPlaceholder="Filter by customer..."
-        tableMinWidthClass="min-w-[1180px]"
+        tableMinWidthClass="min-w-[1280px]"
+        onRowClick={(row) => router.push(`/admin/appointments/${row._id}`)}
       />
 
       <Dialog

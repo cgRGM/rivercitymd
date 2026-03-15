@@ -95,13 +95,45 @@ export const getMyVehicles = query({
   },
 });
 
+export const updateVehicle = mutation({
+  args: {
+    id: v.id("vehicles"),
+    size: v.optional(
+      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+    ),
+    color: v.optional(v.string()),
+    licensePlate: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const vehicle = await ctx.db.get(args.id);
+    if (!vehicle) throw new Error("Vehicle not found");
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && vehicle.userId !== userId) {
+      throw new Error("Access denied");
+    }
+
+    const { id, ...updates } = args;
+    await ctx.db.patch(id, updates);
+    return id;
+  },
+});
+
 export const deleteVehicle = mutation({
   args: { id: v.id("vehicles") },
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    // Optional: Check if the user has permission to delete this vehicle
+    const vehicle = await ctx.db.get(args.id);
+    if (!vehicle) throw new Error("Vehicle not found");
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && vehicle.userId !== userId) {
+      throw new Error("Access denied");
+    }
 
     await ctx.db.delete(args.id);
   },

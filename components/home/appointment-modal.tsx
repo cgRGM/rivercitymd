@@ -44,6 +44,7 @@ import { ServiceCard } from "./service-card";
 interface RadarAddress {
   formattedAddress?: string;
   addressLabel?: string;
+  number?: string;
   addressComponents?: {
     street?: string;
     city?: string;
@@ -260,15 +261,16 @@ export default function AppointmentModal({
       // Store the full address data in localStorage for persistence
       localStorage.setItem("selectedAddress", JSON.stringify(address));
 
-      // Update form fields - Radar returns data directly on the address object
-      step1Form.setValue(
-        "street",
-        address.street || address.formattedAddress || "",
-        {
-          shouldValidate: true,
-          shouldDirty: true,
-        },
-      );
+      // Combine number + street from Radar response
+      const streetNumber = address.number || "";
+      const streetName = address.street || "";
+      const fullStreet = streetNumber
+        ? `${streetNumber} ${streetName}`.trim()
+        : streetName || address.formattedAddress || "";
+      step1Form.setValue("street", fullStreet, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
       step1Form.setValue("city", address.city || "", {
         shouldValidate: true,
         shouldDirty: true,
@@ -1184,6 +1186,9 @@ export default function AppointmentModal({
                    </div>
                    <span className="font-bold text-xl text-primary">$50.00</span>
                  </div>
+                 <p className="text-xs text-muted-foreground mt-2">
+                   This deposit is non-refundable and will be applied to your service total.
+                 </p>
              </div>
 
              <div className="mt-6">
@@ -1236,7 +1241,7 @@ export default function AppointmentModal({
                 </>
               ) : (
                 <>
-                  Pay Deposit & Confirm
+                  Pay Deposit & Book
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </>
               )}

@@ -134,7 +134,7 @@ export const getPendingCount = query({
 
     const appointments = await ctx.db
       .query("appointments")
-      .filter((q) => q.eq(q.field("status"), "pending"))
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
 
     return appointments.length;
@@ -242,6 +242,53 @@ export const getById = query({
     }
 
     return appointment;
+  },
+});
+
+export const getByIdWithDetails = query({
+  args: { appointmentId: v.id("appointments") },
+  handler: async (ctx, args) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) return null;
+
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && appointment.userId !== userId) {
+      throw new Error("Access denied");
+    }
+
+    const user = await ctx.db.get(appointment.userId);
+    const services = (
+      await Promise.all(appointment.serviceIds.map((id) => ctx.db.get(id)))
+    ).filter((s) => s !== null);
+    const vehicles = (
+      await Promise.all(appointment.vehicleIds.map((id) => ctx.db.get(id)))
+    ).filter((v) => v !== null);
+
+    const invoice = await ctx.db
+      .query("invoices")
+      .withIndex("by_appointment", (q) =>
+        q.eq("appointmentId", appointment._id),
+      )
+      .first();
+
+    const tripLog = await ctx.db
+      .query("tripLogs")
+      .withIndex("by_appointment", (q) =>
+        q.eq("appointmentId", appointment._id),
+      )
+      .first();
+
+    return {
+      ...appointment,
+      user,
+      services,
+      vehicles,
+      invoice,
+      tripLog,
+    };
   },
 });
 
@@ -495,27 +542,11 @@ export const update = mutation({
       updates.vehicleIds.map((id) => ctx.db.get(id)),
     );
     const validVehicles = vehicles.filter((v) => v !== null);
+    const vehicleSize = validVehicles[0]?.size || "medium";
 
     const totalPrice =
       validServices.reduce((sum, service) => {
-        const vehicleSize = validVehicles[0]?.size || "medium";
-        let price = service!.basePriceMedium || service!.basePrice || 0;
-
-        if (vehicleSize === "small") {
-          price =
-            service!.basePriceSmall ||
-            service!.basePriceMedium ||
-            service!.basePrice ||
-            0;
-        } else if (vehicleSize === "large") {
-          price =
-            service!.basePriceLarge ||
-            service!.basePriceMedium ||
-            service!.basePrice ||
-            0;
-        }
-
-        return sum + price;
+        return sum + getEffectiveServicePrice(service!, vehicleSize);
       }, 0) * updates.vehicleIds.length;
     const duration = validServices.reduce(
       (sum, service) => sum + (service!.duration || 0),
@@ -547,23 +578,7 @@ export const update = mutation({
 
     if (invoice) {
       const items = validServices.map((service) => {
-        const vehicleSize = validVehicles[0]?.size || "medium";
-        let unitPrice = service!.basePriceMedium || service!.basePrice || 0;
-
-        if (vehicleSize === "small") {
-          unitPrice =
-            service!.basePriceSmall ||
-            service!.basePriceMedium ||
-            service!.basePrice ||
-            0;
-        } else if (vehicleSize === "large") {
-          unitPrice =
-            service!.basePriceLarge ||
-            service!.basePriceMedium ||
-            service!.basePrice ||
-            0;
-        }
-
+        const unitPrice = getEffectiveServicePrice(service!, vehicleSize);
         return {
           serviceId: service!._id,
           serviceName: service!.name,
@@ -575,11 +590,14 @@ export const update = mutation({
 
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
       const total = subtotal + invoice.tax;
+      const depositAmount = invoice.depositAmount || 0;
+      const remainingBalance = Math.max(0, total - depositAmount);
 
       await ctx.db.patch(invoice._id, {
         items,
         subtotal,
         total,
+        remainingBalance,
       });
     }
 

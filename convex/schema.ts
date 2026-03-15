@@ -241,7 +241,8 @@ const schema = defineSchema({
     .index("by_user", ["userId"])
     .index("by_appointment", ["appointmentId"])
     .index("by_status", ["status"])
-    .index("by_invoice_number", ["invoiceNumber"]),
+    .index("by_invoice_number", ["invoiceNumber"])
+    .index("by_stripe_invoice_id", ["stripeInvoiceId"]),
 
   // Reviews
   reviews: defineTable({
