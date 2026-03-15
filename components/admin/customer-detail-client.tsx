@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -24,6 +25,7 @@ import {
   Car,
   FileText,
   AlertCircle,
+  Pencil,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -35,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatTime12h } from "@/lib/time";
+import { EditCustomerForm } from "@/components/forms";
 
 type Props = {
   customerId: Id<"users">;
@@ -43,6 +46,7 @@ type Props = {
 export default function CustomerDetailClient({ customerId }: Props) {
   const router = useRouter();
   const customerData = useQuery(api.users.getByIdWithDetails, { userId: customerId });
+  const [showEditForm, setShowEditForm] = useState(false);
 
   if (customerData === undefined) {
     return (
@@ -144,6 +148,10 @@ export default function CustomerDetailClient({ customerId }: Props) {
             </p>
           </div>
         </div>
+        <Button variant="outline" size="sm" onClick={() => setShowEditForm(true)}>
+          <Pencil className="w-4 h-4 mr-2" />
+          Edit Customer
+        </Button>
       </div>
 
       {/* Customer Info Cards */}
@@ -370,6 +378,12 @@ export default function CustomerDetailClient({ customerId }: Props) {
           )}
         </CardContent>
       </Card>
+
+      <EditCustomerForm
+        open={showEditForm}
+        onOpenChange={setShowEditForm}
+        customer={user}
+      />
     </div>
   );
 }

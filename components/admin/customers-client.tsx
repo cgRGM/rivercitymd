@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/ui/data-table";
-import { AddCustomerForm } from "@/components/forms";
+import { AddCustomerForm, EditCustomerForm } from "@/components/forms";
 import { toast } from "sonner";
 import {
   AlertCircle,
@@ -37,6 +37,9 @@ type CustomerRecord = {
   name?: string;
   email?: string;
   phone?: string;
+  address?: { street: string; city: string; state: string; zip: string };
+  notes?: string;
+  status?: "active" | "inactive";
   totalSpent?: number;
   totalBookings?: number;
   lastVisit?: string | null;
@@ -50,6 +53,7 @@ export default function CustomersClient() {
     | null
     | undefined;
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<CustomerRecord | null>(null);
 
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "Never";
@@ -179,6 +183,14 @@ export default function CustomersClient() {
             <DropdownMenuItem asChild>
               <Link href={`/admin/customers/${row.original._id}`}>View Details</Link>
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingCustomer(row.original);
+              }}
+            >
+              Edit Customer
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() =>
@@ -273,6 +285,14 @@ export default function CustomersClient() {
       />
 
       <AddCustomerForm open={showAddForm} onOpenChange={setShowAddForm} />
+
+      {editingCustomer && (
+        <EditCustomerForm
+          open={!!editingCustomer}
+          onOpenChange={(open) => !open && setEditingCustomer(null)}
+          customer={editingCustomer}
+        />
+      )}
     </div>
   );
 }
