@@ -19,6 +19,7 @@ import {
   CreditCard,
 } from "lucide-react";
 import Link from "next/link";
+import { formatTime12h } from "@/lib/time";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
@@ -163,7 +164,7 @@ export default function DashboardClient({}: Props) {
                     <div className="text-right">
                       <div className="font-medium">{formattedDate}</div>
                       <div className="text-sm text-muted-foreground">
-                        {appointment.scheduledTime}
+                        {formatTime12h(appointment.scheduledTime)}
                       </div>
                     </div>
                   </div>
@@ -198,7 +199,7 @@ export default function DashboardClient({}: Props) {
                       {log.appointment?.customerName || "Appointment Log"}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {log.logDate} • {log.appointment?.scheduledTime || "No time"}
+                      {log.logDate} • {log.appointment?.scheduledTime ? formatTime12h(log.appointment.scheduledTime) : "No time"}
                     </div>
                   </div>
                   <Link

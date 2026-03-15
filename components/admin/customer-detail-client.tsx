@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -33,12 +34,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatTime12h } from "@/lib/time";
 
 type Props = {
   customerId: Id<"users">;
 };
 
 export default function CustomerDetailClient({ customerId }: Props) {
+  const router = useRouter();
   const customerData = useQuery(api.users.getByIdWithDetails, { userId: customerId });
 
   if (customerData === undefined) {
@@ -100,7 +103,7 @@ export default function CustomerDetailClient({ customerId }: Props) {
   };
 
   const formatDateTime = (date: string, time: string) => {
-    return `${formatDate(date)} at ${time}`;
+    return `${formatDate(date)} at ${formatTime12h(time)}`;
   };
 
   const getStatusBadge = (status: string) => {
@@ -242,9 +245,10 @@ export default function CustomerDetailClient({ customerId }: Props) {
             <div className="space-y-4">
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               {appointments.map((apt: any) => (
-                <div
+                <Link
                   key={apt._id}
-                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors"
+                  href={`/admin/appointments/${apt._id}`}
+                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-secondary/50 transition-colors cursor-pointer"
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
@@ -272,7 +276,7 @@ export default function CustomerDetailClient({ customerId }: Props) {
                       {apt.city}, {apt.state}
                     </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -305,7 +309,11 @@ export default function CustomerDetailClient({ customerId }: Props) {
               <TableBody>
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {invoices.map((invoice: any) => (
-                  <TableRow key={invoice._id}>
+                  <TableRow
+                    key={invoice._id}
+                    className="cursor-pointer hover:bg-secondary/50"
+                    onClick={() => router.push(`/admin/invoices/${invoice._id}`)}
+                  >
                     <TableCell className="font-medium">
                       {invoice.invoiceNumber}
                     </TableCell>

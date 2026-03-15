@@ -30,6 +30,7 @@ import {
   MoreHorizontal,
   Plus,
 } from "lucide-react";
+import { formatTime12h } from "@/lib/time";
 
 type AppointmentSummary = {
   _id: Id<"appointments">;
@@ -230,7 +231,7 @@ export default function TripLogsClient() {
         return (
           <div className="min-w-[220px] text-xs">
             <p>
-              {appointment.scheduledDate} {appointment.scheduledTime}
+              {appointment.scheduledDate} {formatTime12h(appointment.scheduledTime)}
             </p>
             <p className="text-muted-foreground">
               {appointment.customerName || "Unknown customer"}
@@ -245,7 +246,12 @@ export default function TripLogsClient() {
       cell: ({ row }) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 w-8 p-0" disabled={actionRowId === row.original._id}>
+            <Button
+              variant="ghost"
+              className="h-8 w-8 p-0"
+              disabled={actionRowId === row.original._id}
+              onClick={(e) => e.stopPropagation()}
+            >
               <span className="sr-only">Open actions</span>
               <MoreHorizontal className="h-4 w-4" />
             </Button>
@@ -329,6 +335,7 @@ export default function TripLogsClient() {
         filterColumn="businessPurpose"
         filterPlaceholder="Filter by business purpose..."
         tableMinWidthClass="min-w-[1220px]"
+        onRowClick={(row) => router.push(`/admin/logs/${row._id}`)}
       />
 
       <AddTripLogForm

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { formatTime12h } from "./lib/time";
 
 const ADMIN_NOTIFICATION_EMAIL_TO = "dustin@rivercitymd.com";
 
@@ -455,10 +456,10 @@ async function buildSmsBody(
             : "completed";
 
   if (args.recipientType === "admin") {
-    return `River City MD: Appointment ${statusLabel} for ${customerName} on ${appointment.scheduledDate} at ${appointment.scheduledTime}.`;
+    return `River City MD: Appointment ${statusLabel} for ${customerName} on ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
   }
 
-  return `River City MD: Your appointment is ${statusLabel} for ${appointment.scheduledDate} at ${appointment.scheduledTime}.`;
+  return `River City MD: Your appointment is ${statusLabel} for ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
 }
 
 async function deliverEmail(ctx: any, args: QueueDispatchArgs): Promise<void> {

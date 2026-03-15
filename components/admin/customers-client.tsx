@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ColumnDef } from "@tanstack/react-table";
 import { useQuery } from "convex/react";
@@ -43,6 +44,7 @@ type CustomerRecord = {
 };
 
 export default function CustomersClient() {
+  const router = useRouter();
   const customersQuery = useQuery(api.users.listWithStats) as
     | CustomerRecord[]
     | null
@@ -163,7 +165,11 @@ export default function CustomersClient() {
       cell: ({ row }) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 w-8 p-0">
+            <Button
+              variant="ghost"
+              className="h-8 w-8 p-0"
+              onClick={(e) => e.stopPropagation()}
+            >
               <span className="sr-only">Open actions</span>
               <MoreHorizontal className="h-4 w-4" />
             </Button>
@@ -263,6 +269,7 @@ export default function CustomersClient() {
         filterColumn="name"
         filterPlaceholder="Search customers by name..."
         tableMinWidthClass="min-w-[1080px]"
+        onRowClick={(row) => router.push(`/admin/customers/${row._id}`)}
       />
 
       <AddCustomerForm open={showAddForm} onOpenChange={setShowAddForm} />

@@ -185,6 +185,7 @@ const schema = defineSchema({
     totalPrice: v.number(),
     notes: v.optional(v.string()),
     createdBy: v.id("users"),
+    reminderScheduledId: v.optional(v.id("_scheduled_functions")),
   })
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])

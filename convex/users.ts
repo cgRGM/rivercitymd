@@ -328,6 +328,9 @@ export const create = mutation({
     make: v.optional(v.string()),
     model: v.optional(v.string()),
     color: v.optional(v.string()),
+    size: v.optional(
+      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+    ),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
@@ -362,10 +365,40 @@ export const create = mutation({
         make: args.make,
         model: args.model,
         color: args.color,
+        size: args.size,
+      });
+    }
+
+    if (args.email) {
+      await ctx.scheduler.runAfter(0, internal.users.sendInvitation, {
+        userId,
+        email: args.email,
       });
     }
 
     return userId;
+  },
+});
+
+// Send Clerk invitation to a newly created customer
+export const sendInvitation = internalAction({
+  args: { userId: v.id("users"), email: v.string() },
+  handler: async (_ctx, args) => {
+    const { createClerkClient } = await import("@clerk/backend");
+    const clerkClient = createClerkClient({
+      secretKey: process.env.CLERK_SECRET_KEY,
+    });
+
+    const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL || process.env.CONVEX_SITE_URL}/dashboard`;
+    await clerkClient.invitations.createInvitation({
+      emailAddress: args.email,
+      redirectUrl,
+      publicMetadata: { convexUserId: args.userId, role: "client" },
+      ignoreExisting: true,
+    });
+    console.log(
+      `[users] Invitation sent to ${args.email} for user ${args.userId}`,
+    );
   },
 });
 

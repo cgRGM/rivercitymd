@@ -40,6 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/ui/data-table";
 import { toast } from "sonner";
 import { AddAppointmentForm } from "@/components/forms";
+import { formatTime12h } from "@/lib/time";
 
 type AppointmentRecord = {
   _id: Id<"appointments">;
@@ -336,7 +337,7 @@ export default function AppointmentsClient({}: Props) {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-muted-foreground" />
-          <span>{row.original.scheduledTime}</span>
+          <span>{formatTime12h(row.original.scheduledTime)}</span>
         </div>
       ),
     },

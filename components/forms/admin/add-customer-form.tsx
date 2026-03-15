@@ -26,6 +26,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -41,6 +48,7 @@ const formSchema = z.object({
   make: z.string().optional(),
   model: z.string().optional(),
   color: z.string().optional(),
+  size: z.enum(["small", "medium", "large"]).optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -69,6 +77,7 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
       make: "",
       model: "",
       color: "",
+      size: undefined,
     },
   });
 
@@ -86,13 +95,12 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
           zip: data.zip,
         },
         notes: data.notes,
+        year: data.year,
+        make: data.make || undefined,
+        model: data.model || undefined,
+        color: data.color || undefined,
+        size: data.size,
       });
-
-      // Create vehicle if vehicle info is provided
-      if (data.year && data.make && data.model) {
-        // Note: We would need to import and use the create vehicle mutation here
-        // For now, we'll skip this as it's optional
-      }
 
       toast.success("Customer created successfully");
       form.reset();
@@ -301,6 +309,32 @@ export function AddCustomerForm({ open, onOpenChange }: AddCustomerFormProps) {
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="size"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Vehicle Size</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select size" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="small">Small</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="large">Large</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
 
             {/* Notes */}

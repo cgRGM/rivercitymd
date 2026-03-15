@@ -27,6 +27,37 @@ function shouldScheduleNotificationJobs(): boolean {
   return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
 }
 
+async function scheduleReminder(
+  ctx: any,
+  appointmentId: Id<"appointments">,
+  scheduledDate: string,
+  scheduledTime: string,
+): Promise<void> {
+  const aptDateTime = new Date(
+    `${scheduledDate}T${scheduledTime}:00`,
+  );
+  const reminderTime = aptDateTime.getTime() - 24 * 60 * 60 * 1000;
+  if (reminderTime > Date.now()) {
+    const scheduledId = await ctx.scheduler.runAt(
+      reminderTime,
+      internal.emails.sendAppointmentReminderEmail,
+      { appointmentId },
+    );
+    await ctx.db.patch(appointmentId, { reminderScheduledId: scheduledId });
+  }
+}
+
+async function cancelReminder(
+  ctx: any,
+  appointmentId: Id<"appointments">,
+  reminderScheduledId: Id<"_scheduled_functions"> | undefined,
+): Promise<void> {
+  if (reminderScheduledId) {
+    await ctx.scheduler.cancel(reminderScheduledId);
+    await ctx.db.patch(appointmentId, { reminderScheduledId: undefined });
+  }
+}
+
 async function ensureStripeCustomerId(
   ctx: any,
   user: Doc<"users">,
@@ -733,6 +764,28 @@ export const updateStatus = mutation({
           throw error;
         }
       }
+
+      // Schedule 24h reminder email
+      if (shouldScheduleNotificationJobs()) {
+        await scheduleReminder(
+          ctx,
+          args.appointmentId,
+          appointment.scheduledDate,
+          appointment.scheduledTime,
+        );
+      }
+    }
+
+    // Cancel reminder when appointment is cancelled or rescheduled
+    if (
+      (args.status === "cancelled" || args.status === "rescheduled") &&
+      appointment.reminderScheduledId
+    ) {
+      await cancelReminder(
+        ctx,
+        args.appointmentId,
+        appointment.reminderScheduledId,
+      );
     }
 
     // Schedule final payment charge when status changes to "completed"
@@ -885,6 +938,28 @@ export const updateStatusInternal = internalMutation({
           throw error;
         }
       }
+
+      // Schedule 24h reminder email
+      if (shouldScheduleNotificationJobs()) {
+        await scheduleReminder(
+          ctx,
+          args.appointmentId,
+          appointment.scheduledDate,
+          appointment.scheduledTime,
+        );
+      }
+    }
+
+    // Cancel reminder when appointment is cancelled or rescheduled
+    if (
+      (args.status === "cancelled" || args.status === "rescheduled") &&
+      appointment.reminderScheduledId
+    ) {
+      await cancelReminder(
+        ctx,
+        args.appointmentId,
+        appointment.reminderScheduledId,
+      );
     }
 
     // When appointment is completed, send review request email
@@ -938,6 +1013,19 @@ export const reschedule = mutation({
           event: "appointment_rescheduled",
           transition: `${appointment.status}->confirmed`,
         },
+      );
+
+      // Cancel old reminder and schedule new one for updated date/time
+      await cancelReminder(
+        ctx,
+        args.appointmentId,
+        appointment.reminderScheduledId,
+      );
+      await scheduleReminder(
+        ctx,
+        args.appointmentId,
+        args.newDate,
+        args.newTime,
       );
     }
 
