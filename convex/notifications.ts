@@ -233,6 +233,23 @@ function isEventEnabledForCustomer(
   return false;
 }
 
+/** Normalize a US phone number to E.164 format (+1XXXXXXXXXX). */
+function normalizePhone(phone: string): string {
+  // Strip everything except digits and leading +
+  const digits = phone.replace(/[^\d]/g, "");
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+  // Already has + prefix or international — return as-is
+  if (phone.trim().startsWith("+")) {
+    return phone.trim();
+  }
+  return `+${digits}`;
+}
+
 function isValidRecipient(channel: DeliveryChannel, recipient: string): boolean {
   const value = recipient.trim();
   if (!value) return false;
@@ -268,6 +285,11 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
     .first();
   if (existing) {
     return;
+  }
+
+  // Normalize phone numbers to E.164 before validation
+  if (args.channel === "sms") {
+    args.recipient = normalizePhone(args.recipient);
   }
 
   const now = Date.now();
