@@ -21,7 +21,7 @@ Email Setup Instructions:
  - sendAdminDepositPaidNotification: Sent when deposit is paid
  - sendAdminAppointmentNotification: Sent to admin for appointment changes
 
-All emails are sent from: notifications@rivercitymd.com
+All emails are sent from: notifications@notifications.rivercitymd.com
 All emails use professional templates with business branding.
 */
 
@@ -114,7 +114,7 @@ export const sendWelcomeEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `Welcome to ${business.name}!`,
       html,
@@ -162,7 +162,7 @@ export const sendAppointmentConfirmationEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `Appointment Confirmed - ${appointment.scheduledDate}`,
       html,
@@ -218,7 +218,7 @@ export const sendAppointmentReminderEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `Reminder: Your appointment is tomorrow - ${appointment.scheduledDate}`,
       html,
@@ -273,7 +273,7 @@ export const sendAdminDepositPaidNotification = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: "dustin@rivercitymd.com",
       subject: `Deposit Paid - ${user.name || user.email} - ${appointment.scheduledDate}`,
       html,
@@ -318,7 +318,7 @@ export const sendAdminNewCustomerNotification = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: "dustin@rivercitymd.com",
       subject: `New Customer: ${user.name || user.email}`,
       html,
@@ -373,7 +373,7 @@ export const sendAdminReviewSubmittedNotification = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: "dustin@rivercitymd.com",
       subject: `New Review: ${stars} from ${user.name || user.email}`,
       html,
@@ -417,7 +417,7 @@ export const sendCustomerReviewRequestEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `How was your service? - ${business.name}`,
       html,
@@ -493,7 +493,7 @@ export const sendCustomerAppointmentStatusEmail = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: user.email,
       subject: `Appointment ${statusLabel} - ${appointment.scheduledDate}`,
       html,
@@ -572,7 +572,7 @@ export const sendAdminAppointmentNotification = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: "dustin@rivercitymd.com",
       subject: `${actionText} - ${appointment.scheduledDate} ${formattedTime}`,
       html,
@@ -641,7 +641,7 @@ export const sendAdminMileageLogRequiredNotification = internalAction({
     );
 
     await resend.sendEmail(ctx, {
-      from: `${business.name} <notifications@rivercitymd.com>`,
+      from: `${business.name} <notifications@notifications.rivercitymd.com>`,
       to: "dustin@rivercitymd.com",
       subject: `Mileage log required - ${tripLog.logDate}`,
       html,
