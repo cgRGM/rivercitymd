@@ -214,8 +214,23 @@ export const runTestScenario = internalAction({
     success: v.boolean(),
     scenario: v.string(),
     error: v.optional(v.string()),
+    warnings: v.optional(v.array(v.string())),
   }),
   handler: async (ctx, args) => {
+    const warnings: string[] = [];
+
+    // Run a call that is allowed to fail (e.g. SMS when Twilio is misconfigured).
+    // Failures are collected as warnings instead of aborting the scenario.
+    const soft = async (label: string, fn: () => Promise<unknown>) => {
+      try {
+        await fn();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        warnings.push(`${label}: ${msg}`);
+        console.warn(`[test-flow] ${label} failed:`, msg);
+      }
+    };
+
     try {
       // Resolve the admin user (dustin@rivercitymd.com)
       const adminUserId = await ctx.runQuery(
@@ -255,9 +270,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminNewCustomerNotification,
             { userId, recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueNewCustomerOnboarded,
-            { userId },
+          await soft("SMS: new customer onboarded", () =>
+            ctx.runMutation(
+              internal.notifications.queueNewCustomerOnboarded,
+              { userId },
+            ),
           );
           break;
         }
@@ -327,9 +344,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "confirmed", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_confirmed" },
+          await soft("SMS: appointment confirmed", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_confirmed" },
+            ),
           );
           await ctx.runMutation(internal.testFlows.cleanupTestData, {
             appointmentId,
@@ -368,9 +387,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "cancelled", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_cancelled" },
+          await soft("SMS: appointment cancelled", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_cancelled" },
+            ),
           );
           await ctx.runMutation(internal.testFlows.cleanupTestData, {
             appointmentId,
@@ -409,9 +430,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "rescheduled", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_rescheduled" },
+          await soft("SMS: appointment rescheduled", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_rescheduled" },
+            ),
           );
           await ctx.runMutation(internal.testFlows.cleanupTestData, {
             appointmentId,
@@ -450,9 +473,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "started", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_started" },
+          await soft("SMS: appointment started", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_started" },
+            ),
           );
           await ctx.runMutation(internal.testFlows.cleanupTestData, {
             appointmentId,
@@ -499,9 +524,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendCustomerReviewRequestEmail,
             { appointmentId: devAppointmentId },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_completed" },
+          await soft("SMS: appointment completed", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_completed" },
+            ),
           );
           await ctx.runMutation(internal.testFlows.cleanupTestData, {
             appointmentId,
@@ -561,9 +588,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminReviewSubmittedNotification,
             { reviewId, recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueReviewSubmitted,
-            { reviewId },
+          await soft("SMS: review submitted", () =>
+            ctx.runMutation(
+              internal.notifications.queueReviewSubmitted,
+              { reviewId },
+            ),
           );
           await ctx.runMutation(internal.testFlows.cleanupTestData, {
             appointmentId,
@@ -592,9 +621,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminMileageLogRequiredNotification,
             { tripLogId, recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueMileageLogRequired,
-            { tripLogId, appointmentId },
+          await soft("SMS: mileage log required", () =>
+            ctx.runMutation(
+              internal.notifications.queueMileageLogRequired,
+              { tripLogId, appointmentId },
+            ),
           );
           await ctx.runMutation(internal.testFlows.cleanupTestData, {
             appointmentId,
@@ -629,9 +660,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminNewCustomerNotification,
             { userId, recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueNewCustomerOnboarded,
-            { userId },
+          await soft("SMS: new customer onboarded (flow)", () =>
+            ctx.runMutation(
+              internal.notifications.queueNewCustomerOnboarded,
+              { userId },
+            ),
           );
 
           await new Promise((r) => setTimeout(r, 2000));
@@ -665,9 +698,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "confirmed", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_confirmed" },
+          await soft("SMS: appointment confirmed (flow)", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_confirmed" },
+            ),
           );
 
           await new Promise((r) => setTimeout(r, 2000));
@@ -689,9 +724,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "started", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_started" },
+          await soft("SMS: appointment started (flow)", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_started" },
+            ),
           );
 
           await new Promise((r) => setTimeout(r, 2000));
@@ -721,9 +758,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendCustomerReviewRequestEmail,
             { appointmentId: devAppointmentId },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_completed" },
+          await soft("SMS: appointment completed (flow)", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_completed" },
+            ),
           );
 
           // Cleanup
@@ -773,9 +812,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "confirmed", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_confirmed" },
+          await soft("SMS: appointment confirmed (flow)", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_confirmed" },
+            ),
           );
 
           await new Promise((r) => setTimeout(r, 2000));
@@ -797,9 +838,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminAppointmentNotification,
             { appointmentId, action: "started", recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_started" },
+          await soft("SMS: appointment started (flow)", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_started" },
+            ),
           );
 
           await new Promise((r) => setTimeout(r, 2000));
@@ -829,9 +872,11 @@ export const runTestScenario = internalAction({
             internal.emails.sendCustomerReviewRequestEmail,
             { appointmentId: devAppointmentId },
           );
-          await ctx.runMutation(
-            internal.notifications.queueAppointmentLifecycleEvent,
-            { appointmentId, event: "appointment_completed" },
+          await soft("SMS: appointment completed (flow)", () =>
+            ctx.runMutation(
+              internal.notifications.queueAppointmentLifecycleEvent,
+              { appointmentId, event: "appointment_completed" },
+            ),
           );
 
           // Cleanup
@@ -852,7 +897,11 @@ export const runTestScenario = internalAction({
           };
       }
 
-      return { success: true, scenario: args.scenario };
+      return {
+        success: true,
+        scenario: args.scenario,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      };
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : String(err);
@@ -860,6 +909,7 @@ export const runTestScenario = internalAction({
         success: false,
         scenario: args.scenario,
         error: message,
+        warnings: warnings.length > 0 ? warnings : undefined,
       };
     }
   },
@@ -874,8 +924,9 @@ export const runTestScenarioPublic = action({
     success: v.boolean(),
     scenario: v.string(),
     error: v.optional(v.string()),
+    warnings: v.optional(v.array(v.string())),
   }),
-  handler: async (ctx, args): Promise<{ success: boolean; scenario: string; error?: string }> => {
+  handler: async (ctx, args): Promise<{ success: boolean; scenario: string; error?: string; warnings?: string[] }> => {
     await requireAdmin(ctx);
     return await ctx.runAction(internal.testFlows.runTestScenario, {
       scenario: args.scenario,

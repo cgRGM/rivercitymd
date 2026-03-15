@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 
 type ScenarioConfig = {
   key: string;
@@ -45,6 +45,7 @@ const FLOW_SCENARIOS: ScenarioConfig[] = [
 type TestResult = {
   status: "running" | "success" | "error";
   error?: string;
+  warnings?: string[];
 };
 
 function ScenarioCard({
@@ -61,10 +62,16 @@ function ScenarioCard({
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">{scenario.title}</CardTitle>
-          {result?.status === "success" && (
+          {result?.status === "success" && !result.warnings?.length && (
             <Badge variant="default" className="bg-green-600">
               <CheckCircle2 className="mr-1 h-3 w-3" />
               Sent
+            </Badge>
+          )}
+          {result?.status === "success" && result.warnings?.length && (
+            <Badge variant="default" className="bg-yellow-600">
+              <AlertTriangle className="mr-1 h-3 w-3" />
+              Partial
             </Badge>
           )}
           {result?.status === "error" && (
@@ -82,6 +89,9 @@ function ScenarioCard({
         {result?.status === "error" && result.error && (
           <p className="mb-2 text-xs text-red-500">{result.error}</p>
         )}
+        {result?.warnings?.map((w, i) => (
+          <p key={i} className="mb-1 text-xs text-yellow-600">{w}</p>
+        ))}
         <Button
           size="sm"
           variant="outline"
@@ -146,12 +156,12 @@ export default function TestNotificationsPage() {
       if (result.success) {
         setResults((prev) => ({
           ...prev,
-          [scenarioKey]: { status: "success" },
+          [scenarioKey]: { status: "success", warnings: result.warnings },
         }));
       } else {
         setResults((prev) => ({
           ...prev,
-          [scenarioKey]: { status: "error", error: result.error || "Unknown error" },
+          [scenarioKey]: { status: "error", error: result.error || "Unknown error", warnings: result.warnings },
         }));
       }
     } catch (err) {

@@ -10,6 +10,7 @@ import {
   CreditCard,
   Ellipsis,
   FileText,
+  FlaskConical,
   LayoutDashboard,
   Settings,
   Star,
@@ -72,6 +73,11 @@ const navItems = [
     title: "Settings",
     icon: Settings,
     href: "/admin/settings",
+  },
+  {
+    title: "Test",
+    icon: FlaskConical,
+    href: "/admin/test",
   },
 ] as const;
 

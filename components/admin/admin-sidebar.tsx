@@ -14,6 +14,7 @@ import {
   LogOut,
   Star,
   FileText,
+  FlaskConical,
 } from "lucide-react";
 import { SignOutButton } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
@@ -81,6 +82,11 @@ const menuItems = [
     title: "Settings",
     icon: Settings,
     href: "/admin/settings",
+  },
+  {
+    title: "Test",
+    icon: FlaskConical,
+    href: "/admin/test",
   },
 ];
 
