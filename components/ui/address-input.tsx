@@ -10,6 +10,7 @@ import { X, Check } from "lucide-react";
 interface RadarAddress {
   formattedAddress?: string;
   addressLabel?: string;
+  number?: string;
   addressComponents?: {
     street?: string;
     city?: string;

@@ -17,8 +17,12 @@ export const getMonthlyStats = query({
       1,
     );
 
-    // Get all appointments
-    const appointments = await ctx.db.query("appointments").collect();
+    // Get appointments from last month onward using by_date index
+    const rangeStart = firstDayOfLastMonth.toISOString().split("T")[0];
+    const appointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_date", (q) => q.gte("scheduledDate", rangeStart))
+      .collect();
     const users = await ctx.db.query("users").collect();
 
     // Filter by month
@@ -115,8 +119,13 @@ export const getDashboardAnalytics = query({
     const monthCount = args.months || 6;
     const today = new Date();
 
-    // Get all data
-    const appointments = await ctx.db.query("appointments").collect();
+    // Get appointments from the relevant time window using by_date index
+    const rangeStart = new Date(today.getFullYear(), today.getMonth() - monthCount, 1)
+      .toISOString().split("T")[0];
+    const appointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_date", (q) => q.gte("scheduledDate", rangeStart))
+      .collect();
     const users = await ctx.db.query("users").collect();
     const services = await ctx.db.query("services").collect();
 

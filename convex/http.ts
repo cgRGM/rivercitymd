@@ -132,40 +132,11 @@ registerRoutes(http, components.stripe, {
             `[stripe-webhook] deposit captured invoiceId=${invoiceId} paymentIntentId=${paymentIntentId || "none"}`,
           );
 
-          // Route through appointment status mutation (single source of truth for invoice generation)
-          const appointment = await ctx.runQuery(
-            internal.appointments.getByIdInternal,
-            {
-              appointmentId: invoice.appointmentId,
-            },
+          // Deposit paid — appointment stays "pending" for admin review.
+          // Admin confirms manually, which triggers Stripe invoice generation.
+          console.log(
+            `[stripe-webhook] deposit paid, appointment stays pending for admin review appointmentId=${invoice.appointmentId}`,
           );
-          if (
-            appointment &&
-            (appointment.status === "pending" ||
-              appointment.status === "confirmed")
-          ) {
-            console.log(
-              `[stripe-webhook] confirming appointment after deposit appointmentId=${invoice.appointmentId}`,
-            );
-            try {
-              await ctx.runMutation(
-                internal.appointments.updateStatusInternal,
-                {
-                  appointmentId: invoice.appointmentId,
-                  status: "confirmed",
-                },
-              );
-              console.log(
-                `[stripe-webhook] appointment confirmed and invoice generation scheduled appointmentId=${invoice.appointmentId}`,
-              );
-            } catch (error) {
-              console.error(
-                `[stripe-webhook] failed to confirm appointment after deposit appointmentId=${invoice.appointmentId}`,
-                error,
-              );
-              throw error;
-            }
-          }
         }
       }
     },
