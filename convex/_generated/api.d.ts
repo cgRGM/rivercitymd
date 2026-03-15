@@ -17,6 +17,7 @@ import type * as chat from "../chat.js";
 import type * as crons from "../crons.js";
 import type * as debug from "../debug.js";
 import type * as depositSettings from "../depositSettings.js";
+import type * as emailTemplates from "../emailTemplates.js";
 import type * as emails from "../emails.js";
 import type * as http from "../http.js";
 import type * as invoices from "../invoices.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   debug: typeof debug;
   depositSettings: typeof depositSettings;
+  emailTemplates: typeof emailTemplates;
   emails: typeof emails;
   http: typeof http;
   invoices: typeof invoices;

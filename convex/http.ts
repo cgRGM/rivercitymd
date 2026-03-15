@@ -137,6 +137,16 @@ registerRoutes(http, components.stripe, {
           console.log(
             `[stripe-webhook] deposit paid, appointment stays pending for admin review appointmentId=${invoice.appointmentId}`,
           );
+
+          // Notify admin that deposit was paid so they can confirm the appointment
+          await ctx.scheduler.runAfter(
+            0,
+            internal.emails.sendAdminDepositPaidNotification,
+            {
+              appointmentId: invoice.appointmentId,
+              invoiceId,
+            },
+          );
         }
       }
     },
