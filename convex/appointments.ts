@@ -168,7 +168,7 @@ export const getPendingCount = query({
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
 
-    return appointments.length;
+    return appointments.filter((a) => !a.isTest).length;
   },
 });
 
@@ -186,7 +186,7 @@ export const getConfirmedAppointmentsCount = query({
       .filter((q) => q.eq(q.field("status"), "confirmed"))
       .collect();
 
-    return appointments.length;
+    return appointments.filter((a) => !a.isTest).length;
   },
 });
 
@@ -222,11 +222,11 @@ export const list = query({
 
       if (args.status) {
         return (await appointmentsQuery.collect()).filter(
-          (apt) => apt.status === args.status,
+          (apt) => !apt.isTest && apt.status === args.status,
         );
       }
 
-      return await appointmentsQuery.collect();
+      return (await appointmentsQuery.collect()).filter((apt) => !apt.isTest);
     }
 
     if (args.date) {
@@ -235,7 +235,7 @@ export const list = query({
         .withIndex("by_date", (q) => q.eq("scheduledDate", args.date!))
         .collect();
 
-      const ownByDate = byDate.filter((appointment) => appointment.userId === userId);
+      const ownByDate = byDate.filter((appointment) => !appointment.isTest && appointment.userId === userId);
       if (args.status) {
         return ownByDate.filter((appointment) => appointment.status === args.status);
       }
@@ -248,10 +248,10 @@ export const list = query({
       .collect();
 
     if (args.status) {
-      return ownAppointments.filter((appointment) => appointment.status === args.status);
+      return ownAppointments.filter((appointment) => !appointment.isTest && appointment.status === args.status);
     }
 
-    return ownAppointments;
+    return ownAppointments.filter((appointment) => !appointment.isTest);
   },
 });
 
@@ -344,10 +344,11 @@ export const getByUser = query({
       throw new Error("Access denied");
     }
 
-    return await ctx.db
+    const appointments = await ctx.db
       .query("appointments")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .collect();
+    return appointments.filter((a) => !a.isTest);
   },
 });
 
@@ -1047,6 +1048,7 @@ export const getCalendarView = query({
 
     return appointments.filter(
       (apt) =>
+        !apt.isTest &&
         apt.scheduledDate >= args.startDate &&
         apt.scheduledDate <= args.endDate &&
         apt.status !== "cancelled",
@@ -1106,6 +1108,7 @@ export const getUpcoming = query({
       appointments
         .filter(
           (apt) =>
+            !apt.isTest &&
             apt.scheduledDate >= todayStr &&
             apt.scheduledDate <= nextWeekStr &&
             apt.status !== "cancelled",
@@ -1138,10 +1141,11 @@ export const getUserAppointments = query({
     const today = new Date();
     const todayStr = today.toISOString().split("T")[0];
 
-    const appointments = await ctx.db
+    const allAppointments = await ctx.db
       .query("appointments")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
+    const appointments = allAppointments.filter((a) => !a.isTest);
 
     // Join with services and vehicles
     const enrichedAppointments = await Promise.all(
@@ -1621,7 +1625,8 @@ export const listWithDetails = query({
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const appointments = await ctx.db.query("appointments").collect();
+    const allAppointments = await ctx.db.query("appointments").collect();
+    const appointments = allAppointments.filter((a) => !a.isTest);
 
     // Join with users, services, and vehicles
     const enrichedAppointments = await Promise.all(
