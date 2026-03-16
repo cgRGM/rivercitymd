@@ -2,7 +2,7 @@ import { action, internalAction, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { requireAdmin } from "./auth";
+import { requireAdmin, getUserIdFromIdentity } from "./auth";
 
 // ---------------------------------------------------------------------------
 // Helper mutations – create minimal test data
@@ -209,6 +209,7 @@ export const cleanupTestData = internalMutation({
 export const runTestScenario = internalAction({
   args: {
     scenario: v.string(),
+    adminUserId: v.id("users"),
   },
   returns: v.object({
     success: v.boolean(),
@@ -232,20 +233,12 @@ export const runTestScenario = internalAction({
     };
 
     try {
-      // Resolve the admin user (dustin@rivercitymd.com)
-      const adminUserId = await ctx.runQuery(
-        internal.auth.getUserIdByEmail,
-        { email: "dustin@rivercitymd.com" },
-      );
-      if (!adminUserId) {
-        throw new Error("Admin user not found");
-      }
-
+      // Use the admin user ID passed from the authenticated public wrapper
       const user = await ctx.runQuery(internal.users.getByIdInternal, {
-        userId: adminUserId,
+        userId: args.adminUserId,
       });
       if (!user) {
-        throw new Error("Admin user not found");
+        throw new Error("Admin user not found in database");
       }
 
       const userId = user._id;
@@ -928,8 +921,13 @@ export const runTestScenarioPublic = action({
   }),
   handler: async (ctx, args): Promise<{ success: boolean; scenario: string; error?: string; warnings?: string[] }> => {
     await requireAdmin(ctx);
+    const adminUserId = await getUserIdFromIdentity(ctx);
+    if (!adminUserId) {
+      return { success: false, scenario: args.scenario, error: "Could not resolve admin user" };
+    }
     return await ctx.runAction(internal.testFlows.runTestScenario, {
       scenario: args.scenario,
+      adminUserId,
     });
   },
 });
