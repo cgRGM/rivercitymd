@@ -302,10 +302,6 @@ export const runTestScenario = internalAction({
             internal.emails.sendAdminDepositPaidNotification,
             { appointmentId, invoiceId, recipientOverride: DEV_EMAIL },
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-            invoiceId,
-          });
           break;
         }
 
@@ -343,12 +339,6 @@ export const runTestScenario = internalAction({
               { appointmentId, event: "appointment_confirmed" },
             ),
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
@@ -386,12 +376,6 @@ export const runTestScenario = internalAction({
               { appointmentId, event: "appointment_cancelled" },
             ),
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
@@ -429,12 +413,6 @@ export const runTestScenario = internalAction({
               { appointmentId, event: "appointment_rescheduled" },
             ),
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
@@ -472,12 +450,6 @@ export const runTestScenario = internalAction({
               { appointmentId, event: "appointment_started" },
             ),
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
@@ -523,12 +495,6 @@ export const runTestScenario = internalAction({
               { appointmentId, event: "appointment_completed" },
             ),
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
@@ -552,12 +518,6 @@ export const runTestScenario = internalAction({
             internal.emails.sendAppointmentReminderEmail,
             { appointmentId: devAppointmentId },
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
@@ -587,10 +547,6 @@ export const runTestScenario = internalAction({
               { reviewId },
             ),
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-            reviewId,
-          });
           break;
         }
 
@@ -620,10 +576,6 @@ export const runTestScenario = internalAction({
               { tripLogId, appointmentId },
             ),
           );
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-            tripLogId,
-          });
           break;
         }
 
@@ -758,14 +710,6 @@ export const runTestScenario = internalAction({
             ),
           );
 
-          // Cleanup
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-            invoiceId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
@@ -873,12 +817,6 @@ export const runTestScenario = internalAction({
           );
 
           // Cleanup
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId,
-          });
-          await ctx.runMutation(internal.testFlows.cleanupTestData, {
-            appointmentId: devAppointmentId,
-          });
           break;
         }
 
