@@ -47,10 +47,10 @@ import {
 } from "./emailTemplates";
 
 // Initialize Resend component
-// Use test mode for development, production mode when env vars are set
-const hasApiKey = !!process.env.RESEND_API_KEY;
+// testMode defaults to true in the component, which silently drops emails
+// to non-test addresses. Set to false so real emails deliver in production.
 export const resend: Resend = new Resend(components.resend, {
-  testMode: !hasApiKey,
+  testMode: false,
 });
 
 function shouldSkipEmails(): boolean {
