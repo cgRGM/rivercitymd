@@ -17,6 +17,7 @@ const eslintConfig = [
       "convex/_generated/**",
       "**/*.test.ts",
       "**/*.test.tsx",
+      "react-email-starter/**",
     ],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
