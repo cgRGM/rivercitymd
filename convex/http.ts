@@ -282,6 +282,16 @@ registerRoutes(http, components.stripe, {
               });
             }
           }
+
+          // Notify admin (mirrors the primary checkout.session.completed path)
+          await ctx.scheduler.runAfter(
+            0,
+            internal.emails.sendAdminDepositPaidNotification,
+            {
+              appointmentId: invoice.appointmentId,
+              invoiceId,
+            },
+          );
         } else {
           // Deposit payment backup handler (existing behavior)
           if (invoice.depositPaid) {

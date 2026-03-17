@@ -1471,8 +1471,10 @@ export const createUserWithAppointment = mutation({
     let invoiceRemainingBalance = remainingBalance;
 
     if (paymentOption === "full") {
-      // Full price checkout — deposit concept doesn't apply, entire total charged at once
-      invoiceDepositAmount = 0;
+      // Full price checkout — store the total as depositAmount so abandoned checkouts
+      // have a retry path (the dashboard shows a pay button when depositAmount > 0).
+      // remainingBalance is 0 because the single checkout covers everything.
+      invoiceDepositAmount = total;
       invoiceDepositPaid = false;
       invoiceRemainingBalance = 0;
     }
