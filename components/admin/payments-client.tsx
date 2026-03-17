@@ -477,6 +477,7 @@ export default function PaymentsClient() {
         filterColumn="customer"
         filterPlaceholder="Filter by customer..."
         tableMinWidthClass="min-w-[1140px]"
+        onRowClick={(row) => router.push(`/admin/payments/${row._id}`)}
       />
 
       {selectedInvoice && (

@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { toast } from "sonner";
+import { DashboardAppointmentForm } from "@/components/forms/dashboard/dashboard-appointment-form";
 
 type Vehicle = {
   _id: Id<"vehicles">;
@@ -55,6 +56,7 @@ export default function VehiclesClient({}: VehiclesClientProps) {
     ) || [];
 
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [bookingVehicleId, setBookingVehicleId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     year: "",
@@ -416,7 +418,11 @@ export default function VehiclesClient({}: VehiclesClientProps) {
                     </div>
                   </div>
                 </div>
-                <Button className="w-full bg-transparent" variant="outline">
+                <Button
+                  className="w-full bg-transparent"
+                  variant="outline"
+                  onClick={() => setBookingVehicleId(vehicle._id)}
+                >
                   Book Service for This Vehicle
                 </Button>
               </CardContent>
@@ -424,6 +430,14 @@ export default function VehiclesClient({}: VehiclesClientProps) {
           );
         })}
       </div>
+
+      <DashboardAppointmentForm
+        open={!!bookingVehicleId}
+        onOpenChange={(open) => {
+          if (!open) setBookingVehicleId(null);
+        }}
+        preselectedVehicleId={bookingVehicleId}
+      />
 
       {/* Empty State */}
       {vehicles.length === 0 && (

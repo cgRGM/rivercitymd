@@ -1121,10 +1121,20 @@ export const getUpcoming = query({
     const todayStr = today.toISOString().split("T")[0];
     const nextWeekStr = nextWeek.toISOString().split("T")[0];
 
-    const appointments = await ctx.db
-      .query("appointments")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
+    const isAdminUser = await isAdmin(ctx);
+
+    let appointments;
+    if (isAdminUser) {
+      // Admins see all upcoming appointments
+      appointments = await ctx.db
+        .query("appointments")
+        .collect();
+    } else {
+      appointments = await ctx.db
+        .query("appointments")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+    }
 
     // Enrich appointments with customer names
     const enrichedAppointments = await Promise.all(

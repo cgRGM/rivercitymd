@@ -40,11 +40,6 @@ const navItems = [
     href: "/admin/appointments",
   },
   {
-    title: "Logs",
-    icon: FileText,
-    href: "/admin/logs",
-  },
-  {
     title: "Customers",
     icon: Users,
     href: "/admin/customers",
@@ -58,6 +53,11 @@ const navItems = [
     title: "Analytics",
     icon: BarChart3,
     href: "/admin/analytics",
+  },
+  {
+    title: "Logs",
+    icon: FileText,
+    href: "/admin/logs",
   },
   {
     title: "Payments",
@@ -81,8 +81,8 @@ const navItems = [
   },
 ] as const;
 
-const PRIMARY_NAV_ITEMS = navItems.slice(0, 5);
-const OVERFLOW_NAV_ITEMS = navItems.slice(5);
+const PRIMARY_NAV_ITEMS = navItems.slice(0, 4);
+const OVERFLOW_NAV_ITEMS = navItems.slice(4);
 
 export default function AdminMobileNav() {
   const pathname = usePathname();
@@ -117,7 +117,7 @@ export default function AdminMobileNav() {
   return (
     <>
       <nav className="fixed right-0 bottom-0 left-0 z-50 border-t border-border bg-background md:hidden">
-        <div className="grid h-16 grid-cols-6 px-1 pb-[env(safe-area-inset-bottom)]">
+        <div className="grid h-16 grid-cols-5 px-1 pb-[env(safe-area-inset-bottom)]">
           {PRIMARY_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = isRouteActive(item.href);

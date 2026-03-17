@@ -49,11 +49,6 @@ const menuItems = [
     href: "/admin/appointments",
   },
   {
-    title: "Logs",
-    icon: FileText,
-    href: "/admin/logs",
-  },
-  {
     title: "Customers",
     icon: Users,
     href: "/admin/customers",
@@ -63,11 +58,15 @@ const menuItems = [
     icon: Car,
     href: "/admin/services",
   },
-
   {
     title: "Analytics",
     icon: BarChart3,
     href: "/admin/analytics",
+  },
+  {
+    title: "Logs",
+    icon: FileText,
+    href: "/admin/logs",
   },
   {
     title: "Subscriptions",

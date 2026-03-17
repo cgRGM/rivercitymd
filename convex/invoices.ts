@@ -117,6 +117,41 @@ export const getById = query({
   },
 });
 
+// Get a single invoice by ID with full details (admin only)
+export const getByIdAdmin = query({
+  args: { invoiceId: v.id("invoices") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const invoice = await ctx.db.get(args.invoiceId);
+    if (!invoice) return null;
+
+    const user = await ctx.db.get(invoice.userId);
+    const appointment = await ctx.db.get(invoice.appointmentId);
+    const services = appointment
+      ? await Promise.all(appointment.serviceIds.map((id) => ctx.db.get(id)))
+      : [];
+    const vehicles = appointment
+      ? await Promise.all(appointment.vehicleIds.map((id) => ctx.db.get(id)))
+      : [];
+
+    return {
+      ...invoice,
+      customer: user?.name || "Unknown",
+      customerEmail: user?.email || "",
+      customerPhone: user?.phone || "",
+      customerAddress: user?.address,
+      appointment: appointment
+        ? {
+            ...appointment,
+            services: services.filter((s) => s !== null),
+            vehicles: vehicles.filter((v) => v !== null),
+          }
+        : null,
+    };
+  },
+});
+
 // Get invoice by Stripe invoice ID (owner or admin)
 export const getByStripeId = query({
   args: { stripeInvoiceId: v.string() },

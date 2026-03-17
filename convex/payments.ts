@@ -1151,6 +1151,120 @@ export const createCheckoutSession = action({
   },
 });
 
+// Create a checkout session for paying the remaining balance after deposit
+export const createBalanceCheckoutSession = action({
+  args: {
+    invoiceId: v.id("invoices"),
+    successUrl: v.string(),
+    cancelUrl: v.string(),
+  },
+  returns: v.object({
+    sessionId: v.string(),
+    url: v.string(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ) => {
+    const userId = await getUserIdFromIdentity(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const invoice: any = await ctx.runQuery(api.invoices.getById, {
+      invoiceId: args.invoiceId,
+    });
+    if (!invoice) throw new Error("Invoice not found");
+    if (invoice.userId !== userId) throw new Error("Access denied");
+
+    if (!invoice.depositPaid) {
+      throw new Error("Deposit must be paid before paying the remaining balance");
+    }
+
+    const remainingBalance = invoice.remainingBalance ?? invoice.total;
+    if (remainingBalance <= 0) {
+      throw new Error("No remaining balance to pay");
+    }
+
+    // If there's a Stripe invoice, try to pay it via the Stripe Invoices API
+    if (invoice.stripeInvoiceId) {
+      try {
+        const stripeInvoice = await stripeApiCall(
+          `invoices/${invoice.stripeInvoiceId}`,
+          { method: "GET" },
+        );
+
+        // If already paid, sync status and return
+        if (stripeInvoice.status === "paid") {
+          await ctx.runMutation(internal.invoices.updateStatusInternal, {
+            invoiceId: args.invoiceId,
+            status: "paid",
+            paidDate: new Date().toISOString().split("T")[0],
+          });
+          throw new Error("Invoice is already paid");
+        }
+
+        // If the invoice has a hosted URL, redirect there
+        const hostedUrl =
+          stripeInvoice.hosted_invoice_url ||
+          (stripeInvoice.lines?.data?.[0] && stripeInvoice.hosted_invoice_url);
+        if (hostedUrl) {
+          return { sessionId: stripeInvoice.id, url: hostedUrl };
+        }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (error: unknown) {
+        if (error instanceof Error && error.message === "Invoice is already paid") throw error;
+        console.warn(
+          `[payments] createBalanceCheckout: Stripe invoice lookup failed, falling back to checkout session`,
+          error,
+        );
+      }
+    }
+
+    // Fallback: create a Stripe Checkout Session for the remaining balance
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
+    if (!user) throw new Error("User not found");
+
+    let stripeCustomerId = user.stripeCustomerId;
+    if (!stripeCustomerId) {
+      stripeCustomerId = await ctx.runAction(
+        internal.users.ensureStripeCustomer,
+        { userId: user._id },
+      );
+    }
+
+    const balanceInCents = Math.round(remainingBalance * 100);
+
+    const sessionData = new URLSearchParams({
+      mode: "payment",
+      customer: stripeCustomerId,
+      success_url: args.successUrl,
+      cancel_url: args.cancelUrl,
+      "metadata[invoiceId]": args.invoiceId,
+      "metadata[type]": "balance",
+      "line_items[0][price_data][currency]": "usd",
+      "line_items[0][price_data][unit_amount]": balanceInCents.toString(),
+      "line_items[0][price_data][product_data][name]":
+        `Remaining Balance - Invoice ${invoice.invoiceNumber}`,
+      "line_items[0][quantity]": "1",
+    });
+
+    // Add payment intent metadata so webhook can match
+    sessionData.append("payment_intent_data[metadata][invoiceId]", args.invoiceId);
+    sessionData.append("payment_intent_data[metadata][type]", "balance");
+
+    const session = await stripeApiCall("checkout/sessions", {
+      method: "POST",
+      body: sessionData,
+    });
+
+    return {
+      sessionId: session.id,
+      url: session.url,
+    };
+  },
+});
+
 // === Internal Helper: Create Stripe Invoice After Deposit ===
 
 // Internal action to create Stripe Invoice with all service line items after deposit is paid

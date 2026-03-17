@@ -283,8 +283,9 @@ export default function InvoicesClient() {
   const queryArgs = isAuthenticated ? {} : ("skip" as const);
   const invoicesQuery = useQuery(api.invoices.getUserInvoices, queryArgs);
   const createDepositCheckout = useAction(api.payments.createDepositCheckoutSession);
-  // Remaining balance payments are now handled via Stripe Invoice hosted page
+  const createBalanceCheckout = useAction(api.payments.createBalanceCheckoutSession);
   const syncPaymentStatus = useAction(api.payments.syncPaymentStatus);
+  const [payingInvoiceId, setPayingInvoiceId] = useState<Id<"invoices"> | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [syncingInvoiceId, setSyncingInvoiceId] = useState<Id<"invoices"> | null>(null);
 
@@ -590,26 +591,40 @@ export default function InvoicesClient() {
                             invoice.remainingBalance > 0 ? (
                             // Deposit paid, show payment option for remaining balance
                             <>
-                              {invoice.stripeInvoiceUrl ? (
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  onClick={() =>
-                                    window.open(invoice.stripeInvoiceUrl, "_blank")
+                              <Button
+                                variant="default"
+                                size="sm"
+                                disabled={payingInvoiceId === invoice._id}
+                                onClick={async () => {
+                                  // If we have a Stripe invoice URL, open it directly
+                                  if (invoice.stripeInvoiceUrl) {
+                                    window.open(invoice.stripeInvoiceUrl, "_blank");
+                                    return;
                                   }
-                                >
-                                  Pay Invoice
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  disabled
-                                  title="Invoice is being prepared. Please check back soon."
-                                >
-                                  Pay Balance
-                                </Button>
-                              )}
+                                  // Otherwise create a balance checkout session
+                                  setPayingInvoiceId(invoice._id);
+                                  try {
+                                    const { url } = await createBalanceCheckout({
+                                      invoiceId: invoice._id,
+                                      successUrl: `${window.location.origin}/dashboard/invoices?payment=success`,
+                                      cancelUrl: `${window.location.origin}/dashboard/invoices?payment=cancelled`,
+                                    });
+                                    window.location.href = url;
+                                  } catch (error) {
+                                    toast.error(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Failed to create payment session",
+                                    );
+                                  } finally {
+                                    setPayingInvoiceId(null);
+                                  }
+                                }}
+                              >
+                                {payingInvoiceId === invoice._id
+                                  ? "Processing..."
+                                  : "Pay Balance"}
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -660,14 +675,34 @@ export default function InvoicesClient() {
                           ) : invoice.depositPaid &&
                             invoice.remainingBalance &&
                             invoice.remainingBalance > 0 ? (
-                            // Deposit paid but no Stripe invoice URL yet - invoice being prepared
+                            // Deposit paid but no Stripe invoice URL yet - create balance checkout
                             <Button
                               variant="default"
                               size="sm"
-                              disabled
-                              title="Invoice is being prepared. Please check back soon."
+                              disabled={payingInvoiceId === invoice._id}
+                              onClick={async () => {
+                                setPayingInvoiceId(invoice._id);
+                                try {
+                                  const { url } = await createBalanceCheckout({
+                                    invoiceId: invoice._id,
+                                    successUrl: `${window.location.origin}/dashboard/invoices?payment=success`,
+                                    cancelUrl: `${window.location.origin}/dashboard/invoices?payment=cancelled`,
+                                  });
+                                  window.location.href = url;
+                                } catch (error) {
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Failed to create payment session",
+                                  );
+                                } finally {
+                                  setPayingInvoiceId(null);
+                                }
+                              }}
                             >
-                              Pay Balance
+                              {payingInvoiceId === invoice._id
+                                ? "Processing..."
+                                : "Pay Balance"}
                             </Button>
                           ) : null}
                         </>

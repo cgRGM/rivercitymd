@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import {
   Calendar,
   Car,
@@ -22,8 +23,10 @@ import {
   MapPin,
   Plus,
   AlertCircle,
+  Sparkles,
+  CheckCircle2,
 } from "lucide-react";
-import { formatDateString } from "@/lib/time";
+import { formatDateString, formatTime12h } from "@/lib/time";
 
 type RawAppointment = {
   _id: Id<"appointments">;
@@ -53,6 +56,21 @@ type RawAppointment = {
   createdBy: Id<"users">;
 };
 
+const STATUS_STYLES: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-700",
+  confirmed: "bg-green-100 text-green-700",
+  in_progress: "bg-blue-100 text-blue-700",
+  completed: "bg-gray-100 text-gray-600",
+  cancelled: "bg-red-100 text-red-700",
+  rescheduled: "bg-orange-100 text-orange-700",
+};
+
+const SIZE_LABELS: Record<string, string> = {
+  small: "Small",
+  medium: "Mid-Size",
+  large: "Large",
+};
+
 export default function DashboardClient() {
   const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
   const queryArgs = isAuthenticated ? {} : ("skip" as const);
@@ -61,7 +79,7 @@ export default function DashboardClient() {
   const userVehiclesQuery = useQuery(api.vehicles.getMyVehicles, queryArgs);
   const userAppointmentsQuery = useQuery(api.appointments.getUserAppointments, queryArgs);
 
-  // Handle loading state
+  // Loading state
   if (
     isAuthLoading ||
     (isAuthenticated &&
@@ -72,19 +90,16 @@ export default function DashboardClient() {
   ) {
     return (
       <div className="space-y-8 animate-fade-in">
-        {/* Welcome Section Skeleton */}
-        <div>
+        <div className="rounded-2xl bg-gradient-to-r from-accent/10 via-accent/5 to-transparent p-8">
           <Skeleton className="h-8 w-64 mb-2" />
           <Skeleton className="h-4 w-96" />
         </div>
-
-        {/* Quick Stats Skeleton */}
         <div className="grid gap-4 md:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="animate-fade-in-up">
+            <Card key={i}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <Skeleton className="h-4 w-32" />
-                <Skeleton className="w-4 h-4" />
+                <Skeleton className="w-9 h-9 rounded-full" />
               </CardHeader>
               <CardContent>
                 <Skeleton className="h-8 w-16 mb-2" />
@@ -93,55 +108,12 @@ export default function DashboardClient() {
             </Card>
           ))}
         </div>
-
-        {/* Upcoming Bookings Skeleton */}
-        <Card className="animate-fade-in-up">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <Skeleton className="h-6 w-40 mb-2" />
-                <Skeleton className="h-4 w-48" />
-              </div>
-              <Skeleton className="h-9 w-32" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <Card key={i}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1">
-                        <Skeleton className="h-5 w-24 mb-1" />
-                        <Skeleton className="h-4 w-20" />
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <Skeleton className="h-5 w-16" />
-                        <Skeleton className="h-6 w-12" />
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-4 w-28" />
-                      <Skeleton className="h-4 w-40" />
-                    </div>
-                    <div className="flex gap-2">
-                      <Skeleton className="h-8 flex-1" />
-                      <Skeleton className="h-8 flex-1" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <Skeleton className="h-48 w-full rounded-xl" />
       </div>
     );
   }
 
-  // Handle unauthenticated state
+  // Unauthenticated
   if (!isAuthenticated) {
     return (
       <div className="space-y-8 animate-fade-in">
@@ -151,7 +123,6 @@ export default function DashboardClient() {
             Access your dashboard and manage your appointments
           </p>
         </div>
-
         <Card className="text-center py-12">
           <CardContent>
             <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
@@ -170,7 +141,7 @@ export default function DashboardClient() {
     );
   }
 
-  // Handle error states
+  // Error state
   if (
     upcomingAppointmentsQuery === null ||
     currentUserQuery === null ||
@@ -185,7 +156,6 @@ export default function DashboardClient() {
             Unable to load dashboard data
           </p>
         </div>
-
         <Card className="text-center py-12">
           <CardContent>
             <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
@@ -207,27 +177,40 @@ export default function DashboardClient() {
   const currentUser = currentUserQuery ?? null;
   const userVehicles = userVehiclesQuery ?? [];
   const completedAppointments = userAppointmentsQuery?.past || [];
+  const nextAppointment = upcomingAppointments[0] as RawAppointment | undefined;
+  const remainingAppointments = upcomingAppointments.slice(1) as RawAppointment[];
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* Welcome Section */}
-      <div>
-        <h2 className="text-3xl font-bold">
-          Welcome back{currentUser?.name ? `, ${currentUser.name}` : ""}!
-        </h2>
-        <p className="text-muted-foreground mt-1">
-          Here&apos;s what&apos;s happening with your vehicles
-        </p>
+      {/* Hero Welcome Section */}
+      <div className="relative rounded-2xl bg-gradient-to-r from-accent/10 via-accent/5 to-transparent p-8 overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-accent/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="relative">
+          <h2 className="text-3xl font-bold">
+            Welcome back{currentUser?.name ? `, ${currentUser.name}` : ""}!
+          </h2>
+          <p className="text-muted-foreground mt-1">
+            Here&apos;s what&apos;s happening with your vehicles
+          </p>
+          <Button className="mt-4" asChild>
+            <Link href="/dashboard/appointments">
+              <Plus className="w-4 h-4 mr-2" />
+              Book Now
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Quick Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="animate-fade-in-up">
+        <Card className="animate-fade-in-up group hover:border-accent/30 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Upcoming Bookings
             </CardTitle>
-            <Calendar className="w-4 h-4 text-muted-foreground" />
+            <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center">
+              <Calendar className="w-4 h-4 text-accent" />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -241,12 +224,17 @@ export default function DashboardClient() {
           </CardContent>
         </Card>
 
-        <Card className="animate-fade-in-up" style={{ animationDelay: "50ms" }}>
+        <Card
+          className="animate-fade-in-up group hover:border-accent/30 transition-colors"
+          style={{ animationDelay: "50ms" }}
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               My Vehicles
             </CardTitle>
-            <Car className="w-4 h-4 text-muted-foreground" />
+            <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center">
+              <Car className="w-4 h-4 text-accent" />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{userVehicles.length}</div>
@@ -257,14 +245,16 @@ export default function DashboardClient() {
         </Card>
 
         <Card
-          className="animate-fade-in-up"
+          className="animate-fade-in-up group hover:border-accent/30 transition-colors"
           style={{ animationDelay: "100ms" }}
         >
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Services
             </CardTitle>
-            <Star className="w-4 h-4 text-muted-foreground" />
+            <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center">
+              <Star className="w-4 h-4 text-accent" />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -277,24 +267,132 @@ export default function DashboardClient() {
         </Card>
       </div>
 
-      {/* Upcoming Bookings */}
-      <Card className="animate-fade-in-up" style={{ animationDelay: "150ms" }}>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Upcoming Bookings</CardTitle>
-              <CardDescription>Your scheduled appointments</CardDescription>
+      {/* Next Appointment Spotlight */}
+      {nextAppointment && (
+        <Card
+          className="animate-fade-in-up border-l-4 border-l-accent overflow-hidden"
+          style={{ animationDelay: "120ms" }}
+        >
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles className="w-4 h-4 text-accent" />
+              <CardTitle className="text-base">Next Appointment</CardTitle>
             </div>
-            <Button className="hidden sm:flex">
-              <Plus className="w-4 h-4 mr-2" />
-              Book Service
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-6">
+              {/* Date display */}
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-xl bg-accent/10 flex flex-col items-center justify-center shrink-0">
+                  <span className="text-xs font-medium text-accent uppercase">
+                    {new Date(nextAppointment.scheduledDate + "T00:00:00").toLocaleDateString("en-US", { month: "short" })}
+                  </span>
+                  <span className="text-2xl font-bold text-accent leading-none">
+                    {new Date(nextAppointment.scheduledDate + "T00:00:00").getDate()}
+                  </span>
+                </div>
+                <div>
+                  <div className="font-semibold text-lg">
+                    {nextAppointment.serviceIds?.length || 0} Service{(nextAppointment.serviceIds?.length || 0) !== 1 ? "s" : ""}
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      {formatTime12h(nextAppointment.scheduledTime)}
+                    </span>
+                    {nextAppointment.location && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5" />
+                        {nextAppointment.location.city}, {nextAppointment.location.state}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 sm:ml-auto">
+                <Badge className={STATUS_STYLES[nextAppointment.status] || "bg-gray-100 text-gray-600"}>
+                  {nextAppointment.status.replace("_", " ")}
+                </Badge>
+                <span className="text-lg font-bold">
+                  ${nextAppointment.totalPrice || 0}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 mt-4 pt-4 border-t">
+              <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                Reschedule
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Vehicle Gallery Row */}
+      {userVehicles.length > 0 && (
+        <div className="animate-fade-in-up" style={{ animationDelay: "140ms" }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">
+              My Vehicles
+            </h3>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/dashboard/vehicles">View All</Link>
             </Button>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {upcomingAppointments.length > 0 ? (
-              upcomingAppointments.map((appointment: RawAppointment) => (
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+            {userVehicles.map((vehicle) => (
+              <Card
+                key={vehicle._id}
+                className="min-w-[180px] max-w-[220px] shrink-0 hover:shadow-md transition-shadow"
+              >
+                <CardContent className="p-4">
+                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center mb-3">
+                    <Car className="w-5 h-5 text-accent" />
+                  </div>
+                  <div className="font-semibold text-sm truncate">
+                    {vehicle.year} {vehicle.make}
+                  </div>
+                  <div className="text-sm text-muted-foreground truncate">
+                    {vehicle.model}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    {vehicle.color && (
+                      <span className="text-xs text-muted-foreground">
+                        {vehicle.color}
+                      </span>
+                    )}
+                    {vehicle.size && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 h-5">
+                        {SIZE_LABELS[vehicle.size] || vehicle.size}
+                      </Badge>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Remaining Upcoming Bookings */}
+      {remainingAppointments.length > 0 && (
+        <Card className="animate-fade-in-up" style={{ animationDelay: "160ms" }}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Upcoming Bookings</CardTitle>
+                <CardDescription>Your other scheduled appointments</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {remainingAppointments.map((appointment: RawAppointment) => (
                 <Card
                   key={appointment._id}
                   className="hover:shadow-lg transition-all border-border"
@@ -310,9 +408,9 @@ export default function DashboardClient() {
                         </CardDescription>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 capitalize">
-                          {appointment.status}
-                        </span>
+                        <Badge className={STATUS_STYLES[appointment.status] || "bg-gray-100 text-gray-600"}>
+                          {appointment.status.replace("_", " ")}
+                        </Badge>
                         <span className="text-base font-bold">
                           ${appointment.totalPrice || 0}
                         </span>
@@ -327,7 +425,7 @@ export default function DashboardClient() {
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <span>{appointment.scheduledTime}</span>
+                        <span>{formatTime12h(appointment.scheduledTime)}</span>
                       </div>
                       {appointment.location && (
                         <div className="flex items-center gap-2 text-sm">
@@ -358,64 +456,108 @@ export default function DashboardClient() {
                     </div>
                   </CardContent>
                 </Card>
-              ))
-            ) : (
-              <div className="text-center py-8">
-                <Calendar className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">
-                  No upcoming bookings
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  You don&apos;t have any upcoming appointments scheduled.
-                </p>
-                <Button>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Book Your First Service
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Recent Activity */}
+      {/* Empty state for no upcoming bookings (only if no next appointment either) */}
+      {!nextAppointment && (
+        <Card className="animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+          <CardContent className="text-center py-12">
+            <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-4">
+              <Calendar className="w-8 h-8 text-accent" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2">
+              No upcoming bookings
+            </h3>
+            <p className="text-muted-foreground mb-4">
+              You don&apos;t have any upcoming appointments scheduled.
+            </p>
+            <Button asChild>
+              <Link href="/dashboard/appointments">
+                <Plus className="w-4 h-4 mr-2" />
+                Book Your First Service
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent Activity Timeline */}
       <Card className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
         <CardHeader>
           <CardTitle>Recent Activity</CardTitle>
           <CardDescription>Your latest actions and updates</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {completedAppointments.length > 0 ? (
-              completedAppointments
-                .slice(0, 5)
-                .map((appointment: RawAppointment) => (
-                  <div key={appointment._id} className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                      <Calendar className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium">Service Completed</div>
-                      <div className="text-sm text-muted-foreground break-words">
-                        {appointment.serviceIds?.length || 0} services completed
-                        on {formatDateString(appointment.scheduledDate)}
+          {completedAppointments.length > 0 ? (
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
+
+              <div className="space-y-6">
+                {completedAppointments
+                  .slice(0, 5)
+                  .map((appointment: RawAppointment, index: number) => {
+                    const isCompleted = appointment.status === "completed";
+                    return (
+                      <div
+                        key={appointment._id}
+                        className="relative flex items-start gap-4 pl-1"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                      >
+                        {/* Timeline dot */}
+                        <div
+                          className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                            isCompleted
+                              ? "bg-accent/10 text-accent"
+                              : "bg-yellow-100 text-yellow-600"
+                          }`}
+                        >
+                          {isCompleted ? (
+                            <CheckCircle2 className="w-4 h-4" />
+                          ) : (
+                            <Clock className="w-4 h-4" />
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0 pb-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-medium text-sm">
+                              {isCompleted
+                                ? "Service Completed"
+                                : `Service ${appointment.status.replace("_", " ")}`}
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {formatDateString(appointment.scheduledDate)}
+                            </span>
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-0.5">
+                            {appointment.serviceIds?.length || 0} service
+                            {(appointment.serviceIds?.length || 0) !== 1
+                              ? "s"
+                              : ""}{" "}
+                            · ${appointment.totalPrice || 0}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-sm text-muted-foreground shrink-0">
-                      {new Date(appointment._creationTime).toLocaleDateString()}
-                    </div>
-                  </div>
-                ))
-            ) : (
-              <div className="text-center py-8">
-                <Star className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No activity yet</h3>
-                <p className="text-muted-foreground">
-                  Your recent bookings and reviews will appear here.
-                </p>
+                    );
+                  })}
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-4">
+                <Star className="w-8 h-8 text-accent" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">No activity yet</h3>
+              <p className="text-muted-foreground">
+                Your recent bookings and reviews will appear here.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
