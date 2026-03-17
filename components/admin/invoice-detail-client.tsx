@@ -127,6 +127,10 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
       toast.error("Select a due date first");
       return;
     }
+    if (canReissue && !reissue) {
+      toast.error("Use Save & Reissue Invoice to update the live Stripe invoice");
+      return;
+    }
 
     setIsSavingBilling(true);
     try {
@@ -305,14 +309,21 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                 </Select>
               </div>
             </div>
+            {canReissue && (
+              <p className="text-sm text-muted-foreground">
+                This invoice already exists in Stripe. Reissue it to apply the updated terms there too.
+              </p>
+            )}
             <div className="flex flex-wrap gap-3">
-              <Button
-                variant="outline"
-                onClick={() => void handleSaveBilling(false)}
-                disabled={isSavingBilling}
-              >
-                {isSavingBilling ? "Saving..." : "Save Billing Settings"}
-              </Button>
+              {!canReissue && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleSaveBilling(false)}
+                  disabled={isSavingBilling}
+                >
+                  {isSavingBilling ? "Saving..." : "Save Billing Settings"}
+                </Button>
+              )}
               {canReissue && (
                 <Button
                   onClick={() => void handleSaveBilling(true)}
