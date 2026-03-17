@@ -187,6 +187,13 @@ const schema = defineSchema({
     createdBy: v.id("users"),
     reminderScheduledId: v.optional(v.id("_scheduled_functions")),
     isTest: v.optional(v.boolean()),
+    paymentOption: v.optional(
+      v.union(
+        v.literal("deposit"),
+        v.literal("full"),
+        v.literal("in_person"),
+      ),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])
@@ -240,6 +247,13 @@ const schema = defineSchema({
     depositPaymentIntentId: v.optional(v.string()), // Stripe payment intent ID for deposit
     remainingBalance: v.optional(v.number()), // total - depositAmount
     finalPaymentIntentId: v.optional(v.string()), // Stripe payment intent ID for final payment
+    paymentOption: v.optional(
+      v.union(
+        v.literal("deposit"),
+        v.literal("full"),
+        v.literal("in_person"),
+      ),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_appointment", ["appointmentId"])

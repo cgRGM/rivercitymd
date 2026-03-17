@@ -60,6 +60,10 @@ interface Invoice {
   total: number;
   stripeInvoiceUrl?: string;
   notes?: string;
+  paymentOption?: "deposit" | "full" | "in_person";
+  depositPaid?: boolean;
+  depositAmount?: number;
+  remainingBalance?: number;
 }
 
 type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
@@ -386,7 +390,7 @@ export default function PaymentsClient() {
                   Send
                 </DropdownMenuItem>
               )}
-              {invoice.status === "sent" && (
+              {(invoice.status === "sent" || (invoice.paymentOption === "in_person" && invoice.depositPaid && invoice.status === "draft")) && (
                 <DropdownMenuItem onClick={() => void handleStatusUpdate(invoice._id, "paid")}>
                   <Check className="mr-2 h-4 w-4" />
                   Mark Paid

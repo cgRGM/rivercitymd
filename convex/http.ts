@@ -31,9 +31,9 @@ registerRoutes(http, components.stripe, {
     ) => {
       const session = event.data.object;
       const invoiceIdString = session.metadata?.invoiceId;
-      const paymentType = session.metadata?.type; // "deposit" or undefined
+      const paymentType = session.metadata?.type; // "deposit", "full", or undefined
 
-      if (invoiceIdString && paymentType === "deposit") {
+      if (invoiceIdString && (paymentType === "deposit" || paymentType === "full")) {
         const invoiceId = invoiceIdString as Id<"invoices">;
         console.log(
           `[stripe-webhook] deposit checkout completed sessionId=${session.id} invoiceId=${invoiceId}`,
@@ -106,39 +106,56 @@ registerRoutes(http, components.stripe, {
         }
         // -----------------------------------------------------------
 
-        if (invoice.depositPaid) {
-          console.log(
-            `[stripe-webhook] deposit already marked paid invoiceId=${invoiceId}`,
+        if (paymentType === "full") {
+          // Full payment — mark invoice as completely paid
+          if (invoice.status === "paid") {
+            console.log(
+              `[stripe-webhook] full payment already processed invoiceId=${invoiceId}`,
+            );
+            return;
+          }
+
+          const paymentIntentId = session.payment_intent as string | undefined;
+          const today = new Date().toISOString().split("T")[0];
+
+          await ctx.runMutation(
+            internal.invoices.updateStatusInternal,
+            {
+              invoiceId,
+              status: "paid",
+              paidDate: today,
+            },
           );
-          return;
-        }
 
-        if (invoice && !invoice.depositPaid) {
-          const paymentIntentId = session.payment_intent as
-            | string
-            | undefined;
-
-          // Mark deposit as paid
+          // Also mark deposit as paid and set remaining balance to 0
           await ctx.runMutation(
             internal.invoices.updateDepositStatusInternal,
             {
               invoiceId,
               depositPaid: true,
               depositPaymentIntentId: paymentIntentId,
-              status: "draft", // Will be updated to "sent" after Stripe invoice is created
             },
           );
+
           console.log(
-            `[stripe-webhook] deposit captured invoiceId=${invoiceId} paymentIntentId=${paymentIntentId || "none"}`,
+            `[stripe-webhook] full payment captured invoiceId=${invoiceId} paymentIntentId=${paymentIntentId || "none"}`,
           );
 
-          // Deposit paid — appointment stays "pending" for admin review.
-          // Admin confirms manually, which triggers Stripe invoice generation.
-          console.log(
-            `[stripe-webhook] deposit paid, appointment stays pending for admin review appointmentId=${invoice.appointmentId}`,
-          );
+          // Update user stats immediately since invoice is fully paid
+          if (appointment) {
+            const paidUser = await ctx.runQuery(internal.users.getByIdInternal, {
+              userId: appointment.userId,
+            });
+            if (paidUser) {
+              await ctx.runMutation(internal.users.updateStats, {
+                userId: appointment.userId,
+                timesServiced: (paidUser.timesServiced || 0) + 1,
+                totalSpent: (paidUser.totalSpent || 0) + invoice.total,
+              });
+            }
+          }
 
-          // Notify admin that deposit was paid so they can confirm the appointment
+          // Notify admin
           await ctx.scheduler.runAfter(
             0,
             internal.emails.sendAdminDepositPaidNotification,
@@ -147,6 +164,50 @@ registerRoutes(http, components.stripe, {
               invoiceId,
             },
           );
+        } else {
+          // Deposit payment flow (existing behavior)
+          if (invoice.depositPaid) {
+            console.log(
+              `[stripe-webhook] deposit already marked paid invoiceId=${invoiceId}`,
+            );
+            return;
+          }
+
+          if (invoice && !invoice.depositPaid) {
+            const paymentIntentId = session.payment_intent as
+              | string
+              | undefined;
+
+            // Mark deposit as paid
+            await ctx.runMutation(
+              internal.invoices.updateDepositStatusInternal,
+              {
+                invoiceId,
+                depositPaid: true,
+                depositPaymentIntentId: paymentIntentId,
+                status: "draft", // Will be updated to "sent" after Stripe invoice is created
+              },
+            );
+            console.log(
+              `[stripe-webhook] deposit captured invoiceId=${invoiceId} paymentIntentId=${paymentIntentId || "none"}`,
+            );
+
+            // Deposit paid — appointment stays "pending" for admin review.
+            // Admin confirms manually, which triggers Stripe invoice generation.
+            console.log(
+              `[stripe-webhook] deposit paid, appointment stays pending for admin review appointmentId=${invoice.appointmentId}`,
+            );
+
+            // Notify admin that deposit was paid so they can confirm the appointment
+            await ctx.scheduler.runAfter(
+              0,
+              internal.emails.sendAdminDepositPaidNotification,
+              {
+                appointmentId: invoice.appointmentId,
+                invoiceId,
+              },
+            );
+          }
         }
       }
     },
@@ -160,8 +221,8 @@ registerRoutes(http, components.stripe, {
       const invoiceIdString = paymentIntent.metadata?.invoiceId;
       const paymentType = paymentIntent.metadata?.type;
 
-      // Only handle deposit payments here (final payments are handled via invoice.paid)
-      if (invoiceIdString && paymentType === "deposit") {
+      // Handle deposit and full payments here (final payments are handled via invoice.paid)
+      if (invoiceIdString && (paymentType === "deposit" || paymentType === "full")) {
         const invoiceId = invoiceIdString as Id<"invoices">;
         console.log(
           `[stripe-webhook] deposit payment_intent.succeeded invoiceId=${invoiceId} paymentIntentId=${paymentIntent.id}`,
@@ -180,61 +241,103 @@ registerRoutes(http, components.stripe, {
           return;
         }
 
-        if (invoice.depositPaid) {
-          console.log(
-            `[stripe-webhook] deposit payment already processed invoiceId=${invoiceId}`,
-          );
-          return;
-        }
+        if (paymentType === "full") {
+          // Full payment backup handler
+          if (invoice.status === "paid") {
+            console.log(
+              `[stripe-webhook] full payment already processed invoiceId=${invoiceId}`,
+            );
+            return;
+          }
 
-        if (invoice && !invoice.depositPaid) {
-          // Deposit payment succeeded via direct payment intent
-          // This is a backup handler in case checkout.session.completed didn't fire
-          await ctx.runMutation(
-            internal.invoices.updateDepositStatusInternal,
-            {
-              invoiceId,
-              depositPaid: true,
-              depositPaymentIntentId: paymentIntent.id,
-              status: "draft",
-            },
-          );
+          const today = new Date().toISOString().split("T")[0];
+          await ctx.runMutation(internal.invoices.updateStatusInternal, {
+            invoiceId,
+            status: "paid",
+            paidDate: today,
+          });
+          await ctx.runMutation(internal.invoices.updateDepositStatusInternal, {
+            invoiceId,
+            depositPaid: true,
+            depositPaymentIntentId: paymentIntent.id,
+          });
           console.log(
-            `[stripe-webhook] deposit captured via payment intent invoiceId=${invoiceId}`,
+            `[stripe-webhook] full payment captured via payment intent invoiceId=${invoiceId}`,
           );
 
-          // Route through appointment status mutation (single source of truth for invoice generation)
+          // Update user stats
           const appointment = await ctx.runQuery(
             internal.appointments.getByIdInternal,
-            {
-              appointmentId: invoice.appointmentId,
-            },
+            { appointmentId: invoice.appointmentId },
           );
-          if (
-            appointment &&
-            (appointment.status === "pending" ||
-              appointment.status === "confirmed")
-          ) {
+          if (appointment) {
+            const paidUser = await ctx.runQuery(internal.users.getByIdInternal, {
+              userId: appointment.userId,
+            });
+            if (paidUser) {
+              await ctx.runMutation(internal.users.updateStats, {
+                userId: appointment.userId,
+                timesServiced: (paidUser.timesServiced || 0) + 1,
+                totalSpent: (paidUser.totalSpent || 0) + invoice.total,
+              });
+            }
+          }
+        } else {
+          // Deposit payment backup handler (existing behavior)
+          if (invoice.depositPaid) {
             console.log(
-              `[stripe-webhook] confirming appointment after payment_intent deposit appointmentId=${invoice.appointmentId}`,
+              `[stripe-webhook] deposit payment already processed invoiceId=${invoiceId}`,
             );
-            try {
-              await ctx.runMutation(
-                internal.appointments.updateStatusInternal,
-                {
-                  appointmentId: invoice.appointmentId,
-                  status: "confirmed",
-                },
-              );
+            return;
+          }
+
+          if (invoice && !invoice.depositPaid) {
+            await ctx.runMutation(
+              internal.invoices.updateDepositStatusInternal,
+              {
+                invoiceId,
+                depositPaid: true,
+                depositPaymentIntentId: paymentIntent.id,
+                status: "draft",
+              },
+            );
+            console.log(
+              `[stripe-webhook] deposit captured via payment intent invoiceId=${invoiceId}`,
+            );
+
+            // Route through appointment status mutation (single source of truth for invoice generation)
+            const appointment = await ctx.runQuery(
+              internal.appointments.getByIdInternal,
+              {
+                appointmentId: invoice.appointmentId,
+              },
+            );
+            if (
+              appointment &&
+              (appointment.status === "pending" ||
+                appointment.status === "confirmed")
+            ) {
               console.log(
-                `[stripe-webhook] appointment confirmed and invoice generation scheduled appointmentId=${invoice.appointmentId}`,
+                `[stripe-webhook] confirming appointment after payment_intent deposit appointmentId=${invoice.appointmentId}`,
               );
-            } catch (error) {
-              console.error(
-                `[stripe-webhook] failed to confirm appointment after payment_intent deposit appointmentId=${invoice.appointmentId}`,
-                error,
-              );
-              throw error;
+              try {
+                await ctx.runMutation(
+                  internal.appointments.updateStatusInternal,
+                  {
+                    appointmentId: invoice.appointmentId,
+                    status: "confirmed",
+                  },
+                );
+                console.log(
+                  `[stripe-webhook] appointment confirmed and invoice generation scheduled appointmentId=${invoice.appointmentId}`,
+                );
+              } catch (error) {
+                console.error(
+                  `[stripe-webhook] failed to confirm appointment after payment_intent deposit appointmentId=${invoice.appointmentId}`,
+                  error,
+                );
+                throw error;
+              }
             }
           }
         }

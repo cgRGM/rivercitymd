@@ -250,6 +250,25 @@ export const updateStatus = mutation({
     }
 
     await ctx.db.patch(args.invoiceId, updateData);
+
+    // Update user stats when admin marks an invoice as paid
+    // This handles in-person payments that don't go through the Stripe webhook path
+    if (args.status === "paid") {
+      const invoice = await ctx.db.get(args.invoiceId);
+      if (invoice) {
+        const appointment = await ctx.db.get(invoice.appointmentId);
+        if (appointment) {
+          const user = await ctx.db.get(appointment.userId);
+          if (user) {
+            await ctx.db.patch(user._id, {
+              timesServiced: (user.timesServiced || 0) + 1,
+              totalSpent: (user.totalSpent || 0) + invoice.total,
+            });
+          }
+        }
+      }
+    }
+
     return args.invoiceId;
   },
 });

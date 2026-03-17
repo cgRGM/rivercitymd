@@ -64,6 +64,7 @@ type Invoice = {
   depositPaymentIntentId?: string;
   remainingBalance?: number;
   finalPaymentIntentId?: string;
+  paymentOption?: "deposit" | "full" | "in_person";
   customer?: string;
   customerEmail?: string;
   customerAddress?: {
@@ -579,6 +580,11 @@ export default function InvoicesClient() {
                                 Sync
                               </Button>
                             </>
+                          ) : invoice.paymentOption === "in_person" && invoice.depositPaid ? (
+                            // In-person payment: deposit paid, remaining balance collected in person
+                            <Badge variant="outline" className="text-xs">
+                              Remaining Balance: Pay in Person
+                            </Badge>
                           ) : invoice.depositPaid &&
                             invoice.remainingBalance &&
                             invoice.remainingBalance > 0 ? (

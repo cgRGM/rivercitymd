@@ -139,6 +139,7 @@ export default function AppointmentModal({
   } = useBookingStore();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [paymentOption, setPaymentOption] = useState<"deposit" | "full" | "in_person">("deposit");
   const { user, isLoaded, isSignedIn } = useUser();
 
   // Load saved data on mount if needed (Zustand persist handles this automatically, but we might want to pre-fill forms)
@@ -440,6 +441,7 @@ export default function AppointmentModal({
         scheduledDate: new Date(step1Data.scheduledDate).toISOString().split("T")[0],
         scheduledTime: step1Data.scheduledTime,
         locationNotes: step1Data.locationNotes,
+        paymentOption,
       });
 
       // Create checkout session for booking (guest or auth)
@@ -452,6 +454,7 @@ export default function AppointmentModal({
         name: fullName || undefined,
         email: email || undefined,
         phone: phone || undefined,
+        paymentOption,
       });
 
       if (url) {
@@ -1130,64 +1133,166 @@ export default function AppointmentModal({
           </Form>
         )}
 
-        {/* Step 5: Create Account & Deposit */}
+        {/* Step 5: Create Account & Payment */}
 
-        {currentStep === 5 && (
+        {currentStep === 5 && (() => {
+          // Compute service total and deposit for display
+          const vehicleType = step3Data?.vehicleType;
+          const vehicleSize =
+            vehicleType === "car"
+              ? "small"
+              : vehicleType === "suv"
+                ? "medium"
+                : "large";
+          const vehicleCount = step3Data?.vehicles?.length ?? 1;
+          const depositPerVehicle = 50;
+          const depositTotal = depositPerVehicle * vehicleCount;
+
+          const selectedServices = services?.filter((s) =>
+            step4Data?.serviceIds?.includes(s._id),
+          ) ?? [];
+          const serviceTotal = selectedServices.reduce((sum, service) => {
+            const price =
+              vehicleSize === "small"
+                ? service.basePriceSmall
+                : vehicleSize === "medium"
+                  ? service.basePriceMedium
+                  : service.basePriceLarge;
+            return sum + (price ?? 0);
+          }, 0) * vehicleCount;
+
+          const dueNow = paymentOption === "full" ? serviceTotal : depositTotal;
+
+          return (
           <div className="space-y-6">
              <div className="bg-muted/50 p-4 rounded-lg border border-border/50">
                <h3 className="font-semibold mb-3 flex items-center gap-2">
                  <span className="bg-primary text-primary-foreground w-6 h-6 rounded-full flex items-center justify-center text-xs">✓</span>
                  Order Summary
                </h3>
-               {services
-                 ?.filter((s) => step4Data?.serviceIds?.includes(s._id))
-                 .map((service) => {
-                   const serviceId = service._id;
+               {selectedServices.map((service) => {
                    const isSubscription = service.serviceType === "subscription";
-                   
-                   // Find vehicle size based on step 3 data
-                   // Create a safeguard for empty step3Data although logic prevents reaching step 5 without it
-                   if (!step3Data?.vehicles?.[0]) return null;
-                   
-                   const vehicleType = step3Data.vehicleType;
-                   const vehicleSize =
-                     vehicleType === "car"
-                       ? "small"
-                       : vehicleType === "suv"
-                         ? "medium"
-                         : "large";
-
                    const price =
                      vehicleSize === "small"
                        ? service.basePriceSmall
                        : vehicleSize === "medium"
                          ? service.basePriceMedium
                          : service.basePriceLarge;
-                         
+
                    return (
-                     <div key={serviceId} className="flex justify-between text-sm mb-2">
-                       <span className="text-muted-foreground">{service.name}</span>
+                     <div key={service._id} className="flex justify-between text-sm mb-2">
+                       <span className="text-muted-foreground">
+                         {service.name}
+                         {vehicleCount > 1 && <span className="text-xs"> x{vehicleCount}</span>}
+                       </span>
                        <div className="flex items-center gap-1">
-                          <span className="font-medium">${price?.toFixed(2)}</span>
+                          <span className="font-medium">${((price ?? 0) * vehicleCount).toFixed(2)}</span>
                           {isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
                        </div>
                      </div>
                    );
                  })}
 
-                 
-                 <div className="border-t border-dashed my-3" />
-                 
+                 <div className="flex justify-between text-sm font-medium mt-1">
+                   <span>Service Total</span>
+                   <span>${serviceTotal.toFixed(2)}</span>
+                 </div>
+             </div>
+
+             {/* Payment Option Selector */}
+             <div className="space-y-3">
+               <h3 className="font-semibold text-sm">Payment Option</h3>
+               <div className="space-y-2">
+                 <label
+                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                     paymentOption === "deposit"
+                       ? "border-primary bg-primary/5"
+                       : "border-border hover:border-primary/50"
+                   }`}
+                 >
+                   <input
+                     type="radio"
+                     name="paymentOption"
+                     value="deposit"
+                     checked={paymentOption === "deposit"}
+                     onChange={() => setPaymentOption("deposit")}
+                     className="mt-1 accent-primary"
+                   />
+                   <div>
+                     <span className="font-medium text-sm">Pay Deposit Now</span>
+                     <span className="text-xs text-muted-foreground block">
+                       ${depositTotal.toFixed(2)} deposit now, remaining balance invoiced after service
+                     </span>
+                   </div>
+                 </label>
+                 <label
+                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                     paymentOption === "full"
+                       ? "border-primary bg-primary/5"
+                       : "border-border hover:border-primary/50"
+                   }`}
+                 >
+                   <input
+                     type="radio"
+                     name="paymentOption"
+                     value="full"
+                     checked={paymentOption === "full"}
+                     onChange={() => setPaymentOption("full")}
+                     className="mt-1 accent-primary"
+                   />
+                   <div>
+                     <span className="font-medium text-sm">Pay Full Price Now</span>
+                     <span className="text-xs text-muted-foreground block">
+                       ${serviceTotal.toFixed(2)} — pay entire amount upfront
+                     </span>
+                   </div>
+                 </label>
+                 <label
+                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                     paymentOption === "in_person"
+                       ? "border-primary bg-primary/5"
+                       : "border-border hover:border-primary/50"
+                   }`}
+                 >
+                   <input
+                     type="radio"
+                     name="paymentOption"
+                     value="in_person"
+                     checked={paymentOption === "in_person"}
+                     onChange={() => setPaymentOption("in_person")}
+                     className="mt-1 accent-primary"
+                   />
+                   <div>
+                     <span className="font-medium text-sm">Pay Remaining in Person</span>
+                     <span className="text-xs text-muted-foreground block">
+                       ${depositTotal.toFixed(2)} deposit now, pay balance in cash/card at service
+                     </span>
+                   </div>
+                 </label>
+               </div>
+             </div>
+
+             {/* Amount Due Now */}
+             <div className="bg-muted/50 p-4 rounded-lg border border-border/50">
                  <div className="flex justify-between items-end">
                    <div>
-                     <span className="font-bold text-base block">Deposit Due Now</span>
+                     <span className="font-bold text-base block">
+                       {paymentOption === "full" ? "Total Due Now" : "Deposit Due Now"}
+                     </span>
                      <span className="text-xs text-muted-foreground">Secure payment via Stripe</span>
                    </div>
-                   <span className="font-bold text-xl text-primary">$50.00</span>
+                   <span className="font-bold text-xl text-primary">${dueNow.toFixed(2)}</span>
                  </div>
-                 <p className="text-xs text-muted-foreground mt-2">
-                   This deposit is non-refundable and will be applied to your service total.
-                 </p>
+                 {paymentOption !== "full" && (
+                   <p className="text-xs text-muted-foreground mt-2">
+                     This deposit is non-refundable and will be applied to your service total.
+                   </p>
+                 )}
+                 {paymentOption === "in_person" && (
+                   <p className="text-xs text-muted-foreground mt-1">
+                     Remaining balance of ${(serviceTotal - depositTotal).toFixed(2)} will be collected in person.
+                   </p>
+                 )}
              </div>
 
              <div className="mt-6">
@@ -1203,7 +1308,8 @@ export default function AppointmentModal({
                 )}
              </div>
           </div>
-        )}
+          );
+        })()}
 
 
 
@@ -1240,7 +1346,7 @@ export default function AppointmentModal({
                 </>
               ) : (
                 <>
-                  Pay Deposit & Book
+                  {paymentOption === "full" ? "Pay & Book" : "Pay Deposit & Book"}
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </>
               )}

@@ -1300,6 +1300,9 @@ export const createUserWithAppointment = mutation({
     scheduledDate: v.string(),
     scheduledTime: v.string(),
     locationNotes: v.optional(v.string()),
+    paymentOption: v.optional(
+      v.union(v.literal("deposit"), v.literal("full"), v.literal("in_person")),
+    ),
   },
   handler: async (
     ctx,
@@ -1422,6 +1425,7 @@ export const createUserWithAppointment = mutation({
       totalPrice,
       notes: "Created via marketing site booking",
       createdBy: userId,
+      paymentOption: args.paymentOption,
     });
 
     // Calculate invoice items
@@ -1460,6 +1464,20 @@ export const createUserWithAppointment = mutation({
     const dueDate = new Date(appointmentDate);
     dueDate.setDate(dueDate.getDate() + 30);
 
+    // Adjust invoice fields based on payment option
+    const paymentOption = args.paymentOption ?? "deposit";
+    let invoiceDepositAmount = depositAmount;
+    let invoiceDepositPaid = false;
+    let invoiceRemainingBalance = remainingBalance;
+
+    if (paymentOption === "full") {
+      // Full price checkout — deposit concept doesn't apply, entire total charged at once
+      invoiceDepositAmount = 0;
+      invoiceDepositPaid = false;
+      invoiceRemainingBalance = 0;
+    }
+    // "deposit" and "in_person" use the same deposit fields — difference is handled downstream
+
     // Create invoice in Convex immediately (don't create Stripe invoice yet - wait for deposit)
     const invoiceId: Id<"invoices"> = await ctx.db.insert("invoices", {
       appointmentId,
@@ -1472,9 +1490,10 @@ export const createUserWithAppointment = mutation({
       status: "draft", // Start as draft, will be sent after deposit is paid
       dueDate: dueDate.toISOString().split("T")[0],
       notes: `Invoice for appointment on ${scheduledDateKey}`,
-      depositAmount,
-      depositPaid: false,
-      remainingBalance,
+      depositAmount: invoiceDepositAmount,
+      depositPaid: invoiceDepositPaid,
+      remainingBalance: invoiceRemainingBalance,
+      paymentOption,
     });
 
     // Ensure Stripe customer exists (schedule action to create if needed)

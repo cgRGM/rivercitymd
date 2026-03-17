@@ -1833,6 +1833,9 @@ export const createBookingCheckout = action({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
+    paymentOption: v.optional(
+      v.union(v.literal("deposit"), v.literal("full"), v.literal("in_person")),
+    ),
   },
   returns: v.object({
     sessionId: v.string(),
@@ -1877,8 +1880,14 @@ export const createBookingCheckout = action({
       throw new Error("Could not ensure Stripe customer");
     }
 
-    if (!invoice.depositAmount || invoice.depositAmount <= 0) {
-      throw new Error("No deposit amount found for this invoice");
+    const paymentOption = args.paymentOption ?? "deposit";
+
+    // For "full" payment, we charge the entire invoice total
+    // For "deposit" and "in_person", we charge the deposit amount
+    if (paymentOption !== "full") {
+      if (!invoice.depositAmount || invoice.depositAmount <= 0) {
+        throw new Error("No deposit amount found for this invoice");
+      }
     }
 
     // Get deposit settings
@@ -1926,24 +1935,64 @@ export const createBookingCheckout = action({
     }
     // -----------------------------
 
+    // Determine checkout type and amount based on payment option
+    const metadataType = paymentOption === "full" ? "full" : "deposit";
+
     // Create Stripe checkout session
-    if (depositPriceId) {
+    if (paymentOption === "full") {
+      // Full price checkout — charge entire invoice total via price_data
+      const totalAmountInCents = Math.round(invoice.total * 100);
+      const sessionData = new URLSearchParams({
+        mode: "payment",
+        customer: stripeCustomerId,
+        success_url: successUrl,
+        cancel_url: args.cancelUrl,
+        "metadata[appointmentId]": args.appointmentId,
+        "metadata[invoiceId]": args.invoiceId,
+        "metadata[type]": "full",
+        "payment_intent_data[metadata][appointmentId]": args.appointmentId,
+        "payment_intent_data[metadata][invoiceId]": args.invoiceId,
+        "payment_intent_data[metadata][type]": "full",
+      });
+
+      sessionData.append("line_items[0][price_data][currency]", "usd");
+      sessionData.append(
+        "line_items[0][price_data][unit_amount]",
+        totalAmountInCents.toString(),
+      );
+      sessionData.append(
+        "line_items[0][price_data][product_data][name]",
+        `Full Service Payment (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
+      );
+      sessionData.append("line_items[0][quantity]", "1");
+
+      const session = await stripeApiCall("checkout/sessions", {
+        method: "POST",
+        body: sessionData,
+      });
+
+      return {
+        sessionId: session.id,
+        url: session.url,
+      };
+    } else if (depositPriceId) {
+      // Deposit or in_person — charge deposit using deposit price ID
       const session = await stripeClient.createCheckoutSession(ctx, {
         priceId: depositPriceId,
         customerId: stripeCustomerId,
         mode: "payment",
-        successUrl: successUrl, // Use modified URL
+        successUrl: successUrl,
         cancelUrl: args.cancelUrl,
         quantity: vehicleCount,
         metadata: {
           appointmentId: args.appointmentId,
           invoiceId: args.invoiceId,
-          type: "deposit",
+          type: metadataType,
         },
         paymentIntentMetadata: {
           appointmentId: args.appointmentId,
           invoiceId: args.invoiceId,
-          type: "deposit",
+          type: metadataType,
         },
       });
 
@@ -1954,18 +2003,21 @@ export const createBookingCheckout = action({
         url: session.url,
       };
     } else {
-      // Fallback: manual price data
+      // Fallback: manual price data for deposit
+      const depositAmountInCents = Math.round(invoice.depositAmount! * 100);
       const sessionData = new URLSearchParams({
         mode: "payment",
         customer: stripeCustomerId,
-        success_url: successUrl, // Use modified URL
+        success_url: successUrl,
         cancel_url: args.cancelUrl,
         "metadata[appointmentId]": args.appointmentId,
         "metadata[invoiceId]": args.invoiceId,
-        "metadata[type]": "deposit",
+        "metadata[type]": metadataType,
+        "payment_intent_data[metadata][appointmentId]": args.appointmentId,
+        "payment_intent_data[metadata][invoiceId]": args.invoiceId,
+        "payment_intent_data[metadata][type]": metadataType,
       });
 
-      const depositAmountInCents = Math.round(invoice.depositAmount * 100);
       sessionData.append("line_items[0][price_data][currency]", "usd");
       sessionData.append(
         "line_items[0][price_data][unit_amount]",
