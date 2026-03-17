@@ -6,10 +6,10 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
-import { api, internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { getEffectiveServicePrice, type VehicleSize } from "./lib/pricing";
 
 // --- Helpers ---

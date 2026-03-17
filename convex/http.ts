@@ -16,11 +16,6 @@ registerTwilioRoutes(http);
 // Register Stripe component webhook handler (handles data sync to component tables)
 // The component verifies webhook signatures and syncs data automatically
 // We add custom event handlers for our business logic
-import { createClerkClient } from "@clerk/backend";
-
-// Initialize Clerk client (ensure CLERK_SECRET_KEY is set in env vars)
-const clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
-
 registerRoutes(http, components.stripe, {
   webhookPath: "/stripe/webhook",
   events: {
@@ -93,32 +88,24 @@ registerRoutes(http, components.stripe, {
 
                 if (user.email) {
                     try {
-                        const redirectUrl = `${process.env.CONVEX_SITE_URL}/dashboard`;
-                        // Create invitation
-                        // Note: Using a catch block to handle "already invited" scenarios gracefully
-                        await clerkClient.invitations.createInvitation({
-                            emailAddress: user.email,
-                            redirectUrl: redirectUrl,
-                            publicMetadata: {
-                                convexUserId: user._id,
-                                role: "client"
-                            },
-                             ignoreExisting: true // Don't throw if already invited
+                        const clerkSync = await ctx.runAction(internal.users.sendInvitation, {
+                            userId: user._id,
+                            email: user.email,
                         });
-                        console.log(`[stripe-webhook] Invitation sent to ${user.email}`);
-
-                         // Also trigger the internal onboarding notification (Admin Alert)
-                         // We do this here (post-payment) to confirm they are a real customer.
-                         await ctx.runMutation(internal.notifications.queueNewCustomerOnboarded, {
-                             userId: user._id,
-                             transition: "payment_complete"
-                         });
-
+                        if (clerkSync.invited) {
+                            console.log(`[stripe-webhook] Invitation sent to ${user.email}`);
+                            await ctx.runMutation(internal.notifications.queueNewCustomerOnboarded, {
+                                userId: user._id,
+                                transition: "payment_complete"
+                            });
+                        } else if (clerkSync.linked) {
+                            console.log(`[stripe-webhook] Linked existing Clerk account ${clerkSync.clerkUserId} for ${user.email}`);
+                        }
                     } catch (err) {
-                        console.error(`[stripe-webhook] Failed to send Clerk invitation to ${user.email}`, err);
+                        console.error(`[stripe-webhook] Failed to ensure Clerk account for ${user.email}`, err);
                     }
                 } else {
-                     console.warn(`[stripe-webhook] User ${user._id} has no email, cannot send invitation.`);
+                     console.warn(`[stripe-webhook] User ${user._id} has no email, cannot ensure Clerk account.`);
                 }
             } else if (user) {
                 // User ALREADY has Clerk ID. They might still need the "Onboarded" admin alert if this was their first real booking?

@@ -40,6 +40,17 @@ const STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS = [
 ] as const;
 const DEFAULT_STRIPE_BACKFILL_LIMIT = 200;
 const MAX_STRIPE_BACKFILL_LIMIT = 1000;
+const clerkAccountSyncResultValidator = v.object({
+  clerkUserId: v.optional(v.string()),
+  invited: v.boolean(),
+  linked: v.boolean(),
+});
+
+type ClerkAccountSyncResult = {
+  clerkUserId?: string;
+  invited: boolean;
+  linked: boolean;
+};
 
 function resolvePreferredName(args: {
   onboardingName?: string;
@@ -73,6 +84,65 @@ function normalizeBackfillLimit(limit?: number): number {
     return DEFAULT_STRIPE_BACKFILL_LIMIT;
   }
   return Math.min(MAX_STRIPE_BACKFILL_LIMIT, Math.max(1, Math.floor(limit)));
+}
+
+async function syncClerkAccountForUserEmail(
+  ctx: any,
+  args: {
+    userId: Id<"users">;
+    email: string;
+    inviteIfMissing: boolean;
+  },
+): Promise<ClerkAccountSyncResult> {
+  const { createClerkClient } = await import("@clerk/backend");
+  const clerkClient = createClerkClient({
+    secretKey: process.env.CLERK_SECRET_KEY,
+    publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  });
+
+  const existingUsers = await clerkClient.users.getUserList({
+    emailAddress: [args.email],
+    limit: 1,
+  });
+  const existingClerkUser = Array.isArray((existingUsers as any).data)
+    ? (existingUsers as any).data[0]
+    : Array.isArray(existingUsers)
+      ? (existingUsers as any)[0]
+      : undefined;
+
+  if (existingClerkUser?.id) {
+    await ctx.runMutation(internal.users.linkClerkUserIdInternal, {
+      userId: args.userId,
+      clerkUserId: existingClerkUser.id,
+    });
+    return {
+      clerkUserId: existingClerkUser.id,
+      invited: false,
+      linked: true,
+    };
+  }
+
+  if (!args.inviteIfMissing) {
+    return {
+      invited: false,
+      linked: false,
+    };
+  }
+
+  const redirectUrl = `${
+    process.env.NEXT_PUBLIC_APP_URL || process.env.CONVEX_SITE_URL
+  }/dashboard`;
+  await clerkClient.invitations.createInvitation({
+    emailAddress: args.email,
+    redirectUrl,
+    publicMetadata: { convexUserId: args.userId, role: "client" },
+    ignoreExisting: true,
+  });
+
+  return {
+    invited: true,
+    linked: false,
+  };
 }
 
 async function assertBookingSetupReady(ctx: any) {
@@ -369,7 +439,7 @@ export const create = mutation({
       });
     }
 
-    if (args.email) {
+    if (args.email && (args.role || "client") !== "admin") {
       await ctx.scheduler.runAfter(0, internal.users.sendInvitation, {
         userId,
         email: args.email,
@@ -391,22 +461,23 @@ export const create = mutation({
 // Send Clerk invitation to a newly created customer
 export const sendInvitation = internalAction({
   args: { userId: v.id("users"), email: v.string() },
-  handler: async (_ctx, args) => {
-    const { createClerkClient } = await import("@clerk/backend");
-    const clerkClient = createClerkClient({
-      secretKey: process.env.CLERK_SECRET_KEY,
+  returns: clerkAccountSyncResultValidator,
+  handler: async (ctx, args) => {
+    const result = await syncClerkAccountForUserEmail(ctx, {
+      userId: args.userId,
+      email: args.email,
+      inviteIfMissing: true,
     });
-
-    const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL || process.env.CONVEX_SITE_URL}/dashboard`;
-    await clerkClient.invitations.createInvitation({
-      emailAddress: args.email,
-      redirectUrl,
-      publicMetadata: { convexUserId: args.userId, role: "client" },
-      ignoreExisting: true,
-    });
-    console.log(
-      `[users] Invitation sent to ${args.email} for user ${args.userId}`,
-    );
+    if (result.linked) {
+      console.log(
+        `[users] Linked existing Clerk user ${result.clerkUserId} to ${args.email} for user ${args.userId}`,
+      );
+    } else if (result.invited) {
+      console.log(
+        `[users] Invitation sent to ${args.email} for user ${args.userId}`,
+      );
+    }
+    return result;
   },
 });
 
@@ -1504,6 +1575,8 @@ export const createUserWithAppointment = mutation({
       depositPaid: invoiceDepositPaid,
       remainingBalance: invoiceRemainingBalance,
       paymentOption,
+      remainingBalanceCollectionMethod:
+        paymentOption === "deposit" ? "send_invoice" : undefined,
     });
 
     // Ensure Stripe customer exists (schedule action to create if needed)
@@ -1526,6 +1599,19 @@ export const updateStripeCustomerId = mutation({
     await ctx.db.patch(args.userId, {
       stripeCustomerId: args.stripeCustomerId,
     });
+  },
+});
+
+export const linkClerkUserIdInternal = internalMutation({
+  args: {
+    userId: v.id("users"),
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      clerkUserId: args.clerkUserId,
+    });
+    return args.userId;
   },
 });
 

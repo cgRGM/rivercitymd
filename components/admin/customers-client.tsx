@@ -281,7 +281,7 @@ export default function CustomersClient() {
               try {
                 const result = await backfillStripeCustomers({});
                 toast.success(`Synced ${result.scheduled} customer${result.scheduled !== 1 ? "s" : ""} to Stripe`);
-              } catch (err) {
+              } catch {
                 toast.error("Failed to sync Stripe customers");
               } finally {
                 setIsSyncing(false);

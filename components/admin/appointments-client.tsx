@@ -78,7 +78,6 @@ export default function AppointmentsClient({}: Props) {
   );
 
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
-  const [loadingId, setLoadingId] = useState<Id<"appointments"> | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [appointmentToDelete, setAppointmentToDelete] = useState<Id<"appointments"> | null>(null);
   const backfillStartedRef = useRef(false);
@@ -172,15 +171,12 @@ export default function AppointmentsClient({}: Props) {
     appointmentId: Id<"appointments">,
     newStatus: "confirmed" | "in_progress" | "completed" | "cancelled",
   ) => {
-    setLoadingId(appointmentId);
     try {
       await updateStatus({ appointmentId, status: newStatus });
       toast.success(`Appointment ${newStatus.replace("_", " ")}`);
       router.refresh();
     } catch {
       toast.error("Failed to update appointment status");
-    } finally {
-      setLoadingId(null);
     }
   };
 
@@ -195,21 +191,17 @@ export default function AppointmentsClient({}: Props) {
       return;
     }
 
-    setLoadingId(appointment._id);
     try {
       const ensured = await ensureDraftForAppointment({ appointmentId: appointment._id });
       router.push(`/admin/logs/${ensured.tripLogId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to open trip log");
-    } finally {
-      setLoadingId(null);
     }
   };
 
   const confirmDelete = async () => {
     if (!appointmentToDelete) return;
 
-    setLoadingId(appointmentToDelete);
     setAppointmentToDelete(null);
 
     try {
@@ -218,8 +210,6 @@ export default function AppointmentsClient({}: Props) {
       router.refresh();
     } catch {
       toast.error("Failed to delete appointment");
-    } finally {
-      setLoadingId(null);
     }
   };
 

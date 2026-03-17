@@ -1,10 +1,10 @@
 "use client";
 
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Card,
@@ -15,6 +15,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -81,7 +90,22 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
     invoice?.appointmentId ? { appointmentId: invoice.appointmentId } : "skip",
   );
   const retryInvoiceGeneration = useMutation(api.appointments.retryInvoiceGeneration);
+  const updateBillingSettings = useMutation(api.invoices.updateBillingSettings);
+  const reissueStripeInvoice = useAction(api.payments.reissueStripeInvoice);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [billingDueDate, setBillingDueDate] = useState("");
+  const [billingMethod, setBillingMethod] = useState<
+    "send_invoice" | "charge_automatically"
+  >("send_invoice");
+  const [isSavingBilling, setIsSavingBilling] = useState(false);
+
+  useEffect(() => {
+    if (!invoice) return;
+    setBillingDueDate(invoice.dueDate);
+    setBillingMethod(
+      invoice.remainingBalanceCollectionMethod ?? "send_invoice",
+    );
+  }, [invoice]);
 
   const handleRetryInvoice = async () => {
     setIsRetrying(true);
@@ -95,6 +119,36 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
       );
     } finally {
       setIsRetrying(false);
+    }
+  };
+
+  const handleSaveBilling = async (reissue: boolean) => {
+    if (!billingDueDate) {
+      toast.error("Select a due date first");
+      return;
+    }
+
+    setIsSavingBilling(true);
+    try {
+      await updateBillingSettings({
+        invoiceId,
+        dueDate: billingDueDate,
+        remainingBalanceCollectionMethod: billingMethod,
+      });
+
+      if (reissue) {
+        await reissueStripeInvoice({ invoiceId });
+        toast.success("Billing settings saved and Stripe invoice reissued");
+      } else {
+        toast.success("Billing settings updated");
+      }
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update billing settings",
+      );
+    } finally {
+      setIsSavingBilling(false);
     }
   };
 
@@ -146,6 +200,11 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
   }
 
   const hasDeposit = invoice.depositAmount != null && invoice.depositAmount > 0;
+  const canEditBilling =
+    (invoice.paymentOption ?? "deposit") === "deposit" &&
+    (invoice.remainingBalance ?? 0) > 0 &&
+    invoice.status !== "paid";
+  const canReissue = canEditBilling && Boolean(invoice.stripeInvoiceId);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -204,6 +263,65 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
               <RefreshCw className={`w-4 h-4 mr-2 ${isRetrying ? "animate-spin" : ""}`} />
               {isRetrying ? "Retrying..." : "Retry"}
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {canEditBilling && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Remaining Balance Billing</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="billing-due-date">Due date</Label>
+                <Input
+                  id="billing-due-date"
+                  type="date"
+                  value={billingDueDate}
+                  onChange={(event) => setBillingDueDate(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Collection method</Label>
+                <Select
+                  value={billingMethod}
+                  onValueChange={(value) =>
+                    setBillingMethod(
+                      value as "send_invoice" | "charge_automatically",
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="send_invoice">Send invoice</SelectItem>
+                    <SelectItem value="charge_automatically">
+                      Charge automatically
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                variant="outline"
+                onClick={() => void handleSaveBilling(false)}
+                disabled={isSavingBilling}
+              >
+                {isSavingBilling ? "Saving..." : "Save Billing Settings"}
+              </Button>
+              {canReissue && (
+                <Button
+                  onClick={() => void handleSaveBilling(true)}
+                  disabled={isSavingBilling}
+                >
+                  {isSavingBilling ? "Reissuing..." : "Save & Reissue Invoice"}
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

@@ -131,6 +131,10 @@ type RepairSingleStripeInvoiceResult = {
   errors: string[];
 };
 
+type RemainingBalanceCollectionMethod =
+  | "send_invoice"
+  | "charge_automatically";
+
 function appendMetadata(
   params: URLSearchParams,
   metadata: Record<string, string>,
@@ -145,6 +149,39 @@ function getHostedInvoiceUrl(stripeInvoice: any): string | undefined {
     return undefined;
   }
   return stripeInvoice.hosted_invoice_url || stripeInvoice.hostedInvoiceUrl;
+}
+
+function getRemainingBalanceCollectionMethod(
+  invoice: any,
+): RemainingBalanceCollectionMethod {
+  return invoice.remainingBalanceCollectionMethod ?? "send_invoice";
+}
+
+function formatStripeLineItemDescription(item: any, quantity: number): string {
+  return quantity > 1 ? `${item.serviceName} x${quantity}` : item.serviceName;
+}
+
+function toStripeDueDateTimestamp(dateString: string): string {
+  const timestamp = Date.parse(`${dateString}T12:00:00Z`);
+  if (Number.isNaN(timestamp)) {
+    throw new Error(`Invalid invoice due date: ${dateString}`);
+  }
+  return Math.floor(timestamp / 1000).toString();
+}
+
+function mapStripeInvoiceStatusToLocalStatus(
+  stripeStatus?: string,
+): "draft" | "sent" | "paid" | "overdue" {
+  if (stripeStatus === "paid") {
+    return "paid";
+  }
+  if (stripeStatus === "uncollectible") {
+    return "overdue";
+  }
+  if (stripeStatus === "draft") {
+    return "draft";
+  }
+  return "sent";
 }
 
 async function getStripeInvoiceById(stripeInvoiceId: string): Promise<any> {
@@ -163,9 +200,33 @@ async function findReusableStripeInvoice(
   );
   const candidate = recentInvoices?.data?.find(
     (stripeInvoice: any) =>
-      stripeInvoice?.metadata?.invoiceId === String(invoiceId),
+      stripeInvoice?.metadata?.invoiceId === String(invoiceId) &&
+      stripeInvoice?.status !== "void" &&
+      stripeInvoice?.status !== "uncollectible",
   );
   return candidate ?? null;
+}
+
+async function retireStripeInvoice(stripeInvoiceId: string): Promise<void> {
+  const stripeInvoice = await getStripeInvoiceById(stripeInvoiceId);
+  if (stripeInvoice.status === "paid") {
+    throw new Error("Paid Stripe invoices cannot be reissued");
+  }
+  if (
+    stripeInvoice.status === "void" ||
+    stripeInvoice.status === "uncollectible"
+  ) {
+    return;
+  }
+  if (stripeInvoice.status === "draft") {
+    await stripeApiCall(`invoices/${stripeInvoiceId}`, {
+      method: "DELETE",
+    });
+    return;
+  }
+  await stripeApiCall(`invoices/${stripeInvoiceId}/void`, {
+    method: "POST",
+  });
 }
 
 async function getFinalPaymentEvidence(invoice: any): Promise<{
@@ -214,6 +275,7 @@ async function createStripeInvoiceAfterDepositImpl(
   args: {
     invoiceId: Id<"invoices">;
     appointmentId: Id<"appointments">;
+    forceRecreate?: boolean;
   },
 ): Promise<{
   stripeInvoiceId: string;
@@ -251,7 +313,25 @@ async function createStripeInvoiceAfterDepositImpl(
     `[payments] createStripeInvoiceAfterDeposit:start invoiceId=${args.invoiceId} appointmentId=${args.appointmentId}`,
   );
 
-  if (invoice.stripeInvoiceId && invoice.stripeInvoiceUrl) {
+  const collectionMethod = getRemainingBalanceCollectionMethod(invoice);
+  if (invoice.paymentOption && invoice.paymentOption !== "deposit") {
+    throw new Error(
+      `Payment option ${invoice.paymentOption} does not create a remaining-balance Stripe invoice`,
+    );
+  }
+  if ((invoice.remainingBalance ?? 0) <= 0) {
+    throw new Error("Invoice has no remaining balance to bill");
+  }
+
+  if (args.forceRecreate && invoice.stripeInvoiceId) {
+    await retireStripeInvoice(invoice.stripeInvoiceId);
+    await ctx.runMutation(internal.invoices.clearStripeInvoiceData, {
+      invoiceId: args.invoiceId,
+      status: "draft",
+    });
+  }
+
+  if (!args.forceRecreate && invoice.stripeInvoiceId && invoice.stripeInvoiceUrl) {
     console.log(
       `[payments] createStripeInvoiceAfterDeposit:idempotentReuse invoiceId=${args.invoiceId} stripeInvoiceId=${invoice.stripeInvoiceId}`,
     );
@@ -261,7 +341,7 @@ async function createStripeInvoiceAfterDepositImpl(
     };
   }
 
-  if (invoice.stripeInvoiceId && !invoice.stripeInvoiceUrl) {
+  if (!args.forceRecreate && invoice.stripeInvoiceId && !invoice.stripeInvoiceUrl) {
     try {
       const existingStripeInvoice = await getStripeInvoiceById(
         invoice.stripeInvoiceId,
@@ -273,7 +353,9 @@ async function createStripeInvoiceAfterDepositImpl(
           invoiceId: args.invoiceId,
           stripeInvoiceId: invoice.stripeInvoiceId,
           stripeInvoiceUrl: existingStripeInvoiceUrl,
-          status: invoice.status === "paid" ? "paid" : "sent",
+          status: mapStripeInvoiceStatusToLocalStatus(
+            existingStripeInvoice.status,
+          ),
         });
         console.log(
           `[payments] createStripeInvoiceAfterDeposit:recoveredMissingUrl invoiceId=${args.invoiceId} stripeInvoiceId=${invoice.stripeInvoiceId}`,
@@ -306,10 +388,9 @@ async function createStripeInvoiceAfterDepositImpl(
   }
 
   try {
-    const reusableStripeInvoice = await findReusableStripeInvoice(
-      stripeCustomerId,
-      args.invoiceId,
-    );
+    const reusableStripeInvoice = args.forceRecreate
+      ? null
+      : await findReusableStripeInvoice(stripeCustomerId, args.invoiceId);
     if (reusableStripeInvoice?.id) {
       let reusableInvoice = await getStripeInvoiceById(reusableStripeInvoice.id);
       console.log(
@@ -348,10 +429,11 @@ async function createStripeInvoiceAfterDepositImpl(
         invoiceId: args.invoiceId,
         stripeInvoiceId: reusableInvoice.id,
         stripeInvoiceUrl: reusableInvoiceUrl,
-        status: reusableInvoice.status === "paid" ? "paid" : "sent",
+        status: mapStripeInvoiceStatusToLocalStatus(reusableInvoice.status),
       });
 
       if (
+        collectionMethod === "send_invoice" &&
         reusableInvoice.status !== "paid" &&
         reusableInvoice.status !== "void" &&
         reusableInvoice.status !== "uncollectible"
@@ -371,7 +453,9 @@ async function createStripeInvoiceAfterDepositImpl(
               invoiceId: args.invoiceId,
               stripeInvoiceId: reusableInvoice.id,
               stripeInvoiceUrl: reusableInvoiceUrl,
-              status: "sent",
+              status: mapStripeInvoiceStatusToLocalStatus(
+                sentReusableInvoice.status,
+              ),
             });
           }
           console.log(
@@ -404,15 +488,15 @@ async function createStripeInvoiceAfterDepositImpl(
   let createdLineItemCount = 0;
   for (const item of invoice.items) {
     const quantity = Math.max(1, item.quantity || 1);
-    const unitPrice =
-      item.unitPrice > 0
-        ? item.unitPrice
-        : item.totalPrice > 0
-          ? item.totalPrice / quantity
+    const lineTotal =
+      item.totalPrice > 0
+        ? item.totalPrice
+        : item.unitPrice > 0
+          ? item.unitPrice * quantity
           : 0;
-    const unitAmountInCents = Math.round(unitPrice * 100);
+    const lineAmountInCents = Math.round(lineTotal * 100);
 
-    if (unitAmountInCents <= 0) {
+    if (lineAmountInCents <= 0) {
       console.warn(
         `[payments] skipping non-positive invoice item amount invoiceId=${args.invoiceId} service=${item.serviceName}`,
       );
@@ -423,10 +507,9 @@ async function createStripeInvoiceAfterDepositImpl(
       method: "POST",
       body: new URLSearchParams({
         customer: stripeCustomerId,
-        amount: unitAmountInCents.toString(),
+        amount: lineAmountInCents.toString(),
         currency: "usd",
-        quantity: quantity.toString(),
-        description: item.serviceName,
+        description: formatStripeLineItemDescription(item, quantity),
       }),
     });
     createdLineItemCount += 1;
@@ -449,15 +532,15 @@ async function createStripeInvoiceAfterDepositImpl(
     });
   }
 
-  const collectionMethod = "send_invoice";
-
   const invoiceParams = new URLSearchParams({
     customer: stripeCustomerId,
     collection_method: collectionMethod,
     auto_advance: "true",
     description: `Mobile detailing service - ${appointment.scheduledDate}`,
   });
-  invoiceParams.append("days_until_due", "30");
+  if (collectionMethod === "send_invoice") {
+    invoiceParams.append("due_date", toStripeDueDateTimestamp(invoice.dueDate));
+  }
   appendMetadata(invoiceParams, {
     invoiceId: String(args.invoiceId),
     appointmentId: String(args.appointmentId),
@@ -468,22 +551,23 @@ async function createStripeInvoiceAfterDepositImpl(
     body: invoiceParams,
   });
   console.log(
-    `[payments] createStripeInvoiceAfterDeposit:invoiceCreated invoiceId=${args.invoiceId} stripeInvoiceId=${stripeInvoice.id} collectionMethod=${collectionMethod}`,
+    `[payments] createStripeInvoiceAfterDeposit:invoiceCreated invoiceId=${args.invoiceId} stripeInvoiceId=${stripeInvoice.id} collectionMethod=${collectionMethod} dueDate=${invoice.dueDate}`,
   );
 
   const finalizedInvoice = await stripeApiCall(`invoices/${stripeInvoice.id}/finalize`, {
     method: "POST",
   });
 
-  const finalizedStripeInvoiceId = finalizedInvoice.id || stripeInvoice.id;
+  let processedInvoice = finalizedInvoice;
+  const processedStripeInvoiceId =
+    processedInvoice.id || finalizedInvoice.id || stripeInvoice.id;
 
   let stripeInvoiceUrl =
-    getHostedInvoiceUrl(finalizedInvoice) ||
-    finalizedInvoice.hosted_invoice_url ||
+    getHostedInvoiceUrl(processedInvoice) ||
     stripeInvoice.hosted_invoice_url;
 
   if (!stripeInvoiceUrl) {
-    const fetchedInvoice = await getStripeInvoiceById(finalizedStripeInvoiceId);
+    const fetchedInvoice = await getStripeInvoiceById(processedStripeInvoiceId);
     stripeInvoiceUrl = getHostedInvoiceUrl(fetchedInvoice) || undefined;
   }
 
@@ -496,12 +580,12 @@ async function createStripeInvoiceAfterDepositImpl(
   try {
     await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
       invoiceId: args.invoiceId,
-      stripeInvoiceId: finalizedStripeInvoiceId,
+      stripeInvoiceId: processedStripeInvoiceId,
       stripeInvoiceUrl,
-      status: "sent",
+      status: mapStripeInvoiceStatusToLocalStatus(processedInvoice.status),
     });
     console.log(
-      `[payments] createStripeInvoiceAfterDeposit:convexPatchSuccess invoiceId=${args.invoiceId} stripeInvoiceId=${finalizedStripeInvoiceId}`,
+      `[payments] createStripeInvoiceAfterDeposit:convexPatchSuccess invoiceId=${args.invoiceId} stripeInvoiceId=${processedStripeInvoiceId}`,
     );
   } catch (error) {
     console.error(
@@ -511,36 +595,39 @@ async function createStripeInvoiceAfterDepositImpl(
     throw error;
   }
 
-  try {
-    const sentInvoice = await stripeApiCall(
-      `invoices/${finalizedStripeInvoiceId}/send`,
-      {
-        method: "POST",
-      },
-    );
-    const sentInvoiceUrl =
-      getHostedInvoiceUrl(sentInvoice) || stripeInvoiceUrl;
-    if (sentInvoiceUrl !== stripeInvoiceUrl) {
-      stripeInvoiceUrl = sentInvoiceUrl;
-      await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
-        invoiceId: args.invoiceId,
-        stripeInvoiceId: finalizedStripeInvoiceId,
-        stripeInvoiceUrl,
-        status: "sent",
-      });
+  if (collectionMethod === "send_invoice") {
+    try {
+      const sentInvoice = await stripeApiCall(
+        `invoices/${processedStripeInvoiceId}/send`,
+        {
+          method: "POST",
+        },
+      );
+      processedInvoice = sentInvoice;
+      const sentInvoiceUrl =
+        getHostedInvoiceUrl(sentInvoice) || stripeInvoiceUrl;
+      if (sentInvoiceUrl !== stripeInvoiceUrl) {
+        stripeInvoiceUrl = sentInvoiceUrl;
+        await ctx.runMutation(internal.invoices.updateStripeInvoiceData, {
+          invoiceId: args.invoiceId,
+          stripeInvoiceId: processedStripeInvoiceId,
+          stripeInvoiceUrl,
+          status: mapStripeInvoiceStatusToLocalStatus(sentInvoice.status),
+        });
+      }
+      console.log(
+        `[payments] createStripeInvoiceAfterDeposit:invoiceSent invoiceId=${args.invoiceId} stripeInvoiceId=${processedStripeInvoiceId}`,
+      );
+    } catch (error) {
+      console.error(
+        `[payments] createStripeInvoiceAfterDeposit:sendFailed invoiceId=${args.invoiceId} stripeInvoiceId=${processedStripeInvoiceId}`,
+        error,
+      );
     }
-    console.log(
-      `[payments] createStripeInvoiceAfterDeposit:invoiceSent invoiceId=${args.invoiceId} stripeInvoiceId=${finalizedStripeInvoiceId}`,
-    );
-  } catch (error) {
-    console.error(
-      `[payments] createStripeInvoiceAfterDeposit:sendFailed invoiceId=${args.invoiceId} stripeInvoiceId=${finalizedStripeInvoiceId}`,
-      error,
-    );
   }
 
   return {
-    stripeInvoiceId: finalizedStripeInvoiceId,
+    stripeInvoiceId: processedStripeInvoiceId,
     stripeInvoiceUrl,
   };
 }
@@ -556,6 +643,7 @@ async function runBackfillMissingStripeInvoices(
   const candidateInvoices = allInvoices
     .filter(
       (invoice) =>
+        (invoice.paymentOption ?? "deposit") === "deposit" &&
         invoice.depositPaid === true &&
         (invoice.remainingBalance ?? 0) > 0 &&
         (!invoice.stripeInvoiceId ||
@@ -1169,7 +1257,6 @@ export const createBalanceCheckoutSession = action({
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const invoice: any = await ctx.runQuery(api.invoices.getById, {
       invoiceId: args.invoiceId,
     });
@@ -1210,7 +1297,6 @@ export const createBalanceCheckoutSession = action({
         if (hostedUrl) {
           return { sessionId: stripeInvoice.id, url: hostedUrl };
         }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: unknown) {
         if (error instanceof Error && error.message === "Invoice is already paid") throw error;
         console.warn(
@@ -1221,7 +1307,6 @@ export const createBalanceCheckoutSession = action({
     }
 
     // Fallback: create a Stripe Checkout Session for the remaining balance
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("User not found");
 
@@ -1415,6 +1500,11 @@ export const repairSingleStripeInvoice = action({
         "Invoice is not eligible (requires depositPaid=true and remainingBalance>0)";
       return result;
     }
+    if ((invoice.paymentOption ?? "deposit") !== "deposit") {
+      result.skipped = true;
+      result.reason = "Only deposit invoices are eligible for Stripe repair";
+      return result;
+    }
 
     result.eligible = true;
 
@@ -1466,6 +1556,60 @@ export const repairSingleStripeInvoice = action({
     }
 
     return result;
+  },
+});
+
+export const reissueStripeInvoice = action({
+  args: {
+    invoiceId: v.id("invoices"),
+  },
+  returns: v.object({
+    stripeInvoiceId: v.string(),
+    stripeInvoiceUrl: v.string(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ stripeInvoiceId: string; stripeInvoiceUrl: string }> => {
+    await requireAdminRole(ctx);
+
+    const invoice: any = await ctx.runQuery(internal.invoices.getByIdInternal, {
+      invoiceId: args.invoiceId,
+    });
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+    if ((invoice.paymentOption ?? "deposit") !== "deposit") {
+      throw new Error("Only deposit invoices can be reissued");
+    }
+    if (!invoice.depositPaid) {
+      throw new Error("Deposit has not been paid yet");
+    }
+    if ((invoice.remainingBalance ?? 0) <= 0) {
+      throw new Error("Invoice has no remaining balance to bill");
+    }
+    if (invoice.status === "paid") {
+      throw new Error("Paid invoices cannot be reissued");
+    }
+
+    await ctx.runMutation(internal.invoices.clearInvoiceGenerationError, {
+      invoiceId: args.invoiceId,
+    });
+
+    try {
+      return await createStripeInvoiceAfterDepositImpl(ctx, {
+        invoiceId: args.invoiceId,
+        appointmentId: invoice.appointmentId,
+        forceRecreate: !!invoice.stripeInvoiceId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await ctx.runMutation(internal.invoices.markInvoiceGenerationError, {
+        invoiceId: args.invoiceId,
+        error: message,
+      });
+      throw error;
+    }
   },
 });
 
@@ -2016,38 +2160,13 @@ export const createBookingCheckout = action({
     // Calculate quantity
     const vehicleCount = appointment.vehicleIds.length;
 
-    // --- Clerk Invitation Logic ---
+    // Guests land on the verification page after successful checkout. The
+    // webhook is the single source of truth for invite/link creation.
     let successUrl = args.successUrl;
-    // Check if user is already linked to Clerk
     if (!user.clerkUserId && user.email) {
-      try {
-        const clerkClient = (await import("@clerk/backend")).createClerkClient({
-          secretKey: process.env.CLERK_SECRET_KEY,
-          publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-        });
-
-        // Create invitation for the user
-        // ignore_existing: true ensures we don't error if they already have an invitation
-        const invitation = await clerkClient.invitations.createInvitation({
-          emailAddress: user.email,
-          ignoreExisting: true,
-          redirectUrl: `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL || "http://localhost:3000"}/dashboard/appointments?payment=success`,
-          publicMetadata: { convexUserId: user._id, role: "client" },
-        });
-        
-        console.log("Created Clerk invitation:", invitation.id);
-        
-        // Update successUrl to point to our verification page
-        // We append the email so the page can show "Sent to {email}"
-        const baseUrl = new URL(args.successUrl).origin;
-        successUrl = `${baseUrl}/sign-up/verify?payment=success&is_guest=true&email=${encodeURIComponent(user.email)}`;
-
-      } catch (error) {
-        console.error("Failed to create Clerk invitation:", error);
-        // Fallback: Proceed with payment
-      }
+      const baseUrl = new URL(args.successUrl).origin;
+      successUrl = `${baseUrl}/sign-up/verify?payment=success&is_guest=true&email=${encodeURIComponent(user.email)}`;
     }
-    // -----------------------------
 
     // Determine checkout type and amount based on payment option
     const metadataType = paymentOption === "full" ? "full" : "deposit";

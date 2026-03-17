@@ -11,7 +11,6 @@ import {
   Calendar,
   CreditCard,
   Loader2,
-  MapPin,
   RefreshCw,
 } from "lucide-react";
 import { useState } from "react";

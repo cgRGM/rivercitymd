@@ -86,6 +86,26 @@ type SubscriptionRecord = {
   vehicleNames: string[];
 };
 
+type CustomerOption = {
+  _id: Id<"users">;
+  name?: string;
+  email?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+};
+
+type CustomerVehicle = {
+  _id: Id<"vehicles">;
+  year: number;
+  make: string;
+  model: string;
+  size?: "small" | "medium" | "large";
+};
+
 function statusVariant(status: string) {
   switch (status) {
     case "active":
@@ -403,7 +423,9 @@ export default function SubscriptionsClient() {
 // --- Create Subscription Form ---
 
 function CreateSubscriptionForm({ onSuccess }: { onSuccess: () => void }) {
-  const customers = useQuery(api.users.listWithStats) as any[] | undefined;
+  const customers = useQuery(api.users.listWithStats) as
+    | CustomerOption[]
+    | undefined;
   const services = useQuery(api.services.list);
   const createSubscription = useMutation(api.subscriptions.create);
 
@@ -426,12 +448,7 @@ function CreateSubscriptionForm({ onSuccess }: { onSuccess: () => void }) {
     selectedCustomerId
       ? { userId: selectedCustomerId as Id<"users"> }
       : "skip",
-  );
-
-  // Pre-fill address when customer changes
-  const selectedCustomer = customers?.find(
-    (c) => c._id === selectedCustomerId,
-  );
+  ) as CustomerVehicle[] | undefined;
 
   const handleCustomerChange = (value: string) => {
     setSelectedCustomerId(value);
@@ -474,8 +491,12 @@ function CreateSubscriptionForm({ onSuccess }: { onSuccess: () => void }) {
       });
       toast.success("Subscription created! Checkout link will be emailed to customer.");
       onSuccess();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create subscription");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to create subscription",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -505,7 +526,7 @@ function CreateSubscriptionForm({ onSuccess }: { onSuccess: () => void }) {
         <div className="space-y-2">
           <Label>Vehicles</Label>
           <div className="space-y-1">
-            {customerVehicles.map((v: any) => (
+            {customerVehicles.map((v) => (
               <label
                 key={v._id}
                 className="flex items-center gap-2 text-sm cursor-pointer"

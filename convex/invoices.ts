@@ -17,6 +17,11 @@ const invoiceStatusValidator = v.union(
   v.literal("overdue"),
 );
 
+const remainingBalanceCollectionMethodValidator = v.union(
+  v.literal("send_invoice"),
+  v.literal("charge_automatically"),
+);
+
 const invoiceCreateArgs = {
   appointmentId: v.id("appointments"),
   userId: v.id("users"),
@@ -43,6 +48,9 @@ const invoiceCreateArgs = {
   depositPaymentIntentId: v.optional(v.string()),
   remainingBalance: v.optional(v.number()),
   finalPaymentIntentId: v.optional(v.string()),
+  remainingBalanceCollectionMethod: v.optional(
+    remainingBalanceCollectionMethodValidator,
+  ),
 } as const;
 
 async function requireInvoiceReadAccess(
@@ -308,6 +316,39 @@ export const updateStatus = mutation({
   },
 });
 
+export const updateBillingSettings = mutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    dueDate: v.string(),
+    remainingBalanceCollectionMethod: remainingBalanceCollectionMethodValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const invoice = await ctx.db.get(args.invoiceId);
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+    if (invoice.status === "paid") {
+      throw new Error("Paid invoices cannot be edited");
+    }
+    if (invoice.paymentOption && invoice.paymentOption !== "deposit") {
+      throw new Error(
+        "Only deposit invoices support editable remaining-balance billing settings",
+      );
+    }
+    if ((invoice.remainingBalance ?? 0) <= 0) {
+      throw new Error("Invoice has no remaining balance to configure");
+    }
+
+    await ctx.db.patch(args.invoiceId, {
+      dueDate: args.dueDate,
+      remainingBalanceCollectionMethod: args.remainingBalanceCollectionMethod,
+    });
+    return args.invoiceId;
+  },
+});
+
 // Internal mutation to update invoice status (for use by webhook handlers)
 export const updateStatusInternal = internalMutation({
   args: {
@@ -438,6 +479,22 @@ export const updateStripeInvoiceData = internalMutation({
     }
 
     await ctx.db.patch(args.invoiceId, patchData);
+    return args.invoiceId;
+  },
+});
+
+export const clearStripeInvoiceData = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    status: invoiceStatusValidator,
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.invoiceId, {
+      stripeInvoiceId: undefined,
+      stripeInvoiceUrl: undefined,
+      status: args.status,
+      finalPaymentIntentId: undefined,
+    });
     return args.invoiceId;
   },
 });

@@ -369,7 +369,9 @@ describe("payments", () => {
     expect(checkout.url).toBe("https://checkout.stripe.com/guest");
 
     const bodyParams = new URLSearchParams(checkoutRequestBody);
-    expect(bodyParams.get("success_url")).toBe(successUrl);
+    expect(bodyParams.get("success_url")).toBe(
+      "https://example.com/sign-up/verify?payment=success&is_guest=true&email=guest-booker%40example.com",
+    );
     expect(bodyParams.get("cancel_url")).toBe(cancelUrl);
   });
 
@@ -814,6 +816,7 @@ describe("payments", () => {
     });
 
     const invoiceItemBodies: string[] = [];
+    const invoiceBodies: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL, options?: RequestInit) => {
@@ -847,6 +850,7 @@ describe("payments", () => {
           urlString.endsWith("/invoices") &&
           options?.method === "POST"
         ) {
+          invoiceBodies.push(body);
           return {
             ok: true,
             json: async () => ({ id: "in_backfill_123", status: "draft" }),
@@ -918,6 +922,13 @@ describe("payments", () => {
     expect(invoiceItemBodies.some((body) => body.includes("amount="))).toBe(
       true,
     );
+    expect(invoiceItemBodies.some((body) => body.includes("quantity="))).toBe(
+      false,
+    );
+    expect(invoiceBodies.some((body) => body.includes("due_date="))).toBe(true);
+    expect(invoiceBodies.some((body) => body.includes("days_until_due="))).toBe(
+      false,
+    );
 
     const invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
     expect(invoice?.stripeInvoiceId).toBe("in_backfill_123");
@@ -926,7 +937,7 @@ describe("payments", () => {
     );
   });
 
-  test("createStripeInvoiceAfterDeposit always sends invoice for post-deposit flow", async () => {
+  test("createStripeInvoiceAfterDeposit skips send for charge_automatically collection", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t, true);
     const adminId = await t.run(async (ctx: any) => {
@@ -949,13 +960,25 @@ describe("payments", () => {
       depositPaymentIntentId: "pi_deposit_test_123",
       status: "draft",
     });
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        remainingBalanceCollectionMethod: "charge_automatically",
+      });
+    });
 
     const calledUrls: string[] = [];
+    const invoiceBodies: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL, options?: RequestInit) => {
         const urlString = typeof url === "string" ? url : url.toString();
         calledUrls.push(urlString);
+        const body =
+          options?.body instanceof URLSearchParams
+            ? options.body.toString()
+            : typeof options?.body === "string"
+              ? options.body
+              : "";
 
         if (urlString.includes("/customers/")) {
           return {
@@ -972,6 +995,7 @@ describe("payments", () => {
         }
 
         if (urlString.endsWith("/invoices") && options?.method === "POST") {
+          invoiceBodies.push(body);
           return {
             ok: true,
             json: async () => ({ id: "in_auto_123", status: "draft" }),
@@ -1009,8 +1033,16 @@ describe("payments", () => {
       appointmentId,
     });
 
-    expect(calledUrls.some((url) => url.includes("/invoices/in_auto_123/send"))).toBe(
-      true,
+    expect(
+      calledUrls.some((url) => url.includes("/invoices/in_auto_123/send")),
+    ).toBe(false);
+    expect(
+      invoiceBodies.some((body) =>
+        body.includes("collection_method=charge_automatically"),
+      ),
+    ).toBe(true);
+    expect(invoiceBodies.some((body) => body.includes("due_date="))).toBe(
+      false,
     );
   });
 
@@ -1039,11 +1071,18 @@ describe("payments", () => {
     });
 
     const calledUrls: string[] = [];
+    const invoiceBodies: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL, options?: RequestInit) => {
         const urlString = typeof url === "string" ? url : url.toString();
         calledUrls.push(urlString);
+        const body =
+          options?.body instanceof URLSearchParams
+            ? options.body.toString()
+            : typeof options?.body === "string"
+              ? options.body
+              : "";
 
         if (urlString.includes("/customers/")) {
           return {
@@ -1060,6 +1099,7 @@ describe("payments", () => {
         }
 
         if (urlString.endsWith("/invoices") && options?.method === "POST") {
+          invoiceBodies.push(body);
           return {
             ok: true,
             json: async () => ({ id: "in_manual_123", status: "draft" }),
@@ -1110,6 +1150,15 @@ describe("payments", () => {
 
     expect(calledUrls.some((url) => url.includes("/invoices/in_manual_123/send"))).toBe(
       true,
+    );
+    expect(
+      invoiceBodies.some((body) =>
+        body.includes("collection_method=send_invoice"),
+      ),
+    ).toBe(true);
+    expect(invoiceBodies.some((body) => body.includes("due_date="))).toBe(true);
+    expect(invoiceBodies.some((body) => body.includes("days_until_due="))).toBe(
+      false,
     );
   });
 
@@ -1318,6 +1367,181 @@ describe("payments", () => {
       "https://stripe.test/invoices/in_idempotent_123",
     );
     expect(secondCallFetch).not.toHaveBeenCalled();
+  });
+
+  test("reissueStripeInvoice voids the existing unpaid invoice and recreates it with updated billing settings", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { appointmentId, invoiceId } = await createTestAppointmentWithInvoice(
+      t,
+      userId,
+      adminId,
+    );
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        depositPaid: true,
+        depositPaymentIntentId: "pi_deposit_test_123",
+        status: "sent",
+        stripeInvoiceId: "in_old_123",
+        stripeInvoiceUrl: "https://stripe.test/invoices/in_old_123",
+        remainingBalanceCollectionMethod: "send_invoice",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
+    await asAdmin.mutation(api.invoices.updateBillingSettings, {
+      invoiceId,
+      dueDate: "2024-12-20",
+      remainingBalanceCollectionMethod: "charge_automatically",
+    });
+
+    const calledUrls: string[] = [];
+    const invoiceBodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        calledUrls.push(urlString);
+        const body =
+          options?.body instanceof URLSearchParams
+            ? options.body.toString()
+            : typeof options?.body === "string"
+              ? options.body
+              : "";
+
+        if (urlString.includes("/customers/")) {
+          return {
+            ok: true,
+            json: async () => ({ id: "cus_test_123" }),
+          } as Response;
+        }
+
+        if (urlString.endsWith("/invoices/in_old_123") && options?.method === "GET") {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "in_old_123",
+              status: "open",
+              hosted_invoice_url: "https://stripe.test/invoices/in_old_123",
+            }),
+          } as Response;
+        }
+
+        if (urlString.endsWith("/invoices/in_old_123/void")) {
+          return {
+            ok: true,
+            json: async () => ({ id: "in_old_123", status: "void" }),
+          } as Response;
+        }
+
+        if (urlString.includes("/invoiceitems")) {
+          return { ok: true, json: async () => ({ id: "ii_test_123" }) } as Response;
+        }
+
+        if (urlString.endsWith("/invoices") && options?.method === "POST") {
+          invoiceBodies.push(body);
+          return {
+            ok: true,
+            json: async () => ({ id: "in_reissued_123", status: "draft" }),
+          } as Response;
+        }
+
+        if (urlString.includes("/invoices/in_reissued_123/finalize")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "in_reissued_123",
+              status: "open",
+              hosted_invoice_url:
+                "https://stripe.test/invoices/in_reissued_123",
+            }),
+          } as Response;
+        }
+
+        if (urlString.includes("/invoices/in_reissued_123")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "in_reissued_123",
+              status: "open",
+              hosted_invoice_url:
+                "https://stripe.test/invoices/in_reissued_123",
+            }),
+          } as Response;
+        }
+
+        return { ok: true, json: async () => ({ id: "stripe_test_123" }) } as Response;
+      }),
+    );
+
+    const result = await asAdmin.action(api.payments.reissueStripeInvoice, {
+      invoiceId,
+    });
+
+    expect(result.stripeInvoiceId).toBe("in_reissued_123");
+    expect(calledUrls.some((url) => url.includes("/invoices/in_old_123/void"))).toBe(
+      true,
+    );
+    expect(
+      calledUrls.some((url) => url.includes("/invoices/in_reissued_123/send")),
+    ).toBe(false);
+    expect(
+      invoiceBodies.some((body) =>
+        body.includes("collection_method=charge_automatically"),
+      ),
+    ).toBe(true);
+
+    const invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
+    expect(invoice?.stripeInvoiceId).toBe("in_reissued_123");
+    expect(invoice?.remainingBalanceCollectionMethod).toBe(
+      "charge_automatically",
+    );
+    expect(invoice?.dueDate).toBe("2024-12-20");
+  });
+
+  test("reissueStripeInvoice rejects paid invoices", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { invoiceId } = await createTestAppointmentWithInvoice(t, userId, adminId);
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        depositPaid: true,
+        depositPaymentIntentId: "pi_deposit_test_123",
+        status: "paid",
+        paidDate: "2024-12-02",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
+
+    await expect(
+      asAdmin.action(api.payments.reissueStripeInvoice, {
+        invoiceId,
+      }),
+    ).rejects.toThrow("Paid invoices cannot be reissued");
   });
 
   test("syncPaymentStatus does not infer final payment from remaining-balance payment intent search", async () => {

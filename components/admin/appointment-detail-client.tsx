@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatDateStringLong } from "@/lib/time";
 
 type Props = {
@@ -89,8 +89,15 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const updateStatus = useMutation(api.appointments.updateStatus);
   const updateAppointment = useMutation(api.appointments.update);
   const updateVehicle = useMutation(api.vehicles.updateVehicle);
+  const updateBillingSettings = useMutation(api.invoices.updateBillingSettings);
+  const reissueStripeInvoice = useAction(api.payments.reissueStripeInvoice);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [billingDueDate, setBillingDueDate] = useState("");
+  const [billingMethod, setBillingMethod] = useState<
+    "send_invoice" | "charge_automatically"
+  >("send_invoice");
+  const [billingLoading, setBillingLoading] = useState(false);
 
   // Edit form state
   const [editDate, setEditDate] = useState("");
@@ -103,6 +110,14 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const [editNotes, setEditNotes] = useState("");
   const [editServiceIds, setEditServiceIds] = useState<Id<"services">[]>([]);
   const [editVehicleSizes, setEditVehicleSizes] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!data?.invoice) return;
+    setBillingDueDate(data.invoice.dueDate);
+    setBillingMethod(
+      data.invoice.remainingBalanceCollectionMethod ?? "send_invoice",
+    );
+  }, [data?.invoice]);
 
   if (data === undefined) {
     return (
@@ -221,8 +236,47 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     );
   };
 
+  const handleBillingSave = async (reissue: boolean) => {
+    if (!data.invoice) {
+      toast.error("No invoice found for this appointment");
+      return;
+    }
+    if (!billingDueDate) {
+      toast.error("Select a due date first");
+      return;
+    }
+
+    setBillingLoading(true);
+    try {
+      await updateBillingSettings({
+        invoiceId: data.invoice._id,
+        dueDate: billingDueDate,
+        remainingBalanceCollectionMethod: billingMethod,
+      });
+      if (reissue) {
+        await reissueStripeInvoice({ invoiceId: data.invoice._id });
+        toast.success("Billing settings saved and Stripe invoice reissued");
+      } else {
+        toast.success("Billing settings updated");
+      }
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update billing settings",
+      );
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
   const { user, services, vehicles, invoice, tripLog, location } = data;
   const canEdit = data.status === "pending" || data.status === "confirmed";
+  const canEditBilling =
+    !!invoice &&
+    (invoice.paymentOption ?? "deposit") === "deposit" &&
+    (invoice.remainingBalance ?? 0) > 0 &&
+    invoice.status !== "paid";
+  const canReissueBilling = canEditBilling && !!invoice?.stripeInvoiceId;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -547,10 +601,77 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                     <span>{formatCurrency(invoice.remainingBalance)}</span>
                   </div>
                 )}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Collection</span>
+                  <span className="capitalize">
+                    {(invoice.remainingBalanceCollectionMethod ?? "send_invoice").replace("_", " ")}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Due date</span>
+                  <span>{invoice.dueDate}</span>
+                </div>
               </>
             )}
             {!invoice && (
               <p className="text-sm text-muted-foreground">No invoice created yet</p>
+            )}
+            {canEditBilling && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="appointment-billing-due-date" className="text-xs">
+                      Due date
+                    </Label>
+                    <Input
+                      id="appointment-billing-due-date"
+                      type="date"
+                      value={billingDueDate}
+                      onChange={(event) => setBillingDueDate(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Collection method</Label>
+                    <Select
+                      value={billingMethod}
+                      onValueChange={(value) =>
+                        setBillingMethod(
+                          value as "send_invoice" | "charge_automatically",
+                        )
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="send_invoice">Send invoice</SelectItem>
+                        <SelectItem value="charge_automatically">
+                          Charge automatically
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleBillingSave(false)}
+                    disabled={billingLoading}
+                  >
+                    {billingLoading ? "Saving..." : "Save Billing"}
+                  </Button>
+                  {canReissueBilling && (
+                    <Button
+                      size="sm"
+                      onClick={() => void handleBillingSave(true)}
+                      disabled={billingLoading}
+                    >
+                      {billingLoading ? "Reissuing..." : "Save & Reissue"}
+                    </Button>
+                  )}
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
