@@ -11,7 +11,7 @@ import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { BOOKING_BLOCK_MINUTES, normalizeDateKey } from "./lib/booking";
-import { getEffectiveServicePrice, normalizeServiceType } from "./lib/pricing";
+import { getEffectiveServicePrice, normalizeServiceType, type VehicleSize } from "./lib/pricing";
 
 interface StripeInvoiceVehicleInput {
   size?: "small" | "medium" | "large";
@@ -298,6 +298,12 @@ export const getByIdWithDetails = query({
       await Promise.all(appointment.vehicleIds.map((id) => ctx.db.get(id)))
     ).filter((v) => v !== null);
 
+    const vehicleSize: VehicleSize = (vehicles[0]?.size as VehicleSize) || "medium";
+    const servicesWithPricing = services.map((s) => ({
+      ...s,
+      effectivePrice: getEffectiveServicePrice(s, vehicleSize),
+    }));
+
     const invoice = await ctx.db
       .query("invoices")
       .withIndex("by_appointment", (q) =>
@@ -315,7 +321,7 @@ export const getByIdWithDetails = query({
     return {
       ...appointment,
       user,
-      services,
+      services: servicesWithPricing,
       vehicles,
       invoice,
       tripLog,

@@ -40,7 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/ui/data-table";
 import { toast } from "sonner";
 import { AddAppointmentForm } from "@/components/forms";
-import { formatTime12h } from "@/lib/time";
+import { formatDateString, formatTime12h } from "@/lib/time";
 
 type AppointmentRecord = {
   _id: Id<"appointments">;
@@ -223,15 +223,6 @@ export default function AppointmentsClient({}: Props) {
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case "confirmed":
@@ -321,7 +312,7 @@ export default function AppointmentsClient({}: Props) {
             variant="ghost"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Date
+            Scheduled Date
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         );
@@ -329,7 +320,7 @@ export default function AppointmentsClient({}: Props) {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          <span>{formatDate(row.original.scheduledDate)}</span>
+          <span>{formatDateString(row.original.scheduledDate)}</span>
         </div>
       ),
     },

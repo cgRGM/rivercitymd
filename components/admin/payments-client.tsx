@@ -27,6 +27,7 @@ import {
 import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { formatDateString } from "@/lib/time";
 import {
   AlertCircle,
   ArrowUpDown,
@@ -340,7 +341,7 @@ export default function PaymentsClient() {
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
-      cell: ({ row }) => <span>{new Date(row.original.dueDate).toLocaleDateString()}</span>,
+      cell: ({ row }) => <span>{formatDateString(row.original.dueDate)}</span>,
     },
     {
       accessorKey: "total",

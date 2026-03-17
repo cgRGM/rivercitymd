@@ -419,6 +419,7 @@ export const createUserProfile = mutation({
         make: v.string(),
         model: v.string(),
         color: v.string(),
+        size: v.optional(v.union(v.literal("small"), v.literal("medium"), v.literal("large"))),
       }),
     ),
   },
@@ -559,6 +560,7 @@ export const createUserProfile = mutation({
         make: vehicle.make,
         model: vehicle.model,
         color: vehicle.color,
+        size: vehicle.size || "medium",
       });
     }
 

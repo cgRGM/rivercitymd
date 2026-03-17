@@ -32,6 +32,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
+import { formatDateString } from "@/lib/time";
 
 type Props = {
   invoiceId: Id<"invoices">;
@@ -60,6 +61,11 @@ function formatCurrency(amount: number) {
 
 function formatDate(date: string | null | undefined) {
   if (!date) return "-";
+  // Date-only strings (YYYY-MM-DD) use formatDateString to avoid UTC shift;
+  // full ISO timestamps fall through to Date constructor (correct for _creationTime).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return formatDateString(date);
+  }
   return new Date(date).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -70,6 +76,10 @@ function formatDate(date: string | null | undefined) {
 export default function InvoiceDetailClient({ invoiceId }: Props) {
   const router = useRouter();
   const invoice = useQuery(api.invoices.getById, { invoiceId });
+  const appointment = useQuery(
+    api.appointments.getByIdWithDetails,
+    invoice?.appointmentId ? { appointmentId: invoice.appointmentId } : "skip",
+  );
   const retryInvoiceGeneration = useMutation(api.appointments.retryInvoiceGeneration);
   const [isRetrying, setIsRetrying] = useState(false);
 
@@ -316,7 +326,13 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
         <CardHeader>
           <CardTitle>Related</CardTitle>
         </CardHeader>
-        <CardContent className="flex gap-3">
+        <CardContent className="space-y-3">
+          {appointment?.scheduledDate && (
+            <p className="text-sm text-muted-foreground">
+              Scheduled for {formatDateString(appointment.scheduledDate)}
+            </p>
+          )}
+          <div className="flex gap-3">
           <Link href={`/admin/appointments/${invoice.appointmentId}`}>
             <Button variant="outline" size="sm">
               <Calendar className="w-4 h-4 mr-2" />
@@ -328,6 +344,7 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
               View Customer
             </Button>
           </Link>
+          </div>
         </CardContent>
       </Card>
 

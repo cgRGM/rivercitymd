@@ -36,6 +36,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { DashboardAppointmentForm } from "@/components/forms/dashboard/dashboard-appointment-form";
 import { toast } from "sonner";
+import { formatDateString } from "@/lib/time";
 
 type Service = {
   _id: Id<"services">;
@@ -263,11 +264,7 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
       id: appointment._id,
       service: serviceNames,
       vehicle: vehicleNames,
-      date: new Date(appointment.scheduledDate).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
+      date: formatDateString(appointment.scheduledDate),
       time: appointment.scheduledTime,
       location: `${appointment.location.street}, ${appointment.location.city}, ${appointment.location.state} ${appointment.location.zip}`,
       status: appointment.status,

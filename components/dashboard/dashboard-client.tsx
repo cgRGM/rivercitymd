@@ -23,6 +23,7 @@ import {
   Plus,
   AlertCircle,
 } from "lucide-react";
+import { formatDateString } from "@/lib/time";
 
 type RawAppointment = {
   _id: Id<"appointments">;
@@ -234,7 +235,7 @@ export default function DashboardClient() {
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               {upcomingAppointments.length > 0
-                ? `Next: ${upcomingAppointments[0]?.scheduledDate}`
+                ? `Next: ${formatDateString(upcomingAppointments[0]?.scheduledDate)}`
                 : "No upcoming bookings"}
             </p>
           </CardContent>
@@ -322,7 +323,7 @@ export default function DashboardClient() {
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm">
                         <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <span>{appointment.scheduledDate}</span>
+                        <span>{formatDateString(appointment.scheduledDate)}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -397,7 +398,7 @@ export default function DashboardClient() {
                       <div className="font-medium">Service Completed</div>
                       <div className="text-sm text-muted-foreground break-words">
                         {appointment.serviceIds?.length || 0} services completed
-                        on {appointment.scheduledDate}
+                        on {formatDateString(appointment.scheduledDate)}
                       </div>
                     </div>
                     <div className="text-sm text-muted-foreground shrink-0">

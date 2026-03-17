@@ -16,6 +16,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ArrowLeft, Plus, X } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -27,6 +34,7 @@ type Vehicle = {
   make: string;
   model: string;
   color: string;
+  size: "small" | "medium" | "large";
 };
 
 export default function OnboardingPage() {
@@ -87,11 +95,11 @@ export default function OnboardingPage() {
 
   // Step 3: Vehicles
   const [vehicles, setVehicles] = useState<Vehicle[]>([
-    { year: 0, make: "", model: "", color: "" },
+    { year: 0, make: "", model: "", color: "", size: "medium" },
   ]);
 
   const addVehicle = () => {
-    setVehicles([...vehicles, { year: 0, make: "", model: "", color: "" }]);
+    setVehicles([...vehicles, { year: 0, make: "", model: "", color: "", size: "medium" }]);
   };
 
   const removeVehicle = (index: number) => {
@@ -108,6 +116,8 @@ export default function OnboardingPage() {
     const updated = [...vehicles];
     if (field === "year") {
       updated[index][field] = value as number;
+    } else if (field === "size") {
+      updated[index][field] = value as Vehicle["size"];
     } else {
       updated[index][field] = value as string;
     }
@@ -478,6 +488,24 @@ export default function OnboardingPage() {
                             }
                           />
                         </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`size-${index}`}>Vehicle Size</Label>
+                        <Select
+                          value={vehicle.size}
+                          onValueChange={(val) =>
+                            updateVehicle(index, "size", val)
+                          }
+                        >
+                          <SelectTrigger id={`size-${index}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="small">Small / Compact</SelectItem>
+                            <SelectItem value="medium">Mid-Size / SUV</SelectItem>
+                            <SelectItem value="large">Truck / Large</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   ))}

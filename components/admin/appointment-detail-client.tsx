@@ -42,6 +42,7 @@ import {
 import Link from "next/link";
 import { toast } from "sonner";
 import { useState } from "react";
+import { formatDateStringLong } from "@/lib/time";
 
 type Props = {
   appointmentId: Id<"appointments">;
@@ -64,21 +65,21 @@ function getStatusColor(status: string) {
   }
 }
 
-function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
   }).format(amount);
+}
+
+function getEffectivePrice(
+  service: { basePrice?: number; basePriceSmall?: number; basePriceMedium?: number; basePriceLarge?: number },
+  size: string,
+): number {
+  const fallback = service.basePrice ?? 0;
+  if (size === "small") return service.basePriceSmall ?? service.basePriceMedium ?? fallback;
+  if (size === "large") return service.basePriceLarge ?? service.basePriceMedium ?? fallback;
+  return service.basePriceMedium ?? fallback;
 }
 
 export default function AppointmentDetailClient({ appointmentId }: Props) {
@@ -288,7 +289,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
         <div>
           <h2 className="text-3xl font-bold">Appointment Details</h2>
           <p className="text-muted-foreground">
-            {formatDate(data.scheduledDate)} at {data.scheduledTime}
+            {formatDateStringLong(data.scheduledDate)} at {data.scheduledTime}
           </p>
         </div>
         <Badge variant="outline" className={getStatusColor(data.status)}>
@@ -385,7 +386,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
               <>
                 <div className="flex items-center gap-2 text-sm">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span>{formatDate(data.scheduledDate)}</span>
+                  <span>{formatDateStringLong(data.scheduledDate)}</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <Clock className="h-4 w-4 text-muted-foreground" />
@@ -478,6 +479,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                   .filter((s) => s.isActive)
                   .map((s) => {
                     const isSelected = editServiceIds.includes(s._id);
+                    const editVehicleSize = vehicles[0] ? (editVehicleSizes[vehicles[0]._id] || "medium") : "medium";
+                    const price = getEffectivePrice(s, editVehicleSize);
                     return (
                       <div
                         key={s._id}
@@ -490,7 +493,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                           <p className="font-medium text-sm">{s.name}</p>
                           <p className="text-xs text-muted-foreground">{s.duration} min</p>
                         </div>
-                        <span className="text-sm font-medium">{formatCurrency(s.basePrice)}</span>
+                        <span className="text-sm font-medium">{formatCurrency(price)}</span>
                       </div>
                     );
                   })}
@@ -503,7 +506,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                       <p className="font-medium text-sm">{s.name}</p>
                       <p className="text-xs text-muted-foreground">{s.duration} min</p>
                     </div>
-                    <span className="text-sm font-medium">{formatCurrency(s.basePrice)}</span>
+                    <span className="text-sm font-medium">{formatCurrency(s.effectivePrice)}</span>
                   </div>
                 ))}
               </div>
