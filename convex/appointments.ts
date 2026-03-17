@@ -532,6 +532,7 @@ export const create = mutation({
       depositAmount,
       depositPaid: false,
       remainingBalance,
+      remainingBalanceCollectionMethod: "send_invoice",
     });
 
     // Ensure Stripe customer exists (schedule action to create if needed)

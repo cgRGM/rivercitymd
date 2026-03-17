@@ -1,9 +1,25 @@
 import { convexTest } from "convex-test";
-import { expect, test, describe } from "vitest";
+import { expect, test, describe, beforeEach, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 import { seedBookingSetup } from "./testUtils/bookingSetup";
+
+const clerkMocks = vi.hoisted(() => ({
+  getUserList: vi.fn(async () => ({ data: [] })),
+  createInvitation: vi.fn(async () => ({ id: "inv_test_123" })),
+}));
+
+vi.mock("@clerk/backend", () => ({
+  createClerkClient: () => ({
+    users: {
+      getUserList: clerkMocks.getUserList,
+    },
+    invitations: {
+      createInvitation: clerkMocks.createInvitation,
+    },
+  }),
+}));
 
 const BOOKING_TEST_DATE = "2024-12-02"; // Monday (dayOfWeek 1)
 
@@ -21,6 +37,13 @@ async function expectConvexErrorCode(
 }
 
 describe("users", () => {
+  beforeEach(() => {
+    clerkMocks.getUserList.mockReset();
+    clerkMocks.createInvitation.mockReset();
+    clerkMocks.getUserList.mockResolvedValue({ data: [] });
+    clerkMocks.createInvitation.mockResolvedValue({ id: "inv_test_123" });
+  });
+
   test("create onboarding profile with Clerk subject-only identity", async () => {
     const t = convexTest(schema, modules);
 
@@ -433,6 +456,52 @@ describe("users", () => {
       phone: "555-2222",
       role: "client",
     });
+  });
+
+  test("sendInvitation links existing Clerk account by email without sending invite", async () => {
+    const t = convexTest(schema, modules);
+    clerkMocks.getUserList.mockResolvedValue({
+      data: [{ id: "user_clerk_existing_123" }],
+    } as any);
+
+    const clientId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Linked Client",
+        email: "linked-client@example.com",
+        role: "client",
+      });
+    });
+
+    await t.action((internal.users as any).sendInvitation, {
+      userId: clientId,
+      email: "linked-client@example.com",
+    });
+
+    const clientUser = await t.run(async (ctx) => ctx.db.get(clientId));
+    expect(clientUser?.clerkUserId).toBe("user_clerk_existing_123");
+    expect(clerkMocks.createInvitation).not.toHaveBeenCalled();
+  });
+
+  test("sendInvitation creates an invite when Clerk account does not exist", async () => {
+    const t = convexTest(schema, modules);
+    clerkMocks.getUserList.mockResolvedValue({ data: [] });
+
+    const clientId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Invited Client",
+        email: "invited-client@example.com",
+        role: "client",
+      });
+    });
+
+    await t.action((internal.users as any).sendInvitation, {
+      userId: clientId,
+      email: "invited-client@example.com",
+    });
+
+    const clientUser = await t.run(async (ctx) => ctx.db.get(clientId));
+    expect(clientUser?.clerkUserId).toBeUndefined();
+    expect(clerkMocks.createInvitation).toHaveBeenCalledTimes(1);
   });
 
   test("createUserProfile and retry action sync Stripe customer", async () => {

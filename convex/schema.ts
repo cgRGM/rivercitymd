@@ -261,6 +261,9 @@ const schema = defineSchema({
         v.literal("subscription"),
       ),
     ),
+    remainingBalanceCollectionMethod: v.optional(
+      v.union(v.literal("send_invoice"), v.literal("charge_automatically")),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_appointment", ["appointmentId"])
