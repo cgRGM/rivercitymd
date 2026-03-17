@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useMutation } from "convex/react";
+import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useState } from "react";
@@ -67,6 +68,7 @@ function formatDate(date: string | null | undefined) {
 }
 
 export default function InvoiceDetailClient({ invoiceId }: Props) {
+  const router = useRouter();
   const invoice = useQuery(api.invoices.getById, { invoiceId });
   const retryInvoiceGeneration = useMutation(api.appointments.retryInvoiceGeneration);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -76,6 +78,7 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
     try {
       await retryInvoiceGeneration({ invoiceId });
       toast.success("Invoice generation retried. Check back shortly.");
+      router.refresh();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to retry invoice generation",

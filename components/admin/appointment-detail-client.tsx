@@ -145,6 +145,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     try {
       await updateStatus({ appointmentId, status: newStatus });
       toast.success(`Appointment ${newStatus.replace("_", " ")}`);
+      router.refresh();
     } catch {
       toast.error("Failed to update appointment status");
     } finally {
@@ -203,6 +204,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
 
       toast.success("Appointment updated — pricing recalculated");
       setEditing(false);
+      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update appointment");
     } finally {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -198,6 +199,7 @@ function InvoiceModal({
 }
 
 export default function PaymentsClient() {
+  const router = useRouter();
   const invoicesQuery = useQuery(api.invoices.listWithDetails, {});
   const statsQuery = useQuery(api.invoices.getSummaryStats, {});
   const updateInvoiceStatus = useMutation(api.invoices.updateStatus);
@@ -293,6 +295,7 @@ export default function PaymentsClient() {
         paidDate: newStatus === "paid" ? new Date().toISOString().split("T")[0] : undefined,
       });
       toast.success(`Invoice marked as ${newStatus}`);
+      router.refresh();
     } catch {
       toast.error("Failed to update invoice status");
     } finally {

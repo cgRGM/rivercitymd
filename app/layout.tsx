@@ -14,6 +14,7 @@ if (!clerkPublishableKey) {
   );
 }
 
+import { Toaster } from "sonner";
 import { Suspense } from "react";
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -121,6 +122,7 @@ export default function RootLayout({
           <StructuredData siteUrl={siteUrl} />
           <ConvexClientProvider>
             <Suspense fallback={null}>{children}</Suspense>
+            <Toaster richColors position="top-right" />
           </ConvexClientProvider>
           <Analytics />
         </body>

@@ -120,6 +120,7 @@ export default function TripLogsClient() {
     try {
       await markCompleted({ tripLogId });
       toast.success("Trip log marked completed");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to complete trip log");
     } finally {
@@ -132,6 +133,7 @@ export default function TripLogsClient() {
     try {
       await reopen({ tripLogId });
       toast.success("Trip log reopened");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to reopen trip log");
     } finally {

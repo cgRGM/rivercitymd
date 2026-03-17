@@ -176,6 +176,7 @@ export default function AppointmentsClient({}: Props) {
     try {
       await updateStatus({ appointmentId, status: newStatus });
       toast.success(`Appointment ${newStatus.replace("_", " ")}`);
+      router.refresh();
     } catch {
       toast.error("Failed to update appointment status");
     } finally {
@@ -214,6 +215,7 @@ export default function AppointmentsClient({}: Props) {
     try {
       await deleteAppointment({ appointmentId: appointmentToDelete });
       toast.success("Appointment deleted");
+      router.refresh();
     } catch {
       toast.error("Failed to delete appointment");
     } finally {

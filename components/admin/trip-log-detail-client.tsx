@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -134,6 +135,7 @@ function isAllowedReceiptFile(file: File): boolean {
 }
 
 export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientProps) {
+  const router = useRouter();
   const tripLog = useQuery(api.tripLogs.getById, { tripLogId }) as
     | TripLogRecord
     | null
@@ -240,6 +242,7 @@ export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientPr
     try {
       await markCompleted({ tripLogId: tripLog._id });
       toast.success("Trip log marked completed");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to complete trip log");
     }
@@ -250,6 +253,7 @@ export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientPr
     try {
       await reopen({ tripLogId: tripLog._id });
       toast.success("Trip log reopened");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to reopen trip log");
     }
@@ -288,6 +292,7 @@ export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientPr
       setExpenseMerchant("");
       setExpenseNotes("");
       setExpenseReceiptFile(null);
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to add expense");
     }
@@ -297,6 +302,7 @@ export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientPr
     try {
       await deleteExpenseLine({ expenseId });
       toast.success("Expense removed");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to remove expense");
     }
@@ -319,6 +325,7 @@ export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientPr
     try {
       await removeReceipt({ expenseId, key });
       toast.success("Receipt removed");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to remove receipt");
     }
@@ -344,6 +351,7 @@ export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientPr
         setEditFinalMiles(String(result.finalMiles));
       }
       toast.success("Route updated");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to recalculate route");
     } finally {
@@ -387,6 +395,7 @@ export default function TripLogDetailClient({ tripLogId }: TripLogDetailClientPr
         },
       });
       toast.success("Trip log details updated");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update trip log");
     } finally {

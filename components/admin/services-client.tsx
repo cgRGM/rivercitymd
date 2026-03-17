@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -62,6 +63,7 @@ type ServiceRecord = {
 };
 
 export default function ServicesClient() {
+  const router = useRouter();
   const servicesQuery = useQuery(api.services.listWithBookingStats) as
     | ServiceRecord[]
     | null
@@ -213,6 +215,7 @@ export default function ServicesClient() {
       });
 
       toast.success(service.isActive ? "Service hidden" : "Service made visible");
+      router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update service visibility");
     } finally {
@@ -363,6 +366,7 @@ export default function ServicesClient() {
                     await updateDepositSettings({ amountPerVehicle: depositAmount });
                     setIsEditingDeposit(false);
                     toast.success("Deposit amount updated");
+                    router.refresh();
                   } catch {
                     toast.error("Failed to update deposit amount");
                   }
