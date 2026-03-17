@@ -747,7 +747,11 @@ export const updateStatus = mutation({
         )
         .first();
 
-      if (invoice && invoice.depositPaid && invoice.status === "draft") {
+      // Skip Stripe Invoice for "in_person" (balance collected in person) and "full" (already paid)
+      const skipStripeInvoice =
+        invoice?.paymentOption === "in_person" || invoice?.paymentOption === "full";
+
+      if (invoice && invoice.depositPaid && invoice.status === "draft" && !skipStripeInvoice) {
         console.log(
           `[appointments] scheduling post-deposit invoice generation appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
         );
@@ -770,6 +774,10 @@ export const updateStatus = mutation({
           );
           throw error;
         }
+      } else if (skipStripeInvoice && invoice) {
+        console.log(
+          `[appointments] skipping Stripe invoice for paymentOption=${invoice.paymentOption} appointmentId=${args.appointmentId}`,
+        );
       }
 
       // Schedule 24h reminder email
@@ -921,7 +929,11 @@ export const updateStatusInternal = internalMutation({
         )
         .first();
 
-      if (invoice && invoice.depositPaid && invoice.status === "draft") {
+      // Skip Stripe Invoice for "in_person" (balance collected in person) and "full" (already paid)
+      const skipStripeInvoice =
+        invoice?.paymentOption === "in_person" || invoice?.paymentOption === "full";
+
+      if (invoice && invoice.depositPaid && invoice.status === "draft" && !skipStripeInvoice) {
         console.log(
           `[appointments] scheduling post-deposit invoice generation appointmentId=${args.appointmentId} invoiceId=${invoice._id}`,
         );
@@ -944,6 +956,10 @@ export const updateStatusInternal = internalMutation({
           );
           throw error;
         }
+      } else if (skipStripeInvoice && invoice) {
+        console.log(
+          `[appointments] skipping Stripe invoice for paymentOption=${invoice.paymentOption} appointmentId=${args.appointmentId}`,
+        );
       }
 
       // Schedule 24h reminder email
@@ -1047,8 +1063,7 @@ export const getCalendarView = query({
     endDate: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const appointments = await ctx.db.query("appointments").collect();
 
@@ -1106,7 +1121,10 @@ export const getUpcoming = query({
     const todayStr = today.toISOString().split("T")[0];
     const nextWeekStr = nextWeek.toISOString().split("T")[0];
 
-    const appointments = await ctx.db.query("appointments").collect();
+    const appointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
 
     // Enrich appointments with customer names
     const enrichedAppointments = await Promise.all(

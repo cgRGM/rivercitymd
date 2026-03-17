@@ -4,13 +4,12 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity, isAdmin } from "./auth";
+import { getUserIdFromIdentity, isAdmin, requireAdmin } from "./auth";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
     return await ctx.db.query("vehicles").collect();
   },
 });

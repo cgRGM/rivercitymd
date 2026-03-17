@@ -1,13 +1,12 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { getUserIdFromIdentity } from "./auth";
+import { requireAdmin } from "./auth";
 
 // Get monthly statistics for dashboard
 export const getMonthlyStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const today = new Date();
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -113,8 +112,7 @@ export const getDashboardAnalytics = query({
     months: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getUserIdFromIdentity(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireAdmin(ctx);
 
     const monthCount = args.months || 6;
     const today = new Date();
