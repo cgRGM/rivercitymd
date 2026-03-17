@@ -35,11 +35,22 @@ export const cleanupAllTestData = internalMutation({
     deletedAppointments: v.number(),
     deletedInvoices: v.number(),
     deletedReviews: v.number(),
+    deletedSubscriptions: v.number(),
   }),
   handler: async (ctx) => {
     let deletedAppointments = 0;
     let deletedInvoices = 0;
     let deletedReviews = 0;
+    let deletedSubscriptions = 0;
+
+    // Delete test subscriptions
+    const allSubscriptions = await ctx.db.query("subscriptions").collect();
+    for (const sub of allSubscriptions) {
+      if (sub.isTest) {
+        await ctx.db.delete(sub._id);
+        deletedSubscriptions++;
+      }
+    }
 
     // Delete test appointments and their linked invoices/reviews
     const allAppointments = await ctx.db.query("appointments").collect();
@@ -70,7 +81,7 @@ export const cleanupAllTestData = internalMutation({
       }
     }
 
-    return { deletedAppointments, deletedInvoices, deletedReviews };
+    return { deletedAppointments, deletedInvoices, deletedReviews, deletedSubscriptions };
   },
 });
 
@@ -81,8 +92,9 @@ export const cleanupAllTestDataPublic = action({
     deletedAppointments: v.number(),
     deletedInvoices: v.number(),
     deletedReviews: v.number(),
+    deletedSubscriptions: v.number(),
   }),
-  handler: async (ctx): Promise<{ deletedAppointments: number; deletedInvoices: number; deletedReviews: number }> => {
+  handler: async (ctx): Promise<{ deletedAppointments: number; deletedInvoices: number; deletedReviews: number; deletedSubscriptions: number }> => {
     await requireAdmin(ctx);
     return await ctx.runMutation(internal.testFlows.cleanupAllTestData, {});
   },
@@ -211,7 +223,40 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 12. full_guest_checkout (1→3→4→7→8)
+        // 12. subscription_checkout_link
+        // -------------------------------------------------------------------
+        case "subscription_checkout_link": {
+          await sendTest(ctx, "subscription_checkout_link");
+          break;
+        }
+
+        // -------------------------------------------------------------------
+        // 13. subscription_appointment_created
+        // -------------------------------------------------------------------
+        case "subscription_appointment_created": {
+          await sendTest(ctx, "subscription_appointment_created");
+          break;
+        }
+
+        // -------------------------------------------------------------------
+        // 14. full_subscription_flow (checkout link → appointment created)
+        // -------------------------------------------------------------------
+        case "full_subscription_flow": {
+          // Step 1: checkout link sent
+          await sendTest(ctx, "subscription_checkout_link");
+          await new Promise((r) => setTimeout(r, 1000));
+
+          // Step 2: appointment auto-created after payment
+          await sendTest(ctx, "subscription_appointment_created");
+          await new Promise((r) => setTimeout(r, 1000));
+
+          // Step 3: admin gets appointment notification
+          await sendTest(ctx, "admin_appointment_confirmed");
+          break;
+        }
+
+        // -------------------------------------------------------------------
+        // 15. full_guest_checkout (1→3→4→7→8)
         // -------------------------------------------------------------------
         case "full_guest_checkout": {
           // Step 1: new customer

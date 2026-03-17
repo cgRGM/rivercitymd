@@ -15,6 +15,7 @@ import {
   Star,
   FileText,
   LogOut,
+  RefreshCw,
 } from "lucide-react";
 import {
   Sidebar,
@@ -56,6 +57,11 @@ const menuItems = [
     title: "My Invoices",
     icon: FileText,
     href: "/dashboard/invoices",
+  },
+  {
+    title: "My Subscription",
+    icon: RefreshCw,
+    href: "/dashboard/subscriptions",
   },
   {
     title: "Profile",

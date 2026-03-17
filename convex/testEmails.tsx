@@ -25,6 +25,8 @@ import {
   AdminAppointmentNotificationEmailTemplate,
   AdminMileageLogRequiredNotificationEmailTemplate,
   AdminDepositPaidNotificationEmail,
+  SubscriptionCheckoutLinkEmail,
+  SubscriptionAppointmentCreatedEmail,
 } from "./emailTemplates";
 
 function shouldSkipEmails(): boolean {
@@ -329,6 +331,39 @@ export const sendTestEmail = internalAction({
           }),
         );
         subject = `[TEST] Mileage log required - ${FAKE.appointmentDate}`;
+        break;
+      }
+
+      case "subscription_checkout_link": {
+        html = await render(
+          SubscriptionCheckoutLinkEmail({
+            customerName: FAKE.customerName,
+            businessName,
+            serviceName: FAKE.services.join(", "),
+            frequency: "monthly",
+            price: FAKE.totalPrice,
+            checkoutUrl: `${site}/dashboard/subscriptions?test=true`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Set Up Your Recurring Service — ${businessName}`;
+        break;
+      }
+
+      case "subscription_appointment_created": {
+        html = await render(
+          SubscriptionAppointmentCreatedEmail({
+            customerName: FAKE.customerName,
+            businessName,
+            appointmentDate: FAKE.appointmentDate,
+            appointmentTime: time12h,
+            serviceNames: [...FAKE.services],
+            location: FAKE.location,
+            dashboardUrl: `${site}/dashboard/appointments`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Your Upcoming Service is Scheduled — ${FAKE.appointmentDate}`;
         break;
       }
 

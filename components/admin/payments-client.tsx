@@ -60,7 +60,7 @@ interface Invoice {
   total: number;
   stripeInvoiceUrl?: string;
   notes?: string;
-  paymentOption?: "deposit" | "full" | "in_person";
+  paymentOption?: "deposit" | "full" | "in_person" | "subscription";
   depositPaid?: boolean;
   depositAmount?: number;
   remainingBalance?: number;

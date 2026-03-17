@@ -540,3 +540,117 @@ export const updateStripeIds = internalMutation({
     });
   },
 });
+
+// Update recurring Stripe price IDs (internal)
+export const updateStripeRecurringIds = internalMutation({
+  args: {
+    serviceId: v.id("services"),
+    stripeRecurringPriceIds: v.object({
+      monthly: v.optional(v.array(v.string())),
+      biweekly: v.optional(v.array(v.string())),
+    }),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.serviceId, {
+      stripeRecurringPriceIds: args.stripeRecurringPriceIds,
+    });
+  },
+});
+
+// Ensure recurring prices exist for a service (creates them if missing)
+export const ensureRecurringPrices = internalAction({
+  args: {
+    serviceId: v.id("services"),
+  },
+  handler: async (ctx, args) => {
+    const service = await ctx.runQuery(internal.services.getServiceById, {
+      serviceId: args.serviceId,
+    });
+    if (!service) throw new Error("Service not found");
+    if (!service.stripeProductId) throw new Error("Service has no Stripe product");
+
+    // Already has recurring prices
+    if (
+      service.stripeRecurringPriceIds?.monthly?.length ||
+      service.stripeRecurringPriceIds?.biweekly?.length
+    ) {
+      return;
+    }
+
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+      console.warn("STRIPE_SECRET_KEY not set, skipping recurring price creation");
+      return;
+    }
+
+    const sizes: Array<{ key: string; amount: number | undefined }> = [
+      { key: "small", amount: service.basePriceSmall },
+      { key: "medium", amount: service.basePriceMedium },
+      { key: "large", amount: service.basePriceLarge },
+    ];
+
+    const monthlyPriceIds: string[] = [];
+    const biweeklyPriceIds: string[] = [];
+
+    for (const size of sizes) {
+      if (!size.amount || size.amount <= 0) continue;
+
+      // Monthly price
+      const monthlyRes = await fetch("https://api.stripe.com/v1/prices", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          product: service.stripeProductId!,
+          unit_amount: Math.round(size.amount * 100).toString(),
+          currency: "usd",
+          "recurring[interval]": "month",
+          "metadata[serviceId]": args.serviceId,
+          "metadata[vehicleSize]": size.key,
+          "metadata[frequency]": "monthly",
+        }),
+      });
+      if (!monthlyRes.ok) {
+        const err = await monthlyRes.text();
+        throw new Error(`Stripe monthly price creation failed for ${size.key}: ${err}`);
+      }
+      const monthlyPrice = await monthlyRes.json();
+      monthlyPriceIds.push(monthlyPrice.id);
+
+      // Biweekly price (every 2 weeks)
+      const biweeklyRes = await fetch("https://api.stripe.com/v1/prices", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          product: service.stripeProductId!,
+          unit_amount: Math.round(size.amount * 100).toString(),
+          currency: "usd",
+          "recurring[interval]": "week",
+          "recurring[interval_count]": "2",
+          "metadata[serviceId]": args.serviceId,
+          "metadata[vehicleSize]": size.key,
+          "metadata[frequency]": "biweekly",
+        }),
+      });
+      if (!biweeklyRes.ok) {
+        const err = await biweeklyRes.text();
+        throw new Error(`Stripe biweekly price creation failed for ${size.key}: ${err}`);
+      }
+      const biweeklyPrice = await biweeklyRes.json();
+      biweeklyPriceIds.push(biweeklyPrice.id);
+    }
+
+    await ctx.runMutation(internal.services.updateStripeRecurringIds, {
+      serviceId: args.serviceId,
+      stripeRecurringPriceIds: {
+        monthly: monthlyPriceIds.length > 0 ? monthlyPriceIds : undefined,
+        biweekly: biweeklyPriceIds.length > 0 ? biweeklyPriceIds : undefined,
+      },
+    });
+  },
+});

@@ -154,6 +154,10 @@ const schema = defineSchema({
     icon: v.optional(v.string()), // Emoji or icon identifier
     stripeProductId: v.optional(v.string()), // Stripe product ID
     stripePriceIds: v.optional(v.array(v.string())), // Stripe price IDs for different sizes
+    stripeRecurringPriceIds: v.optional(v.object({
+      monthly: v.optional(v.array(v.string())),
+      biweekly: v.optional(v.array(v.string())),
+    })),
     // Note: Deposit is now a separate product managed via depositSettings table
   })
     .index("by_service_type", ["serviceType"])
@@ -192,8 +196,10 @@ const schema = defineSchema({
         v.literal("deposit"),
         v.literal("full"),
         v.literal("in_person"),
+        v.literal("subscription"),
       ),
     ),
+    subscriptionId: v.optional(v.id("subscriptions")),
   })
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])
@@ -252,6 +258,7 @@ const schema = defineSchema({
         v.literal("deposit"),
         v.literal("full"),
         v.literal("in_person"),
+        v.literal("subscription"),
       ),
     ),
   })
@@ -260,6 +267,41 @@ const schema = defineSchema({
     .index("by_status", ["status"])
     .index("by_invoice_number", ["invoiceNumber"])
     .index("by_stripe_invoice_id", ["stripeInvoiceId"]),
+
+  // Recurring Subscriptions
+  subscriptions: defineTable({
+    userId: v.id("users"),
+    stripeSubscriptionId: v.optional(v.string()),
+    stripeCheckoutSessionId: v.optional(v.string()),
+    serviceIds: v.array(v.id("services")),
+    vehicleIds: v.array(v.id("vehicles")),
+    frequency: v.union(v.literal("biweekly"), v.literal("monthly")),
+    preferredDayOfWeek: v.number(), // 0-6
+    preferredTime: v.string(), // HH:MM
+    location: v.object({
+      street: v.string(),
+      city: v.string(),
+      state: v.string(),
+      zip: v.string(),
+      notes: v.optional(v.string()),
+    }),
+    totalPrice: v.number(),
+    status: v.union(
+      v.literal("pending_payment"),
+      v.literal("active"),
+      v.literal("paused"),
+      v.literal("cancelled"),
+      v.literal("past_due"),
+    ),
+    nextScheduledDate: v.optional(v.string()),
+    lastAppointmentId: v.optional(v.id("appointments")),
+    notes: v.optional(v.string()),
+    createdBy: v.id("users"),
+    isTest: v.optional(v.boolean()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_status", ["status"])
+    .index("by_stripe_subscription_id", ["stripeSubscriptionId"]),
 
   // Reviews
   reviews: defineTable({

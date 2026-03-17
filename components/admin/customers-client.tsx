@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ColumnDef } from "@tanstack/react-table";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,11 +24,13 @@ import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowUpDown,
+  Loader2,
   Mail,
   MapPin,
   MoreHorizontal,
   Phone,
   Plus,
+  RefreshCw,
 } from "lucide-react";
 
 type CustomerRecord = {
@@ -54,6 +56,8 @@ export default function CustomersClient() {
     | undefined;
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<CustomerRecord | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const backfillStripeCustomers = useMutation(api.users.backfillMissingStripeCustomers);
 
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "Never";
@@ -269,10 +273,34 @@ export default function CustomersClient() {
           <h2 className="text-3xl font-bold">Customers</h2>
           <p className="text-muted-foreground">Manage your customer relationships</p>
         </div>
-        <Button onClick={() => setShowAddForm(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Customer
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={async () => {
+              setIsSyncing(true);
+              try {
+                const result = await backfillStripeCustomers({});
+                toast.success(`Synced ${result.scheduled} customer${result.scheduled !== 1 ? "s" : ""} to Stripe`);
+              } catch (err) {
+                toast.error("Failed to sync Stripe customers");
+              } finally {
+                setIsSyncing(false);
+              }
+            }}
+            disabled={isSyncing}
+          >
+            {isSyncing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Sync Stripe
+          </Button>
+          <Button onClick={() => setShowAddForm(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Customer
+          </Button>
+        </div>
       </div>
 
       <DataTable

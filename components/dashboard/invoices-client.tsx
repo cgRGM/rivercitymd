@@ -64,7 +64,7 @@ type Invoice = {
   depositPaymentIntentId?: string;
   remainingBalance?: number;
   finalPaymentIntentId?: string;
-  paymentOption?: "deposit" | "full" | "in_person";
+  paymentOption?: "deposit" | "full" | "in_person" | "subscription";
   customer?: string;
   customerEmail?: string;
   customerAddress?: {

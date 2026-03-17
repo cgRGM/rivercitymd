@@ -891,3 +891,107 @@ export function AdminDepositPaidNotificationEmail(
     </EmailLayout>
   );
 }
+
+// --- Subscription Checkout Link Email ---
+export function SubscriptionCheckoutLinkEmail({
+  customerName,
+  businessName,
+  serviceName,
+  frequency,
+  price,
+  checkoutUrl,
+  logoUrl,
+}: {
+  customerName: string;
+  businessName: string;
+  serviceName: string;
+  frequency: string;
+  price: number;
+  checkoutUrl: string;
+  logoUrl?: string;
+}) {
+  return (
+    <EmailLayout
+      preview={`Set up your recurring ${frequency} service with ${businessName}`}
+      logoUrl={logoUrl}
+      businessName={businessName}
+    >
+      <Heading style={emailStyles.heading}>
+        Set Up Your Recurring Service
+      </Heading>
+      <Text style={emailStyles.textBody}>
+        Hi {customerName}, {businessName} has set up a recurring detailing
+        subscription for you. Complete the secure checkout below to activate
+        your {frequency} service.
+      </Text>
+
+      <Section style={emailStyles.detailBox}>
+        <DetailField label="Service" value={serviceName} />
+        <DetailField label="Frequency" value={frequency === "monthly" ? "Monthly" : "Every 2 Weeks"} />
+        <DetailField label="Price" value={`$${price.toFixed(2)} / ${frequency === "monthly" ? "month" : "2 weeks"}`} />
+      </Section>
+
+      <Section style={{ textAlign: "center", marginBottom: "24px" }}>
+        <Button href={checkoutUrl} style={emailStyles.primaryButton}>
+          Set Up Payment
+        </Button>
+      </Section>
+
+      <Hr style={emailStyles.hr} />
+      <Text style={{ ...emailStyles.text, fontSize: "13px" }}>
+        This link will take you to a secure Stripe checkout page. Your card
+        will be charged automatically each billing cycle.
+      </Text>
+    </EmailLayout>
+  );
+}
+
+// --- Subscription Appointment Created Email ---
+export function SubscriptionAppointmentCreatedEmail({
+  customerName,
+  businessName,
+  appointmentDate,
+  appointmentTime,
+  serviceNames,
+  location,
+  dashboardUrl,
+  logoUrl,
+}: {
+  customerName: string;
+  businessName: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  serviceNames: string[];
+  location: string;
+  dashboardUrl: string;
+  logoUrl?: string;
+}) {
+  return (
+    <EmailLayout
+      preview={`Your upcoming service is scheduled for ${appointmentDate}`}
+      logoUrl={logoUrl}
+      businessName={businessName}
+    >
+      <Heading style={emailStyles.heading}>
+        Your Upcoming Service is Scheduled
+      </Heading>
+      <Text style={emailStyles.textBody}>
+        Hi {customerName}, your next recurring detail appointment has been
+        automatically scheduled. Here are the details:
+      </Text>
+
+      <Section style={emailStyles.detailBox}>
+        <DetailField label="Date" value={appointmentDate} />
+        <DetailField label="Time" value={appointmentTime} />
+        <DetailField label="Services" value={serviceNames.join(", ")} />
+        <DetailField label="Location" value={location} />
+      </Section>
+
+      <Section style={{ textAlign: "center", marginBottom: "8px" }}>
+        <Button href={dashboardUrl} style={emailStyles.primaryButton}>
+          View Appointment
+        </Button>
+      </Section>
+    </EmailLayout>
+  );
+}

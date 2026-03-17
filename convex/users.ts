@@ -376,6 +376,14 @@ export const create = mutation({
       });
     }
 
+    // Ensure Stripe customer is created for non-admin users
+    if ((args.role || "client") !== "admin") {
+      await ctx.scheduler.runAfter(0, internal.users.ensureStripeCustomerWithRetry, {
+        userId,
+        attempt: 0,
+      });
+    }
+
     return userId;
   },
 });

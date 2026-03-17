@@ -37,9 +37,15 @@ const ADMIN_SCENARIOS: ScenarioConfig[] = [
   { key: "mileage_log_required", title: "Mileage Log Required", description: "Admin email + SMS for pending mileage log" },
 ];
 
+const SUBSCRIPTION_SCENARIOS: ScenarioConfig[] = [
+  { key: "subscription_checkout_link", title: "Subscription Checkout Link", description: "Email sent to customer with Stripe checkout link for recurring service" },
+  { key: "subscription_appointment_created", title: "Subscription Appointment Created", description: "Email sent when auto-scheduled appointment is created" },
+];
+
 const FLOW_SCENARIOS: ScenarioConfig[] = [
   { key: "full_guest_checkout", title: "Full Flow: Guest Checkout", description: "New Customer -> Deposit Paid -> Confirmed -> Started -> Completed" },
   { key: "full_returning_customer", title: "Full Flow: Returning Customer", description: "Welcome -> Confirmed -> Started -> Completed" },
+  { key: "full_subscription_flow", title: "Full Flow: Subscription", description: "Checkout Link -> Appointment Created -> Admin Notification" },
 ];
 
 type TestResult = {
@@ -208,6 +214,13 @@ export default function TestNotificationsPage() {
       />
 
       <ScenarioSection
+        title="Subscription Emails"
+        scenarios={SUBSCRIPTION_SCENARIOS}
+        results={results}
+        onRun={handleRun}
+      />
+
+      <ScenarioSection
         title="Full Flows"
         scenarios={FLOW_SCENARIOS}
         results={results}
@@ -244,7 +257,7 @@ export default function TestNotificationsPage() {
                   const result = await cleanupTestData({});
                   setCleanupResult({
                     status: "done",
-                    message: `Deleted ${result.deletedAppointments} appointments, ${result.deletedInvoices} invoices, ${result.deletedReviews} reviews.`,
+                    message: `Deleted ${result.deletedAppointments} appointments, ${result.deletedInvoices} invoices, ${result.deletedReviews} reviews, ${result.deletedSubscriptions} subscriptions.`,
                   });
                 } catch (err) {
                   setCleanupResult({

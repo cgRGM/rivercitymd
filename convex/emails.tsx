@@ -44,6 +44,8 @@ import {
   AdminAppointmentNotificationEmailTemplate,
   AdminMileageLogRequiredNotificationEmailTemplate,
   AdminDepositPaidNotificationEmail,
+  SubscriptionCheckoutLinkEmail,
+  SubscriptionAppointmentCreatedEmail,
 } from "./emailTemplates";
 
 // Initialize Resend component
@@ -669,6 +671,103 @@ export const sendAdminMileageLogRequiredNotification = internalAction({
       from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
       to: args.recipientOverride || "dustin@rivercitymd.com",
       subject: `Mileage log required - ${tripLog.logDate}`,
+      html,
+    });
+  },
+});
+
+// Send Subscription Checkout Link Email
+export const sendSubscriptionCheckoutLink = internalAction({
+  args: {
+    subscriptionId: v.id("subscriptions"),
+    checkoutUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const sub = await ctx.runQuery(internal.subscriptions.getByIdInternal, {
+      subscriptionId: args.subscriptionId,
+    });
+    if (!sub) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: sub.userId,
+    });
+    if (!user || !user.email) return;
+
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    const serviceNames = await getServiceNames(ctx, sub.serviceIds);
+
+    const html = await render(
+      SubscriptionCheckoutLinkEmail({
+        customerName: user.name || "Valued Customer",
+        businessName: business.name,
+        serviceName: serviceNames.join(", "),
+        frequency: sub.frequency,
+        price: sub.totalPrice,
+        checkoutUrl: args.checkoutUrl,
+        logoUrl: logoUrl(),
+      }),
+    );
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+      to: user.email,
+      subject: `Set Up Your Recurring Service — ${business.name}`,
+      html,
+    });
+  },
+});
+
+// Send Subscription Appointment Created Email
+export const sendSubscriptionAppointmentCreated = internalAction({
+  args: {
+    subscriptionId: v.id("subscriptions"),
+    appointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const sub = await ctx.runQuery(internal.subscriptions.getByIdInternal, {
+      subscriptionId: args.subscriptionId,
+    });
+    if (!sub) return;
+
+    const appointment = await ctx.runQuery(
+      internal.appointments.getByIdInternal,
+      { appointmentId: args.appointmentId },
+    );
+    if (!appointment) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: sub.userId,
+    });
+    if (!user || !user.email) return;
+
+    const business = await ctx.runQuery(api.business.get);
+    if (!business) return;
+
+    const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
+
+    const html = await render(
+      SubscriptionAppointmentCreatedEmail({
+        customerName: user.name || "Valued Customer",
+        businessName: business.name,
+        appointmentDate: appointment.scheduledDate,
+        appointmentTime: formatTime12h(appointment.scheduledTime),
+        serviceNames,
+        location: formatLocation(appointment.location),
+        dashboardUrl: `${siteUrl()}/dashboard/appointments`,
+        logoUrl: logoUrl(),
+      }),
+    );
+
+    await resend.sendEmail(ctx, {
+      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+      to: user.email,
+      subject: `Your Upcoming Service is Scheduled — ${appointment.scheduledDate}`,
       html,
     });
   },

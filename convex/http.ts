@@ -30,6 +30,28 @@ registerRoutes(http, components.stripe, {
       event: Stripe.CheckoutSessionCompletedEvent,
     ) => {
       const session = event.data.object;
+
+      // --- Handle subscription checkout ---
+      if (session.mode === "subscription" && session.metadata?.subscriptionId) {
+        const subscriptionId = session.metadata.subscriptionId as Id<"subscriptions">;
+        const stripeSubscriptionId = session.subscription as string;
+        console.log(
+          `[stripe-webhook] subscription checkout completed subscriptionId=${subscriptionId} stripeSubscriptionId=${stripeSubscriptionId}`,
+        );
+
+        // Activate the subscription
+        await ctx.runMutation(internal.subscriptions.activate, {
+          subscriptionId,
+          stripeSubscriptionId,
+        });
+
+        // Create the first appointment
+        await ctx.scheduler.runAfter(0, internal.subscriptions.createNextAppointment, {
+          subscriptionId,
+        });
+        return;
+      }
+
       const invoiceIdString = session.metadata?.invoiceId;
       const paymentType = session.metadata?.type; // "deposit", "full", or undefined
 
@@ -358,6 +380,25 @@ registerRoutes(http, components.stripe, {
     "invoice.paid": async (ctx, event: Stripe.InvoicePaidEvent) => {
       const stripeInvoice = event.data.object;
 
+      // --- Handle subscription renewal invoices ---
+      const stripeSubId = (stripeInvoice as any).subscription as string | null;
+      if (stripeSubId) {
+        const ourSub = await ctx.runQuery(
+          internal.subscriptions.getByStripeSubscriptionId,
+          { stripeSubscriptionId: stripeSubId },
+        );
+        if (ourSub && ourSub.lastAppointmentId) {
+          // Not the first payment (first is handled via checkout.session.completed)
+          console.log(
+            `[stripe-webhook] subscription renewal invoice.paid subscriptionId=${ourSub._id}`,
+          );
+          await ctx.scheduler.runAfter(0, internal.subscriptions.createNextAppointment, {
+            subscriptionId: ourSub._id,
+          });
+          return;
+        }
+      }
+
       // Find our invoice by Stripe invoice ID
       const ourInvoice = await ctx.runQuery(
         internal.invoices.getByStripeIdInternal,
@@ -403,6 +444,25 @@ registerRoutes(http, components.stripe, {
     ) => {
       const invoice = event.data.object;
 
+      // --- Handle subscription payment failure ---
+      const stripeSubId = (invoice as any).subscription as string | null;
+      if (stripeSubId) {
+        const ourSub = await ctx.runQuery(
+          internal.subscriptions.getByStripeSubscriptionId,
+          { stripeSubscriptionId: stripeSubId },
+        );
+        if (ourSub) {
+          console.log(
+            `[stripe-webhook] subscription payment failed subscriptionId=${ourSub._id}`,
+          );
+          await ctx.runMutation(internal.subscriptions.updateStatus, {
+            subscriptionId: ourSub._id,
+            status: "past_due",
+          });
+          return;
+        }
+      }
+
       // Find our invoice by Stripe invoice ID
       const ourInvoice = await ctx.runQuery(
         internal.invoices.getByStripeIdInternal,
@@ -413,8 +473,53 @@ registerRoutes(http, components.stripe, {
 
       if (ourInvoice) {
         console.log(`Payment failed for our invoice ${ourInvoice._id}`);
-        // Could add a payment_failed status or log the failure
       }
+    },
+
+    // Handle Stripe subscription status changes
+    "customer.subscription.updated": async (
+      ctx,
+      event: Stripe.CustomerSubscriptionUpdatedEvent,
+    ) => {
+      const stripeSub = event.data.object;
+      const ourSub = await ctx.runQuery(
+        internal.subscriptions.getByStripeSubscriptionId,
+        { stripeSubscriptionId: stripeSub.id },
+      );
+      if (!ourSub) return;
+
+      if (stripeSub.status === "canceled") {
+        await ctx.runMutation(internal.subscriptions.updateStatus, {
+          subscriptionId: ourSub._id,
+          status: "cancelled",
+        });
+      } else if (
+        stripeSub.status === "active" &&
+        ourSub.status === "past_due"
+      ) {
+        await ctx.runMutation(internal.subscriptions.updateStatus, {
+          subscriptionId: ourSub._id,
+          status: "active",
+        });
+      }
+    },
+
+    // Handle Stripe subscription deletion
+    "customer.subscription.deleted": async (
+      ctx,
+      event: Stripe.CustomerSubscriptionDeletedEvent,
+    ) => {
+      const stripeSub = event.data.object;
+      const ourSub = await ctx.runQuery(
+        internal.subscriptions.getByStripeSubscriptionId,
+        { stripeSubscriptionId: stripeSub.id },
+      );
+      if (!ourSub) return;
+
+      await ctx.runMutation(internal.subscriptions.updateStatus, {
+        subscriptionId: ourSub._id,
+        status: "cancelled",
+      });
     },
 
     // Handle invoice voided
