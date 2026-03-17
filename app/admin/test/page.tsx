@@ -143,7 +143,12 @@ function ScenarioSection({
 
 export default function TestNotificationsPage() {
   const runTest = useAction(api.testFlows.runTestScenarioPublic);
+  const cleanupTestData = useAction(api.testFlows.cleanupAllTestDataPublic);
   const [results, setResults] = useState<Record<string, TestResult>>({});
+  const [cleanupResult, setCleanupResult] = useState<{
+    status: "idle" | "running" | "done" | "error";
+    message?: string;
+  }>({ status: "idle" });
 
   const handleRun = async (scenarioKey: string) => {
     setResults((prev) => ({
@@ -208,6 +213,59 @@ export default function TestNotificationsPage() {
         results={results}
         onRun={handleRun}
       />
+
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Cleanup</h2>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">
+              Purge Old Test Data
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Delete all remaining isTest records from production tables
+              (appointments, invoices, reviews).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {cleanupResult.status === "done" && cleanupResult.message && (
+              <p className="mb-2 text-xs text-green-600">{cleanupResult.message}</p>
+            )}
+            {cleanupResult.status === "error" && cleanupResult.message && (
+              <p className="mb-2 text-xs text-red-500">{cleanupResult.message}</p>
+            )}
+            <Button
+              size="sm"
+              variant="destructive"
+              className="w-full"
+              disabled={cleanupResult.status === "running"}
+              onClick={async () => {
+                setCleanupResult({ status: "running" });
+                try {
+                  const result = await cleanupTestData({});
+                  setCleanupResult({
+                    status: "done",
+                    message: `Deleted ${result.deletedAppointments} appointments, ${result.deletedInvoices} invoices, ${result.deletedReviews} reviews.`,
+                  });
+                } catch (err) {
+                  setCleanupResult({
+                    status: "error",
+                    message: err instanceof Error ? err.message : "Unknown error",
+                  });
+                }
+              }}
+            >
+              {cleanupResult.status === "running" ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cleaning up...
+                </>
+              ) : (
+                "Clean Up Test Data"
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

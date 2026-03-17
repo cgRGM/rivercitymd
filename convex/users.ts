@@ -1003,11 +1003,17 @@ export const ensureGuestUser = internalMutation({
       .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
 
-    if (existingUserByEmail) {
-      // Use the existing email match
+    if (existingUserByEmail && existingUserByEmail._id !== appointment.userId) {
+      // Only merge if the current appointment owner is a temp guest (no Clerk account).
+      // Never reassign an authenticated user's appointment to someone else.
+      const currentUser = await ctx.db.get(appointment.userId);
+      if (currentUser && !currentUser.clerkUserId) {
+        user = existingUserByEmail;
+      }
+      // Otherwise keep the appointment on the user who created it
+    } else if (existingUserByEmail) {
+      // Same user — just update basic info if needed
       user = existingUserByEmail;
-      
-      // Update basic info if needed (idempotent-ish)
       const updates: any = {};
       if (user.name !== args.name && (!user.clerkUserId || user.name === user.email)) {
          updates.name = args.name;
@@ -1052,11 +1058,11 @@ export const ensureGuestUser = internalMutation({
     }
 
     // Ensure appointment is linked to this user
-    if (appointment.userId !== user._id) {
+    if (user && appointment.userId !== user._id) {
       await ctx.db.patch(args.appointmentId, { userId: user._id });
     }
 
-    return user._id;
+    return user!._id;
   },
 });
 

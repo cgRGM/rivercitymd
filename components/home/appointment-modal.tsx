@@ -408,12 +408,11 @@ export default function AppointmentModal({
 
     setIsLoading(true);
     try {
-      // Determine user details (Guest vs Auth)
-      const fullName = isSignedIn && user?.fullName ? user.fullName : step2Data.name;
-      const email = isSignedIn && user?.primaryEmailAddress?.emailAddress 
-        ? user.primaryEmailAddress.emailAddress 
-        : step2Data.email;
-      const phone = step2Data.phone; 
+      // Always use form data — the form is pre-filled with signed-in user's info,
+      // but the user may have edited it (e.g. admin booking for a customer)
+      const fullName = step2Data.name;
+      const email = step2Data.email;
+      const phone = step2Data.phone;
 
       console.log("Submitting appointment for:", email);
 

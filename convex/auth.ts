@@ -120,16 +120,23 @@ async function getUserFromIdentity(
     .withIndex("by_email", (q: any) => q.eq("email", normalizedEmail))
     .first();
 
-  if (
-    userByEmail &&
-    options?.linkMissingClerkUserId &&
-    identity.subject &&
-    !userByEmail.clerkUserId &&
-    "scheduler" in ctx
-  ) {
-    await ctx.db.patch(userByEmail._id, {
-      clerkUserId: identity.subject,
-    });
+  if (userByEmail) {
+    // If this user already has a different Clerk ID, it belongs to someone else —
+    // don't let this identity resolve to their account
+    if (userByEmail.clerkUserId && userByEmail.clerkUserId !== identity.subject) {
+      return null;
+    }
+
+    if (
+      options?.linkMissingClerkUserId &&
+      identity.subject &&
+      !userByEmail.clerkUserId &&
+      "scheduler" in ctx
+    ) {
+      await ctx.db.patch(userByEmail._id, {
+        clerkUserId: identity.subject,
+      });
+    }
   }
 
   return userByEmail;
