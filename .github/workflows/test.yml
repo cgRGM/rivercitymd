@@ -5,6 +5,8 @@ on: [pull_request, push]
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -14,6 +16,12 @@ jobs:
         with:
           node-version: "20"
           cache: "pnpm"
+      - name: Validate required env
+        run: |
+          if [ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then
+            echo "Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in GitHub Actions vars or secrets."
+            exit 1
+          fi
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run build
