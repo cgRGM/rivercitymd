@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Preloaded, usePreloadedQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -41,10 +41,6 @@ export default function SettingsClient({
   });
 
   const [hoursForm, setHoursForm] = useState(() => buildBusinessHoursForm(hours));
-
-  useEffect(() => {
-    setHoursForm(buildBusinessHoursForm(hours));
-  }, [hours]);
 
   const handleSaveBusiness = async () => {
     try {

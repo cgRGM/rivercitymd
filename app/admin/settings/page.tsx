@@ -117,6 +117,7 @@ export default function SettingsPage() {
   });
   const [hoursForm, setHoursForm] = useState(() => buildBusinessHoursForm());
   const isBusinessHoursLoading = businessHours === undefined;
+  const hasHydratedHoursForm = React.useRef(false);
 
   // Handle case where no business exists yet (first-time setup)
   const isFirstTimeSetup = business === null;
@@ -172,11 +173,12 @@ export default function SettingsPage() {
   }, [business, form]);
 
   React.useEffect(() => {
-    if (businessHours === undefined) {
+    if (businessHours === undefined || hasHydratedHoursForm.current) {
       return;
     }
 
     setHoursForm(buildBusinessHoursForm(businessHours));
+    hasHydratedHoursForm.current = true;
   }, [businessHours]);
 
   const onSubmit = async (data: BusinessFormData) => {
