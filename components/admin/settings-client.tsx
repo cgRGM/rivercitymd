@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Preloaded, usePreloadedQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { buildBusinessHoursForm } from "@/lib/business-hours";
 
 type Props = {
   businessPreloaded: Preloaded<typeof api.business.get>;
@@ -39,27 +40,11 @@ export default function SettingsClient({
     country: business?.country || "",
   });
 
-  const [hoursForm, setHoursForm] = useState(() => {
-    const days = [
-      "Sunday",
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
-    ];
-    return days.map((day, index) => {
-      const existing = hours.find((h: { dayOfWeek: number }) => h.dayOfWeek === index);
-      return {
-        day,
-        dayOfWeek: index,
-        startTime: existing?.startTime || "09:00",
-        endTime: existing?.endTime || "17:00",
-        isActive: existing?.isActive ?? index > 0, // Sunday closed by default
-      };
-    });
-  });
+  const [hoursForm, setHoursForm] = useState(() => buildBusinessHoursForm(hours));
+
+  useEffect(() => {
+    setHoursForm(buildBusinessHoursForm(hours));
+  }, [hours]);
 
   const handleSaveBusiness = async () => {
     try {
@@ -185,10 +170,10 @@ export default function SettingsClient({
           {hoursForm.map((schedule, index) => (
             <div
               key={schedule.dayOfWeek}
-              className="flex items-center justify-between gap-4"
+              className="space-y-3 rounded-lg border border-border/50 p-3"
             >
-              <div className="flex items-center gap-4 min-w-0 flex-1">
-                <span className="font-medium w-20">{schedule.day}</span>
+              <div className="flex items-center justify-between gap-4">
+                <span className="font-medium">{schedule.day}</span>
                 <Switch
                   checked={schedule.isActive}
                   onCheckedChange={(checked) =>
@@ -201,10 +186,10 @@ export default function SettingsClient({
                 />
               </div>
               {schedule.isActive && (
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
                   <Input
                     type="time"
-                    className="w-32"
+                    className="min-w-0"
                     value={schedule.startTime}
                     onChange={(e) =>
                       setHoursForm((prev) =>
@@ -217,7 +202,7 @@ export default function SettingsClient({
                   <span className="text-sm text-muted-foreground">to</span>
                   <Input
                     type="time"
-                    className="w-32"
+                    className="min-w-0"
                     value={schedule.endTime}
                     onChange={(e) =>
                       setHoursForm((prev) =>
