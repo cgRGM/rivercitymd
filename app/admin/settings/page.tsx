@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import type { Id } from "@/convex/_generated/dataModel";
+import { buildBusinessHoursForm } from "@/lib/business-hours";
 
 const businessSchema = z.object({
   name: z.string().min(1, "Business name is required"),
@@ -114,44 +115,9 @@ export default function SettingsPage() {
     reason: "",
     type: "time_off" as "time_off" | "maintenance" | "other",
   });
-
-  // Business hours state - initialize with default values or loaded data
-  const [hoursForm, setHoursForm] = useState(() => {
-    const days = [
-      "Sunday",
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
-    ];
-
-    if (businessHours && businessHours.length > 0) {
-      // Use existing hours data
-      return days.map((day, index) => {
-        const existing = businessHours?.find(
-          (h: { dayOfWeek: number }) => h.dayOfWeek === index,
-        );
-        return {
-          day,
-          dayOfWeek: index,
-          startTime: existing?.startTime || "09:00",
-          endTime: existing?.endTime || "17:00",
-          isActive: existing?.isActive ?? index > 0, // Sunday closed by default
-        };
-      });
-    } else {
-      // Default hours
-      return days.map((day, index) => ({
-        day,
-        dayOfWeek: index,
-        startTime: "09:00",
-        endTime: "17:00",
-        isActive: index > 0, // Sunday closed by default
-      }));
-    }
-  });
+  const [hoursForm, setHoursForm] = useState(() => buildBusinessHoursForm());
+  const isBusinessHoursLoading = businessHours === undefined;
+  const hasHydratedHoursForm = React.useRef(false);
 
   // Handle case where no business exists yet (first-time setup)
   const isFirstTimeSetup = business === null;
@@ -205,6 +171,15 @@ export default function SettingsPage() {
       });
     }
   }, [business, form]);
+
+  React.useEffect(() => {
+    if (businessHours === undefined || hasHydratedHoursForm.current) {
+      return;
+    }
+
+    setHoursForm(buildBusinessHoursForm(businessHours));
+    hasHydratedHoursForm.current = true;
+  }, [businessHours]);
 
   const onSubmit = async (data: BusinessFormData) => {
     setIsLoading(true);
@@ -505,56 +480,63 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {hoursForm.map((schedule, index) => (
-            <div
-              key={schedule.dayOfWeek}
-              className="flex items-center justify-between gap-4"
-            >
-              <div className="flex items-center gap-4 min-w-0 flex-1">
-                <span className="font-medium w-20">{schedule.day}</span>
-                <Switch
-                  checked={schedule.isActive}
-                  onCheckedChange={(checked) =>
-                    setHoursForm((prev) =>
-                      prev.map((h, i) =>
-                        i === index ? { ...h, isActive: checked } : h,
-                      ),
-                    )
-                  }
-                />
-              </div>
-              {schedule.isActive && (
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="time"
-                    className="w-32"
-                    value={schedule.startTime}
-                    onChange={(e) =>
+          {isBusinessHoursLoading ? (
+            <p className="text-sm text-muted-foreground">Loading saved hours...</p>
+          ) : (
+            hoursForm.map((schedule, index) => (
+              <div
+                key={schedule.dayOfWeek}
+                className="space-y-3 rounded-lg border border-border/50 p-3"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <span className="font-medium">{schedule.day}</span>
+                  <Switch
+                    checked={schedule.isActive}
+                    onCheckedChange={(checked) =>
                       setHoursForm((prev) =>
                         prev.map((h, i) =>
-                          i === index ? { ...h, startTime: e.target.value } : h,
-                        ),
-                      )
-                    }
-                  />
-                  <span className="text-sm text-muted-foreground">to</span>
-                  <Input
-                    type="time"
-                    className="w-32"
-                    value={schedule.endTime}
-                    onChange={(e) =>
-                      setHoursForm((prev) =>
-                        prev.map((h, i) =>
-                          i === index ? { ...h, endTime: e.target.value } : h,
+                          i === index ? { ...h, isActive: checked } : h,
                         ),
                       )
                     }
                   />
                 </div>
-              )}
-            </div>
-          ))}
-          <Button onClick={handleSaveHours} disabled={isHoursLoading}>
+                {schedule.isActive && (
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                    <Input
+                      type="time"
+                      className="min-w-0"
+                      value={schedule.startTime}
+                      onChange={(e) =>
+                        setHoursForm((prev) =>
+                          prev.map((h, i) =>
+                            i === index ? { ...h, startTime: e.target.value } : h,
+                          ),
+                        )
+                      }
+                    />
+                    <span className="text-sm text-muted-foreground">to</span>
+                    <Input
+                      type="time"
+                      className="min-w-0"
+                      value={schedule.endTime}
+                      onChange={(e) =>
+                        setHoursForm((prev) =>
+                          prev.map((h, i) =>
+                            i === index ? { ...h, endTime: e.target.value } : h,
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+          <Button
+            onClick={handleSaveHours}
+            disabled={isHoursLoading || isBusinessHoursLoading}
+          >
             {isHoursLoading ? "Saving..." : "Update Hours"}
           </Button>
         </CardContent>
