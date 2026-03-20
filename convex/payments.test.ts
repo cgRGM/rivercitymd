@@ -1614,6 +1614,58 @@ describe("payments", () => {
     expect(invoice?.finalPaymentIntentId).toBeUndefined();
   });
 
+  test("syncPaymentStatus allows admins to sync a customer's invoice", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { invoiceId } = await createTestAppointmentWithInvoice(t, userId, adminId);
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        depositPaid: false,
+        depositPaymentIntentId: "pi_admin_sync_123",
+        status: "sent",
+      });
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("/payment_intents/pi_admin_sync_123")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "pi_admin_sync_123",
+              status: "succeeded",
+              amount: 5000,
+            }),
+          } as Response;
+        }
+
+        return { ok: true, json: async () => ({ data: [] }) } as Response;
+      }),
+    );
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
+    const result = await asAdmin.action(api.payments.syncPaymentStatus, {
+      invoiceId,
+    });
+
+    expect(result.updated).toBe(true);
+    const invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
+    expect(invoice?.depositPaid).toBe(true);
+  });
+
   test("backfillMissingStripeInvoices dry-run reports candidates without mutation", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t, true);

@@ -9,7 +9,7 @@ import {
 import { v } from "convex/values";
 import { getUserIdFromIdentity, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { stripeClient } from "./stripeClient";
 
 const paymentsInternal: any = (internal as any).payments;
@@ -717,6 +717,53 @@ async function requireAdminRole(ctx: any): Promise<void> {
   }
 }
 
+async function getUserRecordOrThrow(
+  ctx: any,
+  userId: Id<"users">,
+): Promise<Doc<"users">> {
+  const user = await ctx.runQuery(internal.users.getByIdInternal, { userId });
+  if (!user) {
+    throw new Error("User not found");
+  }
+  return user;
+}
+
+async function ensureStripeCustomerIdForUser(
+  ctx: any,
+  userId: Id<"users">,
+): Promise<string> {
+  const user = await getUserRecordOrThrow(ctx, userId);
+
+  let stripeCustomerId = user.stripeCustomerId;
+  if (!stripeCustomerId) {
+    stripeCustomerId = await ctx.runAction(internal.users.ensureStripeCustomer, {
+      userId,
+    });
+  }
+
+  if (!stripeCustomerId?.trim()) {
+    throw new Error("User not found or missing Stripe customer ID");
+  }
+
+  return stripeCustomerId;
+}
+
+async function requireInvoicePaymentAccess(
+  ctx: any,
+  invoice: Doc<"invoices">,
+  userId: Id<"users">,
+): Promise<void> {
+  if (invoice.userId === userId) {
+    return;
+  }
+
+  if (await isAdmin(ctx)) {
+    return;
+  }
+
+  throw new Error("Access denied");
+}
+
 // === Payment Intents (for deposits and final payments) ===
 
 // Create a Payment Intent for deposit or final payment
@@ -1069,25 +1116,9 @@ export const createDepositCheckoutSession = action({
     if (!appointment) throw new Error("Appointment not found");
     if (appointment.userId !== userId) throw new Error("Access denied");
 
-    // Get user details
-    const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!user) throw new Error("User not found");
-
     // Ensure Stripe customer exists (create if needed)
     // This handles cases where user was created but Stripe customer wasn't created yet
-    let stripeCustomerId = user.stripeCustomerId;
-    if (!stripeCustomerId) {
-      // Create Stripe customer on the fly
-      stripeCustomerId = await ctx.runAction(
-        internal.users.ensureStripeCustomer,
-        {
-          userId: user._id,
-        },
-      );
-    }
-    if (!stripeCustomerId?.trim()) {
-      throw new Error("User not found or missing Stripe customer ID");
-    }
+    const stripeCustomerId = await ensureStripeCustomerIdForUser(ctx, userId);
 
     if (!invoice.depositAmount || invoice.depositAmount <= 0) {
       throw new Error("No deposit amount found for this invoice");
@@ -1204,9 +1235,7 @@ export const createCheckoutSession = action({
     if (!invoice) throw new Error("Invoice not found");
     if (invoice.userId !== userId) throw new Error("Access denied");
 
-    // Get user details
-    const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!user) throw new Error("User not found");
+    const user = await getUserRecordOrThrow(ctx, userId);
 
     // Create Stripe checkout session
     const sessionData = new URLSearchParams({
@@ -1222,9 +1251,9 @@ export const createCheckoutSession = action({
       mode: "payment",
       success_url: args.successUrl,
       cancel_url: args.cancelUrl,
-      customer_email: user.email,
-      "metadata[invoiceId]": args.invoiceId,
-      "metadata[userId]": userId,
+      customer_email: user.email ?? "",
+      "metadata[invoiceId]": args.invoiceId.toString(),
+      "metadata[userId]": userId.toString(),
     });
 
     const session = await stripeApiCall("checkout/sessions", {
@@ -1307,16 +1336,7 @@ export const createBalanceCheckoutSession = action({
     }
 
     // Fallback: create a Stripe Checkout Session for the remaining balance
-    const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!user) throw new Error("User not found");
-
-    let stripeCustomerId = user.stripeCustomerId;
-    if (!stripeCustomerId) {
-      stripeCustomerId = await ctx.runAction(
-        internal.users.ensureStripeCustomer,
-        { userId: user._id },
-      );
-    }
+    const stripeCustomerId = await ensureStripeCustomerIdForUser(ctx, userId);
 
     const balanceInCents = Math.round(remainingBalance * 100);
 
@@ -1951,15 +1971,15 @@ export const syncPaymentStatus = action({
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const invoice: any = await ctx.runQuery(api.invoices.getById, {
+    const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
       invoiceId: args.invoiceId,
     });
     if (!invoice) throw new Error("Invoice not found");
-    if (invoice.userId !== userId) throw new Error("Access denied");
+    await requireInvoicePaymentAccess(ctx, invoice, userId);
 
-    // Get user to find Stripe customer ID
-    const user: any = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!user || !user.stripeCustomerId) {
+    const invoiceOwner = await getUserRecordOrThrow(ctx, invoice.userId);
+    const stripeCustomerId = invoiceOwner.stripeCustomerId;
+    if (!stripeCustomerId?.trim()) {
       throw new Error("User does not have a Stripe customer ID");
     }
 
@@ -1997,7 +2017,7 @@ export const syncPaymentStatus = action({
       try {
         const depositAmountInCents = Math.round(invoice.depositAmount * 100);
         const paymentIntents = await stripeApiCall(
-          `payment_intents?customer=${user.stripeCustomerId}&limit=10`,
+          `payment_intents?customer=${stripeCustomerId}&limit=10`,
           { method: "GET" },
         );
 
