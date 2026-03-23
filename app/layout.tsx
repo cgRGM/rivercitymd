@@ -6,16 +6,11 @@ import ConvexClientProvider from "@/components/ConvexClientProvider";
 import { StructuredData } from "@/components/seo/structured-data";
 import { Analytics } from "@vercel/analytics/next";
 
-// Validate Clerk publishable key
-const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-if (!clerkPublishableKey) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY. Please set it in your environment variables.",
-  );
-}
-
 import { Toaster } from "sonner";
 import { Suspense } from "react";
+
+const clerkPublishableKey =
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "pk_test_build_placeholder";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
