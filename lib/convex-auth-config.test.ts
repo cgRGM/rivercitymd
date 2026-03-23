@@ -27,7 +27,7 @@ describe("convex auth config", () => {
 
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.resetModules();
-    const config = await import("./auth.config");
+    const config = await import("../convex/auth.config");
 
     expect(config.default.providers).toEqual([]);
     expect(warn).toHaveBeenCalledOnce();
@@ -38,7 +38,7 @@ describe("convex auth config", () => {
     delete process.env.CLERK_JWT_ISSUER_DOMAIN;
 
     vi.resetModules();
-    const config = await import("./auth.config");
+    const config = await import("../convex/auth.config");
 
     expect(config.default.providers).toEqual([
       {
