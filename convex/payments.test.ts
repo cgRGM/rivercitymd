@@ -370,7 +370,7 @@ describe("payments", () => {
 
     const bodyParams = new URLSearchParams(checkoutRequestBody);
     expect(bodyParams.get("success_url")).toBe(
-      "https://example.com/sign-up/verify?payment=success&is_guest=true&email=guest-booker%40example.com",
+      "https://example.com/sign-up?after=booking&redirect=%2Fdashboard%2Fappointments",
     );
     expect(bodyParams.get("cancel_url")).toBe(cancelUrl);
   });

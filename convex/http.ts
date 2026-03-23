@@ -129,8 +129,7 @@ registerRoutes(http, components.stripe, {
           return;
         }
 
-        // --- NEW: Handle Post-Payment User Onboarding / Invitations ---
-        // Get the appointment and user to check onboarding status
+        // Get the appointment and user to log guest bookings for reconciliation.
         const appointment = await ctx.runQuery(
             internal.appointments.getByIdInternal,
             { appointmentId: invoice.appointmentId }
@@ -142,116 +141,24 @@ registerRoutes(http, components.stripe, {
             });
 
             if (user && !user.clerkUserId) {
-                // User has no Clerk ID -> This is likely a Guest Checkout.
-                // Trigger Invitation via Clerk Backend API.
                 console.log(
-                  `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_account_sync_started sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId} userId=${user._id}`,
+                  `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_checkout_recorded sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId} userId=${user._id}`,
                 );
-
-                if (user.email) {
-                    try {
-                        const clerkSync = await ctx.runAction(internal.users.sendInvitation, {
-                            userId: user._id,
-                            email: user.email,
-                        });
-                        if (clerkSync.invited) {
-                            console.log(
-                              `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_account_invited sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId} userId=${user._id} email=${user.email}`,
-                            );
-                            await recordWebhookEvent(ctx, {
-                              source: "stripe",
-                              level: "info",
-                              eventType: event.type,
-                              eventId: event.id,
-                              message: "Guest checkout triggered a Clerk invitation",
-                              checkoutSessionId: session.id,
-                              invoiceId,
-                              appointmentId: invoice.appointmentId,
-                              userId: user._id,
-                              actionResult: "invited",
-                              details: user.email,
-                            });
-                            await ctx.runMutation(internal.notifications.queueNewCustomerOnboarded, {
-                                userId: user._id,
-                                transition: "payment_complete"
-                            });
-                        } else if (clerkSync.linked) {
-                            console.log(
-                              `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_account_linked sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId} userId=${user._id} clerkUserId=${clerkSync.clerkUserId || "unknown"}`,
-                            );
-                            await recordWebhookEvent(ctx, {
-                              source: "stripe",
-                              level: "info",
-                              eventType: event.type,
-                              eventId: event.id,
-                              message: "Guest checkout linked an existing Clerk account",
-                              checkoutSessionId: session.id,
-                              invoiceId,
-                              appointmentId: invoice.appointmentId,
-                              userId: user._id,
-                              clerkUserId: clerkSync.clerkUserId,
-                              actionResult: "linked",
-                              details: user.email,
-                            });
-                        } else {
-                            console.warn(
-                              `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_account_sync_skipped sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId} userId=${user._id}`,
-                            );
-                            await recordWebhookEvent(ctx, {
-                              source: "stripe",
-                              level: "warn",
-                              eventType: event.type,
-                              eventId: event.id,
-                              message: "Guest checkout did not link or invite a Clerk account",
-                              checkoutSessionId: session.id,
-                              invoiceId,
-                              appointmentId: invoice.appointmentId,
-                              userId: user._id,
-                              actionResult: "skipped",
-                              details: user.email,
-                            });
-                        }
-                    } catch (err) {
-                        console.error(
-                          `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_account_sync_failed sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId} userId=${user._id} email=${user.email}`,
-                          err,
-                        );
-                        await recordWebhookEvent(ctx, {
-                          source: "stripe",
-                          level: "error",
-                          eventType: event.type,
-                          eventId: event.id,
-                          message: "Guest checkout failed to link or invite a Clerk account",
-                          checkoutSessionId: session.id,
-                          invoiceId,
-                          appointmentId: invoice.appointmentId,
-                          userId: user._id,
-                          actionResult: "failed",
-                          details: err instanceof Error ? err.message : String(err),
-                        });
-                    }
-                } else {
-                     console.warn(
-                       `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_account_sync_missing_email sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId} userId=${user._id}`,
-                     );
-                     await recordWebhookEvent(ctx, {
-                       source: "stripe",
-                       level: "warn",
-                       eventType: event.type,
-                       eventId: event.id,
-                       message: "Guest checkout user is missing an email address, so Clerk invitation could not be sent",
-                       checkoutSessionId: session.id,
-                       invoiceId,
-                       appointmentId: invoice.appointmentId,
-                       userId: user._id,
-                       actionResult: "skipped",
-                     });
-                }
-            } else if (user) {
-                // User ALREADY has Clerk ID. They might still need the "Onboarded" admin alert if this was their first real booking?
-                // But usually if they have Clerk ID, they might be returning.
-                // We'll leave it for now, as `queueNewCustomerOnboarded` was primarily for new accounts.
-            } else {
+                await recordWebhookEvent(ctx, {
+                  source: "stripe",
+                  level: "info",
+                  eventType: event.type,
+                  eventId: event.id,
+                  message:
+                    "Guest checkout recorded without sending a Clerk invitation",
+                  checkoutSessionId: session.id,
+                  invoiceId,
+                  appointmentId: invoice.appointmentId,
+                  userId: user._id,
+                  actionResult: "skipped",
+                  details: user.email,
+                });
+            } else if (!user) {
                 console.warn(
                   `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=guest_account_sync_missing_user sessionId=${session.id} invoiceId=${invoiceId} appointmentId=${invoice.appointmentId}`,
                 );
@@ -264,6 +171,19 @@ registerRoutes(http, components.stripe, {
                   checkoutSessionId: session.id,
                   invoiceId,
                   appointmentId: invoice.appointmentId,
+                });
+            } else {
+                await recordWebhookEvent(ctx, {
+                  source: "stripe",
+                  level: "info",
+                  eventType: event.type,
+                  eventId: event.id,
+                  message: "Authenticated checkout completed with an existing Clerk-linked user",
+                  checkoutSessionId: session.id,
+                  invoiceId,
+                  appointmentId: invoice.appointmentId,
+                  userId: user._id,
+                  clerkUserId: user.clerkUserId,
                 });
             }
         } else {
@@ -278,8 +198,6 @@ registerRoutes(http, components.stripe, {
             appointmentId: invoice.appointmentId,
           });
         }
-        // -----------------------------------------------------------
-
         if (paymentType === "full") {
           // Full payment — mark invoice as completely paid
           if (invoice.status === "paid") {

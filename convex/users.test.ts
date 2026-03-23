@@ -660,42 +660,6 @@ describe("users", () => {
     expect(invoice?._id).toBe(invoiceId);
   });
 
-  test("repairGuestClerkSync reuses the invitation flow for admins", async () => {
-    const t = convexTest(schema, modules);
-    clerkMocks.getUserList.mockResolvedValue({ data: [] });
-
-    const adminId = await t.run(async (ctx) => {
-      return await ctx.db.insert("users", {
-        name: "Admin",
-        email: "admin@rivercitymd.com",
-        clerkUserId: "admin_clerk_123",
-        role: "admin",
-        status: "active",
-      });
-    });
-
-    const userId = await t.run(async (ctx) => {
-      return await ctx.db.insert("users", {
-        name: "Guest Repair",
-        email: "guest-repair@example.com",
-        role: "client",
-        status: "active",
-      });
-    });
-
-    const asAdmin = t.withIdentity({
-      subject: "admin_clerk_123",
-      email: "admin@rivercitymd.com",
-    });
-
-    const result = await asAdmin.action(api.webhookDiagnostics.repairGuestClerkSync, {
-      userId,
-    });
-
-    expect(result.invited).toBe(true);
-    expect(clerkMocks.createInvitation).toHaveBeenCalledTimes(1);
-  });
-
   test("createUserProfile and retry action sync Stripe customer", async () => {
     const t = convexTest(schema, modules);
 

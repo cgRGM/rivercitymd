@@ -1,6 +1,5 @@
-import { action, internalMutation, query } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdmin } from "./auth";
 
@@ -232,62 +231,5 @@ export const getAdminOverview = query({
       usersMissingStripeCustomer,
       recentIssues,
     };
-  },
-});
-
-export const repairGuestClerkSync = action({
-  args: {
-    userId: v.id("users"),
-  },
-  returns: v.object({
-    invited: v.boolean(),
-    linked: v.boolean(),
-    clerkUserId: v.optional(v.string()),
-  }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ invited: boolean; linked: boolean; clerkUserId?: string }> => {
-    await requireAdmin(ctx);
-
-    const user: Doc<"users"> | null = await ctx.runQuery(
-      internal.users.getByIdInternal,
-      {
-      userId: args.userId,
-      },
-    );
-    if (!user) {
-      throw new Error("User not found");
-    }
-    if (!user.email) {
-      throw new Error("User is missing an email address");
-    }
-
-    const result: { invited: boolean; linked: boolean; clerkUserId?: string } =
-      await ctx.runAction(internal.users.sendInvitation, {
-      userId: args.userId,
-      email: user.email,
-      });
-
-    await ctx.runMutation((internal as any).webhookDiagnostics.record, {
-      source: "auth",
-      level: result.invited || result.linked ? "info" : "warn",
-      eventType: "guest.clerk.repair",
-      message: result.linked
-        ? "Admin repair linked an existing Clerk account"
-        : result.invited
-          ? "Admin repair sent a Clerk invitation"
-          : "Admin repair could not link or invite Clerk account",
-      userId: args.userId,
-      clerkUserId: result.clerkUserId,
-      actionResult: result.linked
-        ? "linked"
-        : result.invited
-          ? "invited"
-          : "failed",
-      details: user.email,
-    });
-
-    return result;
   },
 });
