@@ -83,12 +83,12 @@ describe("availability", () => {
     });
 
     const blockedSlots = slots.filter(
-      (s) => !s.available && s.reason?.startsWith("Blocked:"),
+      (s: (typeof slots)[number]) => !s.available && s.reason?.startsWith("Blocked:"),
     );
     expect(blockedSlots.length).toBeGreaterThan(0);
     expect(blockedSlots[0].reason).toContain("Lunch break");
 
-    const overlappingSlot = slots.find((s) => s.time === "10:00");
+    const overlappingSlot = slots.find((s: (typeof slots)[number]) => s.time === "10:00");
     expect(overlappingSlot).toBeDefined();
     expect(overlappingSlot?.available).toBe(false);
     expect(overlappingSlot?.reason).toContain("Blocked:");
@@ -133,7 +133,7 @@ describe("availability", () => {
       serviceDuration: 60,
     });
 
-    const availableSlots = slots.filter((s) => s.available);
+    const availableSlots = slots.filter((s: (typeof slots)[number]) => s.available);
     expect(availableSlots.length).toBeGreaterThan(0);
     const firstSlot = slots[0];
     expect(firstSlot.time).toBe("09:00");
@@ -211,23 +211,23 @@ describe("availability", () => {
     });
 
     const bookedReasonSlots = slots.filter(
-      (s) => !s.available && s.reason === "Time slot already booked",
+      (s: (typeof slots)[number]) => !s.available && s.reason === "Time slot already booked",
     );
     expect(bookedReasonSlots.length).toBeGreaterThan(0);
 
-    const tenSlot = slots.find((s) => s.time === "10:00");
+    const tenSlot = slots.find((s: (typeof slots)[number]) => s.time === "10:00");
     expect(tenSlot?.available).toBe(false);
     expect(tenSlot?.reason).toBe("Time slot already booked");
 
-    const nineSlot = slots.find((s) => s.time === "09:00");
+    const nineSlot = slots.find((s: (typeof slots)[number]) => s.time === "09:00");
     expect(nineSlot?.available).toBe(false);
     expect(nineSlot?.reason).toBe("Time slot already booked");
 
-    const elevenFifteenSlot = slots.find((s) => s.time === "11:15");
+    const elevenFifteenSlot = slots.find((s: (typeof slots)[number]) => s.time === "11:15");
     expect(elevenFifteenSlot?.available).toBe(false);
     expect(elevenFifteenSlot?.reason).toBe("Time slot already booked");
 
-    const twelveSlot = slots.find((s) => s.time === "12:00");
+    const twelveSlot = slots.find((s: (typeof slots)[number]) => s.time === "12:00");
     expect(twelveSlot?.available).toBe(true);
   });
 

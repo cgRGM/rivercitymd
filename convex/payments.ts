@@ -1633,9 +1633,11 @@ export const reissueStripeInvoice = action({
   },
 });
 
-// === Webhook Handler ===
-
-// Handle Stripe webhooks
+// === Legacy Webhook Handler ===
+//
+// Production Stripe webhooks are handled in convex/http.ts via registerRoutes(...)
+// from @convex-dev/stripe. This action is retained for compatibility with older
+// tests and manual replay flows only.
 export const handleWebhook = action({
   args: {
     body: v.string(),
@@ -2180,13 +2182,7 @@ export const createBookingCheckout = action({
     // Calculate quantity
     const vehicleCount = appointment.vehicleIds.length;
 
-    // Guests land on the verification page after successful checkout. The
-    // webhook is the single source of truth for invite/link creation.
-    let successUrl = args.successUrl;
-    if (!user.clerkUserId && user.email) {
-      const baseUrl = new URL(args.successUrl).origin;
-      successUrl = `${baseUrl}/sign-up/verify?payment=success&is_guest=true&email=${encodeURIComponent(user.email)}`;
-    }
+    const successUrl = args.successUrl;
 
     // Determine checkout type and amount based on payment option
     const metadataType = paymentOption === "full" ? "full" : "deposit";

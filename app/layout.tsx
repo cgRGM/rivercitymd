@@ -6,16 +6,10 @@ import ConvexClientProvider from "@/components/ConvexClientProvider";
 import { StructuredData } from "@/components/seo/structured-data";
 import { Analytics } from "@vercel/analytics/next";
 
-// Validate Clerk publishable key
-const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-if (!clerkPublishableKey) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY. Please set it in your environment variables.",
-  );
-}
-
 import { Toaster } from "sonner";
 import { Suspense } from "react";
+
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -107,6 +101,25 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const app = (
+    <html lang="en">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <StructuredData siteUrl={siteUrl} />
+        <ConvexClientProvider>
+          <Suspense fallback={null}>{children}</Suspense>
+          <Toaster richColors position="top-right" />
+        </ConvexClientProvider>
+        <Analytics />
+      </body>
+    </html>
+  );
+
+  if (!clerkPublishableKey) {
+    return app;
+  }
+
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
@@ -115,18 +128,7 @@ export default function RootLayout({
       signInFallbackRedirectUrl="/dashboard"
       signUpFallbackRedirectUrl="/onboarding"
     >
-      <html lang="en">
-        <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-        >
-          <StructuredData siteUrl={siteUrl} />
-          <ConvexClientProvider>
-            <Suspense fallback={null}>{children}</Suspense>
-            <Toaster richColors position="top-right" />
-          </ConvexClientProvider>
-          <Analytics />
-        </body>
-      </html>
+      {app}
     </ClerkProvider>
   );
 }

@@ -43,7 +43,7 @@ A comprehensive web application for managing a mobile car detailing business. Ri
 
 - **Frontend**: Next.js 14 with React, TypeScript, Tailwind CSS, shadcn/ui components
 - **Backend**: Convex (serverless database with real-time capabilities)
-- **Authentication**: Convex Auth with role-based access (admin vs client)
+- **Authentication**: Clerk + Convex with role-based access (admin vs client)
 - **Database**: Convex with tables for users, vehicles, appointments, services, invoices, reviews, etc.
 - **File Storage**: Convex storage for business logos and customer images
 - **Payments**: Stripe integration for secure payment processing
@@ -132,7 +132,7 @@ The application uses Convex with the following main tables:
 
 ## Authentication
 
-The app uses Convex Auth with role-based access control:
+The app uses Clerk for authentication and Convex for application data/authorization:
 
 - **Clients**: Can book appointments, manage vehicles, view invoices
 - **Admins**: Full access to business management, customer data, analytics
@@ -157,17 +157,52 @@ Add these to your `.env.local` file:
   - Production: `https://rivercitymd.com`
   - Used for: Social media previews, structured data, canonical URLs
 
-#### Convex Auth Configuration
+#### Clerk + Convex Configuration
 
-The app uses @convex-dev/auth with password-based authentication. Auth configuration is in `convex/auth.config.ts` and `convex/auth.ts`.
+Authentication is powered by Clerk in the Next.js app and synchronized into Convex in `convex/auth.ts`, `convex/users.ts`, and `convex/http.ts`.
+
+Required environment variables include:
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `CLERK_WEBHOOK_SECRET`
+- `NEXT_PUBLIC_CONVEX_URL`
+
+### Webhook Endpoints
+
+Configure these server endpoints in production:
+
+- Stripe: `/stripe/webhook`
+- Clerk: `/clerk-users-webhook`
+- Resend: `/resend-webhook`
+
+Recommended Stripe event subscriptions for `/stripe/webhook`:
+
+- `checkout.session.completed`
+- `customer.created`
+- `customer.updated`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+- `invoice.created`
+- `invoice.finalized`
+- `invoice.paid`
+- `invoice.payment_failed`
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+
+Recommended Clerk event subscriptions for `/clerk-users-webhook`:
+
+- `user.created`
+- `user.updated`
+- `user.deleted`
 
 #### Troubleshooting Auth Issues
 
-- **Auth initialization failures**: Check `CONVEX_SITE_URL` is correct and accessible
-- **Sign-in failures**: Verify user accounts exist and passwords are correct
-- **Network errors**: Check your internet connection and Convex service status
-- **Account creation issues**: Ensure email addresses are valid and not already registered
-- **Server errors**: Check Convex dashboard for deployment issues or environment variable problems
+- **Auth initialization failures**: Check Clerk keys and `NEXT_PUBLIC_CONVEX_URL`
+- **Sign-in failures**: Verify Clerk users and webhook configuration
+- **Guest payment follow-up issues**: Check `/stripe/webhook` logs and the admin webhook health panel
+- **Server errors**: Check Convex dashboard for deployment issues or missing env vars
 
 ## Payment Processing
 

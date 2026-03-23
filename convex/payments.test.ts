@@ -370,7 +370,7 @@ describe("payments", () => {
 
     const bodyParams = new URLSearchParams(checkoutRequestBody);
     expect(bodyParams.get("success_url")).toBe(
-      "https://example.com/sign-up/verify?payment=success&is_guest=true&email=guest-booker%40example.com",
+      "https://example.com/sign-up?after=booking&redirect=%2Fdashboard%2Fappointments",
     );
     expect(bodyParams.get("cancel_url")).toBe(cancelUrl);
   });
@@ -506,6 +506,63 @@ describe("payments", () => {
     })) as any;
     expect(user?.timesServiced).toBeGreaterThan(0);
     expect(user?.totalSpent).toBeGreaterThan(0);
+  });
+
+  test("handle webhook - payment_intent.succeeded is idempotent for duplicate final payment events", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t);
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { appointmentId, invoiceId } = await createTestAppointmentWithInvoice(
+      t,
+      userId,
+      adminId,
+    );
+
+    await t.mutation(internal.invoices.updateDepositStatusInternal, {
+      invoiceId,
+      depositPaid: true,
+      depositPaymentIntentId: "pi_deposit_123",
+    });
+
+    const webhookEvent = {
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_final_duplicate_123",
+          amount: 5000,
+          metadata: {
+            appointmentId,
+            invoiceId,
+            type: "final_payment",
+          },
+        },
+      },
+    };
+
+    await t.action(api.payments.handleWebhook, {
+      body: JSON.stringify(webhookEvent),
+      signature: "test_signature",
+    });
+    await t.action(api.payments.handleWebhook, {
+      body: JSON.stringify(webhookEvent),
+      signature: "test_signature",
+    });
+
+    const [invoice, user] = await Promise.all([
+      t.run(async (ctx: any) => ctx.db.get(invoiceId)),
+      t.run(async (ctx: any) => ctx.db.get(userId)),
+    ]);
+
+    expect((invoice as any)?.status).toBe("paid");
+    expect((invoice as any)?.finalPaymentIntentId).toBe("pi_final_duplicate_123");
+    expect((user as any)?.timesServiced).toBe(1);
   });
 
   test("handle webhook - invalid event type", async () => {

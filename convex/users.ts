@@ -864,40 +864,11 @@ export const deleteFromClerk = internalMutation({
       return null;
     }
 
-    // Delete associated vehicles
-    const vehicles = await ctx.db
-      .query("vehicles")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .collect();
-
-    for (const vehicle of vehicles) {
-      await ctx.db.delete(vehicle._id);
-    }
-
-    // Delete associated appointments and their invoices
-    // This prevents "User not found" errors and orphan data
-    const appointments = await ctx.db
-      .query("appointments")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .collect();
-
-    for (const appointment of appointments) {
-      const invoice = await ctx.db
-        .query("invoices")
-        .withIndex("by_appointment", (q) =>
-          q.eq("appointmentId", appointment._id),
-        )
-        .unique();
-      
-      // Delete invoice if it exists (regardless of status - user is being hard deleted)
-      if (invoice) {
-        await ctx.db.delete(invoice._id);
-      }
-      await ctx.db.delete(appointment._id);
-    }
-
-    // Delete the user
-    await ctx.db.delete(user._id);
+    // Preserve billing and appointment history when Clerk removes auth access.
+    await ctx.db.patch(user._id, {
+      clerkUserId: undefined,
+      status: "inactive",
+    });
 
     return user._id;
   },
@@ -1710,6 +1681,15 @@ export const ensureStripeCustomerWithRetry = internalAction({
           `[users.ensureStripeCustomerWithRetry] Failed attempt ${attempt + 1}/${STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS.length} for ${args.userId}. Retrying in ${retryDelayMs}ms.`,
           error,
         );
+        await ctx.runMutation(internal.webhookDiagnostics.record, {
+          source: "auth",
+          level: "warn",
+          eventType: "stripe.customer.sync",
+          message: "Stripe customer sync failed and was scheduled for retry",
+          userId: args.userId,
+          actionResult: "failed",
+          details: errorMessage,
+        });
         await ctx.scheduler.runAfter(
           retryDelayMs,
           internal.users.ensureStripeCustomerWithRetry,
@@ -1723,6 +1703,15 @@ export const ensureStripeCustomerWithRetry = internalAction({
           `[users.ensureStripeCustomerWithRetry] Exhausted retries for ${args.userId}.`,
           error,
         );
+        await ctx.runMutation(internal.webhookDiagnostics.record, {
+          source: "auth",
+          level: "error",
+          eventType: "stripe.customer.sync",
+          message: "Stripe customer sync exhausted all retries",
+          userId: args.userId,
+          actionResult: "failed",
+          details: errorMessage,
+        });
       }
       return null;
     }

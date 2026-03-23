@@ -58,7 +58,9 @@ describe("setupReadiness", () => {
 
     const readiness = await t.query(api.setupReadiness.getPublicBookingReadiness, {});
     expect(readiness.isReady).toBe(false);
-    expect(readiness.blockers.map((b) => b.code)).toEqual(["missing_business_info"]);
+    expect(
+      readiness.blockers.map((b: (typeof readiness.blockers)[number]) => b.code),
+    ).toEqual(["missing_business_info"]);
   });
 
   test("flags missing_availability when business info and services exist", async () => {
@@ -71,7 +73,9 @@ describe("setupReadiness", () => {
 
     const readiness = await t.query(api.setupReadiness.getPublicBookingReadiness, {});
     expect(readiness.isReady).toBe(false);
-    expect(readiness.blockers.map((b) => b.code)).toEqual(["missing_availability"]);
+    expect(
+      readiness.blockers.map((b: (typeof readiness.blockers)[number]) => b.code),
+    ).toEqual(["missing_availability"]);
   });
 
   test("flags missing_bookable_service_pricing when business info and availability exist", async () => {
@@ -82,9 +86,9 @@ describe("setupReadiness", () => {
 
     const readiness = await t.query(api.setupReadiness.getPublicBookingReadiness, {});
     expect(readiness.isReady).toBe(false);
-    expect(readiness.blockers.map((b) => b.code)).toEqual([
-      "missing_bookable_service_pricing",
-    ]);
+    expect(
+      readiness.blockers.map((b: (typeof readiness.blockers)[number]) => b.code),
+    ).toEqual(["missing_bookable_service_pricing"]);
   });
 
   test("returns ready when all booking prerequisites are configured", async () => {
