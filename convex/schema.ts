@@ -417,6 +417,40 @@ const schema = defineSchema({
     .index("by_incurred_date", ["incurredDate"])
     .index("by_trip_log_and_date", ["tripLogId", "incurredDate"]),
 
+  webhookEvents: defineTable({
+    source: v.union(
+      v.literal("stripe"),
+      v.literal("clerk"),
+      v.literal("auth"),
+    ),
+    level: v.union(
+      v.literal("info"),
+      v.literal("warn"),
+      v.literal("error"),
+    ),
+    eventType: v.string(),
+    eventId: v.optional(v.string()),
+    message: v.string(),
+    stripeObjectId: v.optional(v.string()),
+    checkoutSessionId: v.optional(v.string()),
+    invoiceId: v.optional(v.id("invoices")),
+    appointmentId: v.optional(v.id("appointments")),
+    userId: v.optional(v.id("users")),
+    clerkUserId: v.optional(v.string()),
+    actionResult: v.optional(
+      v.union(
+        v.literal("linked"),
+        v.literal("invited"),
+        v.literal("skipped"),
+        v.literal("failed"),
+        v.literal("ignored"),
+      ),
+    ),
+    details: v.optional(v.string()),
+  })
+    .index("by_source", ["source"])
+    .index("by_level", ["level"]),
+
   notificationDispatches: defineTable({
     dedupeKey: v.string(),
     event: notificationEventValidator,

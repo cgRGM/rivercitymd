@@ -504,6 +504,198 @@ describe("users", () => {
     expect(clerkMocks.createInvitation).toHaveBeenCalledTimes(1);
   });
 
+  test("upsertFromClerk preserves business-owned fields", async () => {
+    const t = convexTest(schema, modules);
+
+    const clientId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Existing Name",
+        email: "existing-client@example.com",
+        phone: "555-1111",
+        role: "client",
+        status: "active",
+        clerkUserId: undefined,
+        stripeCustomerId: "cus_existing_123",
+        address: {
+          street: "12 Existing St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72201",
+        },
+        notes: "Preserve me",
+      });
+    });
+
+    const result = await t.mutation((internal.users as any).upsertFromClerk, {
+      data: {
+        id: "user_clerk_sync_123",
+        first_name: "Updated",
+        last_name: "Profile",
+        email_addresses: [{ email_address: "existing-client@example.com" }],
+        image_url: "https://example.com/avatar.png",
+        public_metadata: {},
+      },
+    });
+
+    expect(result).toBe(clientId);
+
+    const updatedUser = await t.run(async (ctx) => ctx.db.get(clientId));
+    expect(updatedUser).toMatchObject({
+      name: "Updated Profile",
+      email: "existing-client@example.com",
+      phone: "555-1111",
+      role: "client",
+      stripeCustomerId: "cus_existing_123",
+      notes: "Preserve me",
+      clerkUserId: "user_clerk_sync_123",
+    });
+    expect(updatedUser?.address).toMatchObject({
+      street: "12 Existing St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72201",
+    });
+  });
+
+  test("deleteFromClerk deactivates auth without deleting business records", async () => {
+    const t = convexTest(schema, modules);
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Deactivated Client",
+        email: "deactivate@example.com",
+        clerkUserId: "user_delete_123",
+        role: "client",
+        status: "active",
+      });
+    });
+
+    const vehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2022,
+        make: "Honda",
+        model: "Civic",
+        color: "Black",
+      });
+    });
+
+    const serviceCategoryId = await t.run(async (ctx) => {
+      return await ctx.db.insert("serviceCategories", {
+        name: "Standard",
+        type: "standard",
+      });
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Exterior Detail",
+        description: "Full exterior wash",
+        basePrice: 100,
+        duration: 60,
+        categoryId: serviceCategoryId,
+        isActive: true,
+      });
+    });
+
+    const appointmentId = await t.run(async (ctx) => {
+      return await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: BOOKING_TEST_DATE,
+        scheduledTime: "09:00",
+        duration: 60,
+        location: {
+          street: "123 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72201",
+        },
+        status: "confirmed",
+        totalPrice: 100,
+        createdBy: userId,
+      });
+    });
+
+    const invoiceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("invoices", {
+        appointmentId,
+        userId,
+        invoiceNumber: "INV-DELETE-001",
+        items: [
+          {
+            serviceId,
+            serviceName: "Exterior Detail",
+            quantity: 1,
+            unitPrice: 100,
+            totalPrice: 100,
+          },
+        ],
+        subtotal: 100,
+        tax: 0,
+        total: 100,
+        status: "sent",
+        dueDate: BOOKING_TEST_DATE,
+      });
+    });
+
+    const result = await t.mutation((internal.users as any).deleteFromClerk, {
+      clerkUserId: "user_delete_123",
+    });
+
+    expect(result).toBe(userId);
+
+    const [user, vehicle, appointment, invoice] = await Promise.all([
+      t.run(async (ctx) => ctx.db.get(userId)),
+      t.run(async (ctx) => ctx.db.get(vehicleId)),
+      t.run(async (ctx) => ctx.db.get(appointmentId)),
+      t.run(async (ctx) => ctx.db.get(invoiceId)),
+    ]);
+
+    expect(user?.status).toBe("inactive");
+    expect(user?.clerkUserId).toBeUndefined();
+    expect(vehicle?._id).toBe(vehicleId);
+    expect(appointment?._id).toBe(appointmentId);
+    expect(invoice?._id).toBe(invoiceId);
+  });
+
+  test("repairGuestClerkSync reuses the invitation flow for admins", async () => {
+    const t = convexTest(schema, modules);
+    clerkMocks.getUserList.mockResolvedValue({ data: [] });
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@rivercitymd.com",
+        clerkUserId: "admin_clerk_123",
+        role: "admin",
+        status: "active",
+      });
+    });
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Guest Repair",
+        email: "guest-repair@example.com",
+        role: "client",
+        status: "active",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: "admin_clerk_123",
+      email: "admin@rivercitymd.com",
+    });
+
+    const result = await asAdmin.action(api.webhookDiagnostics.repairGuestClerkSync, {
+      userId,
+    });
+
+    expect(result.invited).toBe(true);
+    expect(clerkMocks.createInvitation).toHaveBeenCalledTimes(1);
+  });
+
   test("createUserProfile and retry action sync Stripe customer", async () => {
     const t = convexTest(schema, modules);
 

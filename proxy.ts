@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { getProtectedRouteRedirect, getRoleHomePath } from "@/lib/auth-routing";
 
 const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
 
@@ -53,14 +54,16 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
               );
             }
 
-            return NextResponse.redirect(new URL("/admin", req.url));
+            return NextResponse.redirect(
+              new URL(getRoleHomePath("admin", readiness.isReady), req.url),
+            );
           }
-          return NextResponse.redirect(new URL("/dashboard", req.url));
+          return NextResponse.redirect(new URL(getRoleHomePath("client"), req.url));
         }
       } catch (error) {
         console.error("Error getting user role on auth route:", error);
       }
-      return NextResponse.redirect(new URL("/dashboard", req.url));
+      return NextResponse.redirect(new URL(getRoleHomePath("client"), req.url));
     }
 
     // Fallback: check Convex if metadata isn't complete/missing.
@@ -115,7 +118,13 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
       }
 
       return NextResponse.redirect(
-        new URL(userRole.type === "admin" ? "/admin" : "/dashboard", req.url),
+        new URL(
+          getRoleHomePath(
+            userRole.type,
+            userRole.type === "admin" ? true : undefined,
+          ),
+          req.url,
+        ),
       );
     } catch (error) {
       console.error("Error checking auth route status:", error);
@@ -160,38 +169,31 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
         if (userRole) {
           const role = userRole.type;
 
-          // ADMIN - Full access to /admin, redirect from /dashboard to /admin
+          let setupReady = true;
           if (role === "admin") {
-            if (isAdminRoute(req) && !url.pathname.startsWith("/admin/settings")) {
-              const readiness = await fetchQuery(
-                api.setupReadiness.getPublicBookingReadiness,
-                {},
-                {
-                  url: process.env.NEXT_PUBLIC_CONVEX_URL!,
-                  token: token,
-                },
-              );
-              if (!readiness.isReady) {
-                return NextResponse.redirect(
-                  new URL("/admin/settings?setup=required", req.url),
-                );
-              }
-            }
+            const readiness = await fetchQuery(
+              api.setupReadiness.getPublicBookingReadiness,
+              {},
+              {
+                url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+                token: token,
+              },
+            );
+            setupReady = readiness.isReady;
+          }
 
-            if (isCustomerRoute(req)) {
-              return NextResponse.redirect(new URL("/admin", req.url));
-            }
-            if (isAdminRoute(req)) {
-              return NextResponse.next(); // Allow
-            }
-          } else {
-            // CLIENT - Access to /dashboard only, no /admin access
-            if (isAdminRoute(req)) {
-              return NextResponse.redirect(new URL("/dashboard", req.url));
-            }
-            if (isCustomerRoute(req)) {
-              return NextResponse.next(); // Allow
-            }
+          const redirectPath = getProtectedRouteRedirect({
+            pathname: url.pathname,
+            role,
+            isSetupReady: setupReady,
+          });
+
+          if (redirectPath) {
+            return NextResponse.redirect(new URL(redirectPath, req.url));
+          }
+
+          if (isAdminRoute(req) || isCustomerRoute(req)) {
+            return NextResponse.next();
           }
         }
       }
@@ -247,31 +249,26 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
     // If onboarding is complete in Convex, apply role-based routing and setup enforcement.
     if (hasCompleted) {
+      let setupReady = true;
       if (userRole.type === "admin") {
-        if (isAdminRoute(req) && !url.pathname.startsWith("/admin/settings")) {
-          const readiness = await fetchQuery(
-            api.setupReadiness.getPublicBookingReadiness,
-            {},
-            {
-              url: process.env.NEXT_PUBLIC_CONVEX_URL!,
-              token: token,
-            },
-          );
-          if (!readiness.isReady) {
-            return NextResponse.redirect(
-              new URL("/admin/settings?setup=required", req.url),
-            );
-          }
-        }
+        const readiness = await fetchQuery(
+          api.setupReadiness.getPublicBookingReadiness,
+          {},
+          {
+            url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+            token: token,
+          },
+        );
+        setupReady = readiness.isReady;
+      }
 
-        if (isCustomerRoute(req)) {
-          return NextResponse.redirect(new URL("/admin", req.url));
-        }
-        if (isAdminRoute(req)) {
-          return NextResponse.next();
-        }
-      } else if (isAdminRoute(req)) {
-        return NextResponse.redirect(new URL("/dashboard", req.url));
+      const redirectPath = getProtectedRouteRedirect({
+        pathname: url.pathname,
+        role: userRole.type,
+        isSetupReady: setupReady,
+      });
+      if (redirectPath) {
+        return NextResponse.redirect(new URL(redirectPath, req.url));
       }
 
       return NextResponse.next();

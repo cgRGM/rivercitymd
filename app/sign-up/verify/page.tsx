@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { getPostVerificationRedirectPath } from "@/lib/auth-routing";
 
 export default function SignUpVerifyPage() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isLoaded: signUpLoaded, signUp, setActive } = useSignUp();
@@ -27,9 +28,14 @@ export default function SignUpVerifyPage() {
   // Redirect if already signed in
   useEffect(() => {
     if (isLoaded && isSignedIn) {
-      router.push("/dashboard");
+      router.push(
+        getPostVerificationRedirectPath({
+          onboardingComplete: Boolean(user?.publicMetadata?.onboardingComplete),
+          paymentSuccess: isPaymentSuccess,
+        }),
+      );
     }
-  }, [isLoaded, isSignedIn, router]);
+  }, [isLoaded, isSignedIn, isPaymentSuccess, router, user]);
 
   useEffect(() => {
     if (!signUpLoaded) return;
@@ -68,7 +74,14 @@ export default function SignUpVerifyPage() {
         setStep("success");
         toast.success("Account created successfully!");
         setTimeout(() => {
-           router.push("/dashboard/appointments?payment=success");
+          router.push(
+            getPostVerificationRedirectPath({
+              onboardingComplete: Boolean(
+                user?.publicMetadata?.onboardingComplete,
+              ),
+              paymentSuccess: true,
+            }),
+          );
         }, 1500);
       } else {
         console.error("Sign up incomplete:", result);

@@ -1613,9 +1613,11 @@ export const reissueStripeInvoice = action({
   },
 });
 
-// === Webhook Handler ===
-
-// Handle Stripe webhooks
+// === Legacy Webhook Handler ===
+//
+// Production Stripe webhooks are handled in convex/http.ts via registerRoutes(...)
+// from @convex-dev/stripe. This action is retained for compatibility with older
+// tests and manual replay flows only.
 export const handleWebhook = action({
   args: {
     body: v.string(),
