@@ -11,9 +11,8 @@ const clerkIssuerDomain = clerkFrontendApiUrl || clerkJwtIssuerDomain;
 const providers: AuthConfig["providers"] = clerkIssuerDomain
   ? [
       {
-        // Replace with your own Clerk Issuer URL from your "convex" JWT template
-        // and configure CLERK_FRONTEND_API_URL (preferred)
-        // or CLERK_JWT_ISSUER_DOMAIN on the Convex Dashboard
+        // Replace with your own Clerk issuer URL from your "convex" JWT template
+        // and configure the matching issuer env in the Convex Dashboard.
         // See https://docs.convex.dev/auth/clerk#configuring-dev-and-prod-instances
         domain: clerkIssuerDomain,
         applicationID: "convex",
@@ -23,7 +22,7 @@ const providers: AuthConfig["providers"] = clerkIssuerDomain
 
 if (!clerkIssuerDomain) {
   console.warn(
-    "[convex/auth.config] Missing Clerk issuer domain. Exporting no auth providers so preview deploys can build without Clerk. Set CLERK_FRONTEND_API_URL (preferred) or CLERK_JWT_ISSUER_DOMAIN in Convex for authenticated environments.",
+    "[convex/auth.config] Missing Clerk issuer domain. Exporting no auth providers so preview deploys can build without Clerk. Configure the Clerk issuer env in Convex for authenticated environments.",
   );
 }
 
