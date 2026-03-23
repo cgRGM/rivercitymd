@@ -9,8 +9,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "sonner";
 import { Suspense } from "react";
 
-const clerkPublishableKey =
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "pk_test_build_placeholder";
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -102,6 +101,25 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const app = (
+    <html lang="en">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <StructuredData siteUrl={siteUrl} />
+        <ConvexClientProvider>
+          <Suspense fallback={null}>{children}</Suspense>
+          <Toaster richColors position="top-right" />
+        </ConvexClientProvider>
+        <Analytics />
+      </body>
+    </html>
+  );
+
+  if (!clerkPublishableKey) {
+    return app;
+  }
+
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
@@ -110,18 +128,7 @@ export default function RootLayout({
       signInFallbackRedirectUrl="/dashboard"
       signUpFallbackRedirectUrl="/onboarding"
     >
-      <html lang="en">
-        <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-        >
-          <StructuredData siteUrl={siteUrl} />
-          <ConvexClientProvider>
-            <Suspense fallback={null}>{children}</Suspense>
-            <Toaster richColors position="top-right" />
-          </ConvexClientProvider>
-          <Analytics />
-        </body>
-      </html>
+      {app}
     </ClerkProvider>
   );
 }
