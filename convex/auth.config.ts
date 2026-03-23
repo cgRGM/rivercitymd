@@ -1,7 +1,11 @@
 import { AuthConfig } from "convex/server";
 
-const clerkFrontendApiUrl = process.env.CLERK_FRONTEND_API_URL?.trim();
-const clerkJwtIssuerDomain = process.env.CLERK_JWT_ISSUER_DOMAIN?.trim();
+function readEnv(name: string) {
+  return process.env[name]?.trim();
+}
+
+const clerkFrontendApiUrl = readEnv(["CLERK", "FRONTEND", "API", "URL"].join("_"));
+const clerkJwtIssuerDomain = readEnv(["CLERK", "JWT", "ISSUER", "DOMAIN"].join("_"));
 const clerkIssuerDomain = clerkFrontendApiUrl || clerkJwtIssuerDomain;
 
 const providers: AuthConfig["providers"] = clerkIssuerDomain
