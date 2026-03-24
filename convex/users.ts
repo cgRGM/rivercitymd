@@ -393,13 +393,18 @@ export const create = mutation({
       }),
     ),
     notes: v.optional(v.string()),
-    // Vehicle fields
-    year: v.optional(v.number()),
-    make: v.optional(v.string()),
-    model: v.optional(v.string()),
-    color: v.optional(v.string()),
-    size: v.optional(
-      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+    vehicles: v.optional(
+      v.array(
+        v.object({
+          year: v.number(),
+          make: v.string(),
+          model: v.string(),
+          color: v.optional(v.string()),
+          size: v.optional(
+            v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+          ),
+        }),
+      ),
     ),
   },
   handler: async (ctx, args) => {
@@ -428,15 +433,17 @@ export const create = mutation({
       notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
     });
 
-    if (args.year && args.make && args.model) {
-      await ctx.db.insert("vehicles", {
-        userId,
-        year: args.year,
-        make: args.make,
-        model: args.model,
-        color: args.color,
-        size: args.size,
-      });
+    if (args.vehicles?.length) {
+      for (const vehicle of args.vehicles) {
+        await ctx.db.insert("vehicles", {
+          userId,
+          year: vehicle.year,
+          make: vehicle.make,
+          model: vehicle.model,
+          color: vehicle.color,
+          size: vehicle.size,
+        });
+      }
     }
 
     if (args.email && (args.role || "client") !== "admin") {
