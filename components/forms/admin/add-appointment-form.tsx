@@ -33,8 +33,10 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Plus } from "lucide-react";
 
 const formSchema = z.object({
   userId: z.string().min(1, "Please select a user"),
@@ -62,10 +64,21 @@ export function AddAppointmentForm({
   onOpenChange,
 }: AddAppointmentFormProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
+  const [newVehicle, setNewVehicle] = useState({
+    year: "",
+    make: "",
+    model: "",
+    color: "",
+    size: "medium" as "small" | "medium" | "large",
+    licensePlate: "",
+    notes: "",
+  });
 
   const clients = useQuery(api.users.list);
   const services = useQuery(api.services.list);
   const createAppointment = useMutation(api.appointments.create);
+  const createVehicle = useMutation(api.vehicles.create);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -89,6 +102,69 @@ export function AddAppointmentForm({
     api.vehicles.getByUser,
     selectedUserId ? { userId: selectedUserId as Id<"users"> } : "skip",
   );
+
+  const resetVehicleForm = () => {
+    setNewVehicle({
+      year: "",
+      make: "",
+      model: "",
+      color: "",
+      size: "medium",
+      licensePlate: "",
+      notes: "",
+    });
+  };
+
+  const handleCustomerChange = (userId: string) => {
+    form.setValue("userId", userId, { shouldValidate: true });
+    form.setValue("vehicleIds", [], { shouldValidate: true });
+    resetVehicleForm();
+
+    const selectedClient = clients?.find((client) => client._id === userId);
+    if (selectedClient?.address) {
+      form.setValue("street", selectedClient.address.street ?? "");
+      form.setValue("city", selectedClient.address.city ?? "");
+      form.setValue("state", selectedClient.address.state ?? "");
+      form.setValue("zip", selectedClient.address.zip ?? "");
+    }
+  };
+
+  const handleCreateVehicle = async () => {
+    if (!selectedUserId) {
+      toast.error("Select a customer first");
+      return;
+    }
+
+    if (!newVehicle.year || !newVehicle.make.trim() || !newVehicle.model.trim()) {
+      toast.error("Vehicle year, make, and model are required");
+      return;
+    }
+
+    setIsCreatingVehicle(true);
+    try {
+      const vehicleId = await createVehicle({
+        userId: selectedUserId as Id<"users">,
+        year: Number(newVehicle.year),
+        make: newVehicle.make.trim(),
+        model: newVehicle.model.trim(),
+        size: newVehicle.size,
+        color: newVehicle.color.trim() || undefined,
+        licensePlate: newVehicle.licensePlate.trim() || undefined,
+        notes: newVehicle.notes.trim() || undefined,
+      });
+
+      const currentVehicleIds = form.getValues("vehicleIds");
+      form.setValue("vehicleIds", [...currentVehicleIds, vehicleId], {
+        shouldValidate: true,
+      });
+      resetVehicleForm();
+      toast.success("Vehicle added for customer");
+    } catch {
+      toast.error("Failed to create vehicle");
+    } finally {
+      setIsCreatingVehicle(false);
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
@@ -136,7 +212,7 @@ export function AddAppointmentForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Customer</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={handleCustomerChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a customer" />
@@ -163,38 +239,180 @@ export function AddAppointmentForm({
                 render={() => (
                   <FormItem>
                     <FormLabel>Vehicles</FormLabel>
-                    <div className="space-y-2">
-                      {userVehicles.map((vehicle: (typeof userVehicles)[0]) => (
-                        <FormField
-                          key={vehicle._id}
-                          control={form.control}
-                          name="vehicleIds"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center space-x-2">
-                              <FormControl>
-                                <Checkbox
-                                  checked={field.value?.includes(vehicle._id)}
-                                  onCheckedChange={(checked) => {
-                                    const current = field.value || [];
-                                    if (checked) {
-                                      field.onChange([...current, vehicle._id]);
-                                    } else {
-                                      field.onChange(
-                                        current.filter(
-                                          (id) => id !== vehicle._id,
-                                        ),
-                                      );
-                                    }
-                                  }}
-                                />
-                              </FormControl>
-                              <FormLabel className="text-sm font-normal">
-                                {vehicle.year} {vehicle.make} {vehicle.model}
-                              </FormLabel>
-                            </FormItem>
-                          )}
-                        />
-                      ))}
+                    <div className="space-y-4">
+                      {userVehicles.length > 0 ? (
+                        <div className="space-y-2">
+                          {userVehicles.map((vehicle: (typeof userVehicles)[0]) => (
+                            <FormField
+                              key={vehicle._id}
+                              control={form.control}
+                              name="vehicleIds"
+                              render={({ field }) => (
+                                <FormItem className="flex items-center space-x-2">
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(vehicle._id)}
+                                      onCheckedChange={(checked) => {
+                                        const current = field.value || [];
+                                        if (checked) {
+                                          field.onChange([...current, vehicle._id]);
+                                        } else {
+                                          field.onChange(
+                                            current.filter(
+                                              (id) => id !== vehicle._id,
+                                            ),
+                                          );
+                                        }
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="text-sm font-normal">
+                                    {vehicle.year} {vehicle.make} {vehicle.model}
+                                  </FormLabel>
+                                </FormItem>
+                              )}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                          This customer does not have any vehicles yet. Add one below to continue.
+                        </div>
+                      )}
+
+                      <div className="space-y-4 rounded-lg border p-4">
+                        <div className="flex items-center gap-2">
+                          <Plus className="h-4 w-4" />
+                          <div>
+                            <p className="text-sm font-medium">Add vehicle for this customer</p>
+                            <p className="text-sm text-muted-foreground">
+                              New vehicles are saved immediately and can be selected for this appointment.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="appointment-vehicle-year">Year</Label>
+                            <Input
+                              id="appointment-vehicle-year"
+                              type="number"
+                              value={newVehicle.year}
+                              onChange={(event) =>
+                                setNewVehicle((current) => ({
+                                  ...current,
+                                  year: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="appointment-vehicle-make">Make</Label>
+                            <Input
+                              id="appointment-vehicle-make"
+                              value={newVehicle.make}
+                              onChange={(event) =>
+                                setNewVehicle((current) => ({
+                                  ...current,
+                                  make: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="appointment-vehicle-model">Model</Label>
+                            <Input
+                              id="appointment-vehicle-model"
+                              value={newVehicle.model}
+                              onChange={(event) =>
+                                setNewVehicle((current) => ({
+                                  ...current,
+                                  model: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="appointment-vehicle-color">Color</Label>
+                            <Input
+                              id="appointment-vehicle-color"
+                              value={newVehicle.color}
+                              onChange={(event) =>
+                                setNewVehicle((current) => ({
+                                  ...current,
+                                  color: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="appointment-vehicle-size">Vehicle size</Label>
+                            <Select
+                              value={newVehicle.size}
+                              onValueChange={(value) =>
+                                setNewVehicle((current) => ({
+                                  ...current,
+                                  size: value as "small" | "medium" | "large",
+                                }))
+                              }
+                            >
+                              <SelectTrigger id="appointment-vehicle-size">
+                                <SelectValue placeholder="Select vehicle size" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="small">Small</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="large">Large</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="appointment-vehicle-license">License plate</Label>
+                            <Input
+                              id="appointment-vehicle-license"
+                              value={newVehicle.licensePlate}
+                              onChange={(event) =>
+                                setNewVehicle((current) => ({
+                                  ...current,
+                                  licensePlate: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="appointment-vehicle-notes">Vehicle notes</Label>
+                          <Textarea
+                            id="appointment-vehicle-notes"
+                            value={newVehicle.notes}
+                            onChange={(event) =>
+                              setNewVehicle((current) => ({
+                                ...current,
+                                notes: event.target.value,
+                              }))
+                            }
+                            placeholder="Optional notes about this vehicle"
+                          />
+                        </div>
+
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleCreateVehicle}
+                            disabled={isCreatingVehicle}
+                          >
+                            {isCreatingVehicle ? "Saving vehicle..." : "Save Vehicle"}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                     <FormMessage />
                   </FormItem>

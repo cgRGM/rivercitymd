@@ -438,6 +438,22 @@ describe("users", () => {
         state: "IL",
         zip: "62703",
       },
+      vehicles: [
+        {
+          year: 2022,
+          make: "Honda",
+          model: "Civic",
+          color: "Blue",
+          size: "small",
+        },
+        {
+          year: 2024,
+          make: "Ford",
+          model: "Explorer",
+          color: "Black",
+          size: "large",
+        },
+      ],
     });
 
     expect(clientId).toBeDefined();
@@ -455,6 +471,70 @@ describe("users", () => {
       email: "client@example.com",
       phone: "555-2222",
       role: "client",
+    });
+
+    const clientVehicles = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("vehicles")
+        .withIndex("by_user", (q) => q.eq("userId", clientId))
+        .collect();
+    });
+
+    expect(clientVehicles).toHaveLength(2);
+    expect(clientVehicles.map((vehicle) => vehicle.model).sort()).toEqual([
+      "Civic",
+      "Explorer",
+    ]);
+  });
+
+  test("admin can create a vehicle for an existing client", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin User",
+        email: "admin-create-vehicle@example.com",
+        role: "admin",
+      });
+    });
+
+    const clientId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Vehicle Client",
+        email: "vehicle-client@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-create-vehicle@example.com",
+    });
+
+    const vehicleId = await asAdmin.mutation(api.vehicles.create, {
+      userId: clientId,
+      year: 2023,
+      make: "Toyota",
+      model: "RAV4",
+      color: "White",
+      size: "medium",
+      licensePlate: "ABC123",
+    });
+
+    const vehicle = await t.run(async (ctx) => {
+      return await ctx.db.get(vehicleId);
+    });
+
+    expect(vehicle).toMatchObject({
+      userId: clientId,
+      make: "Toyota",
+      model: "RAV4",
+      color: "White",
+      size: "medium",
+      licensePlate: "ABC123",
     });
   });
 
