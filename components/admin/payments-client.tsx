@@ -27,7 +27,7 @@ import {
 import { DataTable } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { formatDateString } from "@/lib/time";
+import { formatDateString, formatTime12h } from "@/lib/time";
 import {
   AlertCircle,
   ArrowUpDown,
@@ -207,10 +207,15 @@ export default function PaymentsClient() {
   const router = useRouter();
   const invoicesQuery = useQuery(api.invoices.listWithDetails, {});
   const statsQuery = useQuery(api.invoices.getSummaryStats, {});
+  const abandonedDrafts = useQuery(api.bookingDrafts.listAbandonedForAdmin, {});
   const updateInvoiceStatus = useMutation(api.invoices.updateStatus);
+  const repairLegacyPendingBookings = useMutation(
+    api.bookingDrafts.repairLegacyPendingBookings,
+  );
 
   const [updatingId, setUpdatingId] = useState<Id<"invoices"> | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [repairingLegacy, setRepairingLegacy] = useState(false);
 
   if (invoicesQuery === undefined || statsQuery === undefined) {
     return (
@@ -276,6 +281,7 @@ export default function PaymentsClient() {
 
   const invoices = invoicesQuery as InvoiceRecord[];
   const stats = statsQuery;
+  const abandonedItems = abandonedDrafts ?? [];
 
   const getStatusColor = (status: InvoiceStatus) => {
     switch (status) {
@@ -305,6 +311,25 @@ export default function PaymentsClient() {
       toast.error("Failed to update invoice status");
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleLegacyCleanup = async () => {
+    setRepairingLegacy(true);
+    try {
+      const result = await repairLegacyPendingBookings({ dryRun: false });
+      toast.success(
+        `Removed ${result.removedAppointments} orphan appointment${result.removedAppointments === 1 ? "" : "s"} and ${result.removedInvoices} invoice${result.removedInvoices === 1 ? "" : "s"}.`,
+      );
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to clean up legacy pending bookings",
+      );
+    } finally {
+      setRepairingLegacy(false);
     }
   };
 
@@ -470,6 +495,96 @@ export default function PaymentsClient() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardContent className="space-y-4 pt-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Abandoned Checkouts</h3>
+              <p className="text-sm text-muted-foreground">
+                Drafts that never converted into live appointments stay here instead of clogging the schedule.
+              </p>
+            </div>
+            <Button variant="outline" onClick={handleLegacyCleanup} disabled={repairingLegacy}>
+              {repairingLegacy ? "Cleaning..." : "Clean legacy pending bookings"}
+            </Button>
+          </div>
+
+          {abandonedItems.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              No abandoned checkout drafts right now.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="border-b text-left text-muted-foreground">
+                  <tr>
+                    <th className="pb-3 pr-4 font-medium">Customer</th>
+                    <th className="pb-3 pr-4 font-medium">Services</th>
+                    <th className="pb-3 pr-4 font-medium">Slot</th>
+                    <th className="pb-3 pr-4 font-medium">Status</th>
+                    <th className="pb-3 pr-4 font-medium">Recovery Email</th>
+                    <th className="pb-3 pr-4 font-medium">Last Activity</th>
+                    <th className="pb-3 pr-4 font-medium">Reach Out</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {abandonedItems.map((draft) => (
+                    <tr key={draft._id} className="border-b last:border-b-0">
+                      <td className="py-3 pr-4">
+                        <div className="font-medium">{draft.name}</div>
+                        <div className="text-xs text-muted-foreground">{draft.email}</div>
+                        {draft.phone ? (
+                          <div className="text-xs text-muted-foreground">{draft.phone}</div>
+                        ) : null}
+                      </td>
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">
+                        {draft.serviceNames.join(", ")}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <div>{formatDateString(draft.scheduledDate)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatTime12h(draft.scheduledTime)}
+                        </div>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <Badge variant="outline">
+                          {draft.recovered ? "Recovered" : draft.status.replaceAll("_", " ")}
+                        </Badge>
+                      </td>
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">
+                        {draft.abandonedEmailSentAt
+                          ? new Date(draft.abandonedEmailSentAt).toLocaleString()
+                          : "Not sent"}
+                      </td>
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">
+                        {new Date(draft.lastActivityAt).toLocaleString()}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Button asChild size="sm" variant="outline">
+                            <a href={`mailto:${draft.email}`}>Email</a>
+                          </Button>
+                          {draft.phone ? (
+                            <Button asChild size="sm" variant="outline">
+                              <a href={`tel:${draft.phone}`}>Call</a>
+                            </Button>
+                          ) : null}
+                          {!draft.recovered ? (
+                            <Button asChild size="sm" variant="outline">
+                              <a href={`/booking/resume?token=${draft.resumeToken}`}>Resume Link</a>
+                            </Button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <DataTable
         columns={columns}

@@ -74,7 +74,6 @@ const SIZE_LABELS: Record<string, string> = {
 export default function DashboardClient() {
   const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
   const queryArgs = isAuthenticated ? {} : ("skip" as const);
-  const upcomingAppointmentsQuery = useQuery(api.appointments.getUpcoming, queryArgs);
   const currentUserQuery = useQuery(api.users.getCurrentUser, queryArgs);
   const userVehiclesQuery = useQuery(api.vehicles.getMyVehicles, queryArgs);
   const userAppointmentsQuery = useQuery(api.appointments.getUserAppointments, queryArgs);
@@ -83,8 +82,7 @@ export default function DashboardClient() {
   if (
     isAuthLoading ||
     (isAuthenticated &&
-      (upcomingAppointmentsQuery === undefined ||
-        currentUserQuery === undefined ||
+      (currentUserQuery === undefined ||
         userVehiclesQuery === undefined ||
         userAppointmentsQuery === undefined))
   ) {
@@ -143,7 +141,6 @@ export default function DashboardClient() {
 
   // Error state
   if (
-    upcomingAppointmentsQuery === null ||
     currentUserQuery === null ||
     userVehiclesQuery === null ||
     userAppointmentsQuery === null
@@ -173,7 +170,7 @@ export default function DashboardClient() {
     );
   }
 
-  const upcomingAppointments = upcomingAppointmentsQuery ?? [];
+  const upcomingAppointments = (userAppointmentsQuery?.upcoming ?? []) as RawAppointment[];
   const currentUser = currentUserQuery ?? null;
   const userVehicles = userVehiclesQuery ?? [];
   const completedAppointments = userAppointmentsQuery?.past || [];
@@ -322,11 +319,19 @@ export default function DashboardClient() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 mt-4 pt-4 border-t">
-              <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                Reschedule
+              <Button variant="outline" size="sm" className="flex-1 bg-transparent" asChild>
+                <Link
+                  href={`/dashboard/appointments?appointmentId=${nextAppointment._id}&action=reschedule`}
+                >
+                  Reschedule
+                </Link>
               </Button>
-              <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                Cancel
+              <Button variant="outline" size="sm" className="flex-1 bg-transparent" asChild>
+                <Link
+                  href={`/dashboard/appointments?appointmentId=${nextAppointment._id}&action=cancel`}
+                >
+                  Cancel
+                </Link>
               </Button>
             </div>
           </CardContent>
@@ -443,15 +448,25 @@ export default function DashboardClient() {
                         variant="outline"
                         size="sm"
                         className="flex-1 bg-transparent"
+                        asChild
                       >
-                        Reschedule
+                        <Link
+                          href={`/dashboard/appointments?appointmentId=${appointment._id}&action=reschedule`}
+                        >
+                          Reschedule
+                        </Link>
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
                         className="flex-1 bg-transparent"
+                        asChild
                       >
-                        Cancel
+                        <Link
+                          href={`/dashboard/appointments?appointmentId=${appointment._id}&action=cancel`}
+                        >
+                          Cancel
+                        </Link>
                       </Button>
                     </div>
                   </CardContent>

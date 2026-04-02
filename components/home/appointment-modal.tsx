@@ -35,6 +35,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
@@ -82,6 +83,7 @@ const step2Schema = z.object({
     .min(10, "Phone number must be at least 10 digits")
     .regex(/^[\d\s()+-]+$/, "Phone number contains invalid characters"),
   email: z.string().email("Please enter a valid email"),
+  smsOptIn: z.boolean(),
 });
 
 const step3Schema = z.object({
@@ -127,6 +129,8 @@ export default function AppointmentModal({
   const {
     currentStep,
     setCurrentStep,
+    resumeToken,
+    setResumeToken,
     step1Data,
     setStep1Data,
     step2Data,
@@ -173,10 +177,9 @@ export default function AppointmentModal({
     api.availability.getNextBookableDate,
     open && bookingReadiness?.isReady ? {} : "skip",
   );
-  const createUserAndAppointment = useMutation(
-    api.users.createUserWithAppointment,
-  );
+  const upsertBookingDraft = useMutation(api.bookingDrafts.createOrUpdate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+  const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
 
 
   // Step forms
@@ -188,6 +191,10 @@ export default function AppointmentModal({
       name: step2Data?.name || "",
       phone: step2Data?.phone || "",
       email: step2Data?.email || "",
+      smsOptIn:
+        step2Data?.smsOptIn ??
+        currentUser?.notificationPreferences?.operationalSmsConsent?.optedIn ??
+        false,
     },
   });
 
@@ -225,10 +232,27 @@ export default function AppointmentModal({
           name: fullName,
           email: email,
           phone: step2Data?.phone || "",
+          smsOptIn:
+            step2Data?.smsOptIn ??
+            currentUser?.notificationPreferences?.operationalSmsConsent
+              ?.optedIn ??
+            false,
         });
       }
     }
-  }, [isLoaded, isSignedIn, user, step2Form, setStep2Data, step2Data]);
+  }, [isLoaded, isSignedIn, user, step2Form, setStep2Data, step2Data, currentUser?.notificationPreferences?.operationalSmsConsent?.optedIn]);
+
+  useEffect(() => {
+    if (!currentUser || step2Data?.smsOptIn !== undefined) {
+      return;
+    }
+
+    step2Form.setValue(
+      "smsOptIn",
+      currentUser.notificationPreferences?.operationalSmsConsent?.optedIn ??
+        false,
+    );
+  }, [currentUser, step2Data?.smsOptIn, step2Form]);
 
   useEffect(() => {
     if (!open || currentStep !== 1 || !bookingReadiness?.isReady || !nextBookableDate) {
@@ -417,8 +441,8 @@ export default function AppointmentModal({
 
       console.log("Submitting appointment for:", email);
 
-      // Create user (ensure syncing) and appointment
-      const { appointmentId, invoiceId } = await createUserAndAppointment({
+      const { draftId, resumeToken: nextResumeToken } = await upsertBookingDraft({
+        resumeToken: resumeToken || undefined,
         name: fullName!,
         email: email!,
         phone: phone!,
@@ -427,6 +451,7 @@ export default function AppointmentModal({
           city: step1Data.city,
           state: step1Data.state,
           zip: step1Data.zip || "",
+          notes: step1Data.locationNotes,
         },
         vehicles: step3Data.vehicles.map((vehicle) => ({
           year: parseInt(vehicle.year), // Ensure year is number
@@ -440,21 +465,14 @@ export default function AppointmentModal({
         serviceIds: (step4Data?.serviceIds || []) as any,
         scheduledDate: new Date(step1Data.scheduledDate).toISOString().split("T")[0],
         scheduledTime: step1Data.scheduledTime,
-        locationNotes: step1Data.locationNotes,
+        smsOptIn: step2Data.smsOptIn,
         paymentOption,
       });
+      setResumeToken(nextResumeToken);
 
-      // Create checkout session for booking (guest or auth)
       const { url } = await createBookingCheckout({
-        appointmentId,
-        invoiceId,
-        successUrl: `${window.location.origin}/dashboard/appointments?payment=success`,
-        cancelUrl: `${window.location.origin}/dashboard/appointments?payment=cancelled`,
-        // Pass optional contact info to ensure user is persisted correctly
-        name: fullName || undefined,
-        email: email || undefined,
-        phone: phone || undefined,
-        paymentOption,
+        draftId,
+        origin: window.location.origin,
       });
 
       if (url) {
@@ -813,6 +831,32 @@ export default function AppointmentModal({
                     <FormControl>
                       <Input {...field} value={field.value || ""} type="email" />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={step2Form.control}
+                name="smsOptIn"
+                render={({ field }) => (
+                  <FormItem className="rounded-lg border p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <FormLabel className="mb-0">
+                          Receive urgent text updates
+                        </FormLabel>
+                        <p className="text-sm text-muted-foreground">
+                          Get SMS alerts for confirmations, reminders,
+                          cancellations, reschedules, and when we start service.
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1298,7 +1342,7 @@ export default function AppointmentModal({
              <div className="mt-6">
                 {!isSignedIn ? (
                     <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-3 rounded-md text-sm mb-4 border border-blue-200 dark:border-blue-800 text-center">
-                       You will receive an account setup link via email after payment.
+                       We&apos;ll email your booking details after payment. If you want an online account, you can create one later with the same email address.
                     </div>
                 ) : (
                    <div className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 p-3 rounded-md text-sm mb-4 flex items-center gap-2 border border-green-200 dark:border-green-800">

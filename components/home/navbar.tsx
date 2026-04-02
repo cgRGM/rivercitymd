@@ -3,11 +3,22 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useAuth } from "@clerk/nextjs";
+import { useQuery } from "convex/react";
 import { Home, Wrench, DollarSign, MessageSquare, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { api } from "@/convex/_generated/api";
+import { getRoleHomePath } from "@/lib/auth-routing";
 
 export default function Navbar() {
   const [activeSection, setActiveSection] = useState("home");
+  const { isSignedIn } = useAuth();
+  const userRole = useQuery(api.auth.getUserRole, isSignedIn ? {} : "skip");
+
+  const dashboardHref =
+    userRole?.type === "admin"
+      ? getRoleHomePath("admin")
+      : getRoleHomePath("client");
 
   useEffect(() => {
     const handleScroll = () => {
@@ -82,21 +93,37 @@ export default function Navbar() {
               >
                 Contact
               </Link>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/sign-in">Login</Link>
-              </Button>
-              <Button size="sm" asChild>
-                <Link href="/sign-up">Get Started</Link>
-              </Button>
+              {isSignedIn ? (
+                <Button size="sm" asChild>
+                  <Link href={dashboardHref}>Dashboard</Link>
+                </Button>
+              ) : (
+                <>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link href="/sign-in">Login</Link>
+                  </Button>
+                  <Button size="sm" asChild>
+                    <Link href="/sign-up">Get Started</Link>
+                  </Button>
+                </>
+              )}
             </div>
 
             <div className="md:hidden flex items-center gap-2">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/sign-in">Login</Link>
-              </Button>
-              <Button size="sm" asChild>
-                <Link href="/sign-up">Start</Link>
-              </Button>
+              {isSignedIn ? (
+                <Button size="sm" asChild>
+                  <Link href={dashboardHref}>Dashboard</Link>
+                </Button>
+              ) : (
+                <>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link href="/sign-in">Login</Link>
+                  </Button>
+                  <Button size="sm" asChild>
+                    <Link href="/sign-up">Start</Link>
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>

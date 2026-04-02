@@ -3,6 +3,7 @@ import {
   getPostVerificationRedirectPath,
   getProtectedRouteRedirect,
   getRoleHomePath,
+  sanitizeRedirectPath,
 } from "./auth-routing";
 
 describe("auth routing helpers", () => {
@@ -45,5 +46,17 @@ describe("auth routing helpers", () => {
         paymentSuccess: true,
       }),
     ).toBe("/dashboard/appointments?payment=success");
+  });
+
+  test("only allows safe internal redirect paths", () => {
+    expect(sanitizeRedirectPath("/booking/claim?token=abc", "/dashboard")).toBe(
+      "/booking/claim?token=abc",
+    );
+    expect(sanitizeRedirectPath("https://example.com", "/dashboard")).toBe(
+      "/dashboard",
+    );
+    expect(sanitizeRedirectPath("//evil.test", "/dashboard")).toBe(
+      "/dashboard",
+    );
   });
 });

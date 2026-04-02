@@ -4,38 +4,15 @@ import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { formatTime12h } from "./lib/time";
-
-const ADMIN_NOTIFICATION_EMAIL_TO = "dustin@rivercitymd.com";
-
-const DEFAULT_BUSINESS_NOTIFICATION_SETTINGS = {
-  emailNotifications: true,
-  smsNotifications: true,
-  marketingEmails: false,
-  events: {
-    newCustomerOnboarded: true,
-    appointmentConfirmed: true,
-    appointmentCancelled: true,
-    appointmentRescheduled: true,
-    appointmentStarted: true,
-    appointmentCompleted: true,
-    reviewSubmitted: true,
-    mileageLogRequired: true,
-  },
-} as const;
-
-const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
-  emailNotifications: true,
-  smsNotifications: true,
-  marketingEmails: false,
-  serviceReminders: true,
-  events: {
-    appointmentConfirmed: true,
-    appointmentCancelled: true,
-    appointmentRescheduled: true,
-    appointmentStarted: true,
-    appointmentCompleted: true,
-  },
-} as const;
+import {
+  DEFAULT_BUSINESS_NOTIFICATION_SETTINGS,
+  DEFAULT_USER_NOTIFICATION_PREFERENCES,
+  getDefaultAdminEmailRecipients,
+  getDefaultAdminSmsRecipients,
+  normalizeBusinessNotificationSettings,
+  normalizeUserNotificationPreferences,
+  notificationEventValidator,
+} from "./lib/notificationSettings";
 
 const notificationsWorkpool = new Workpool(components.notificationsWorkpool, {
   maxParallelism: 8,
@@ -46,17 +23,6 @@ const notificationsWorkpool = new Workpool(components.notificationsWorkpool, {
     base: 2,
   },
 });
-
-const notificationEventValidator = v.union(
-  v.literal("new_customer_onboarded"),
-  v.literal("appointment_confirmed"),
-  v.literal("appointment_cancelled"),
-  v.literal("appointment_rescheduled"),
-  v.literal("appointment_started"),
-  v.literal("appointment_completed"),
-  v.literal("review_submitted"),
-  v.literal("mileage_log_required"),
-);
 
 const appointmentLifecycleEventValidator = v.union(
   v.literal("appointment_confirmed"),
@@ -78,13 +44,19 @@ const deliveryResultValidator = v.object({
 
 type NotificationEvent =
   | "new_customer_onboarded"
+  | "booking_received"
   | "appointment_confirmed"
+  | "appointment_reminder"
   | "appointment_cancelled"
   | "appointment_rescheduled"
   | "appointment_started"
   | "appointment_completed"
+  | "review_request"
   | "review_submitted"
-  | "mileage_log_required";
+  | "mileage_log_required"
+  | "subscription_checkout_link_sent"
+  | "subscription_appointment_scheduled"
+  | "payment_failed";
 
 type DeliveryChannel = "email" | "sms";
 type RecipientType = "admin" | "customer";
@@ -100,86 +72,34 @@ type QueueDispatchArgs = {
   recipient: string;
   userId?: Id<"users">;
   appointmentId?: Id<"appointments">;
+  invoiceId?: Id<"invoices">;
   reviewId?: Id<"reviews">;
+  subscriptionId?: Id<"subscriptions">;
   tripLogId?: Id<"tripLogs">;
   transition?: string;
+  dedupeContext?: string;
+  scheduleFingerprint?: string;
+  checkoutUrl?: string;
+  failureReason?: string;
 };
 
 function resolveBusinessNotificationSettings(
   settings?: Doc<"businessInfo">["notificationSettings"],
 ) {
-  return {
-    emailNotifications:
-      settings?.emailNotifications ??
-      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.emailNotifications,
-    smsNotifications:
-      settings?.smsNotifications ??
-      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.smsNotifications,
-    marketingEmails:
-      settings?.marketingEmails ??
-      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.marketingEmails,
-    events: {
-      newCustomerOnboarded:
-        settings?.events?.newCustomerOnboarded ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.newCustomerOnboarded,
-      appointmentConfirmed:
-        settings?.events?.appointmentConfirmed ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentConfirmed,
-      appointmentCancelled:
-        settings?.events?.appointmentCancelled ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentCancelled,
-      appointmentRescheduled:
-        settings?.events?.appointmentRescheduled ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentRescheduled,
-      appointmentStarted:
-        settings?.events?.appointmentStarted ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentStarted,
-      appointmentCompleted:
-        settings?.events?.appointmentCompleted ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentCompleted,
-      reviewSubmitted:
-        settings?.events?.reviewSubmitted ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.reviewSubmitted,
-      mileageLogRequired:
-        settings?.events?.mileageLogRequired ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.mileageLogRequired,
-    },
-  };
+  return (
+    normalizeBusinessNotificationSettings(settings) ?? {
+      ...DEFAULT_BUSINESS_NOTIFICATION_SETTINGS,
+      adminEmailRecipients: getDefaultAdminEmailRecipients(),
+      adminSmsRecipients: getDefaultAdminSmsRecipients(),
+    }
+  );
 }
 
 function resolveUserNotificationPreferences(
   preferences?: Doc<"users">["notificationPreferences"],
 ) {
-  return {
-    emailNotifications:
-      preferences?.emailNotifications ??
-      DEFAULT_USER_NOTIFICATION_PREFERENCES.emailNotifications,
-    smsNotifications:
-      preferences?.smsNotifications ??
-      DEFAULT_USER_NOTIFICATION_PREFERENCES.smsNotifications,
-    marketingEmails:
-      preferences?.marketingEmails ??
-      DEFAULT_USER_NOTIFICATION_PREFERENCES.marketingEmails,
-    serviceReminders:
-      preferences?.serviceReminders ??
-      DEFAULT_USER_NOTIFICATION_PREFERENCES.serviceReminders,
-    events: {
-      appointmentConfirmed:
-        preferences?.events?.appointmentConfirmed ??
-        DEFAULT_USER_NOTIFICATION_PREFERENCES.events.appointmentConfirmed,
-      appointmentCancelled:
-        preferences?.events?.appointmentCancelled ??
-        DEFAULT_USER_NOTIFICATION_PREFERENCES.events.appointmentCancelled,
-      appointmentRescheduled:
-        preferences?.events?.appointmentRescheduled ??
-        DEFAULT_USER_NOTIFICATION_PREFERENCES.events.appointmentRescheduled,
-      appointmentStarted:
-        preferences?.events?.appointmentStarted ??
-        DEFAULT_USER_NOTIFICATION_PREFERENCES.events.appointmentStarted,
-      appointmentCompleted:
-        preferences?.events?.appointmentCompleted ??
-        DEFAULT_USER_NOTIFICATION_PREFERENCES.events.appointmentCompleted,
-    },
+  return normalizeUserNotificationPreferences(preferences) ?? {
+    ...DEFAULT_USER_NOTIFICATION_PREFERENCES,
   };
 }
 
@@ -189,6 +109,9 @@ function isEventEnabledForBusiness(
 ): boolean {
   if (event === "new_customer_onboarded") {
     return settings.events.newCustomerOnboarded;
+  }
+  if (event === "booking_received") {
+    return settings.events.bookingReceived;
   }
   if (event === "appointment_confirmed") {
     return settings.events.appointmentConfirmed;
@@ -208,15 +131,33 @@ function isEventEnabledForBusiness(
   if (event === "review_submitted") {
     return settings.events.reviewSubmitted;
   }
-  return settings.events.mileageLogRequired;
+  if (event === "mileage_log_required") {
+    return settings.events.mileageLogRequired;
+  }
+  if (event === "subscription_checkout_link_sent") {
+    return settings.events.subscriptionCheckoutLinkSent;
+  }
+  if (event === "subscription_appointment_scheduled") {
+    return settings.events.subscriptionAppointmentScheduled;
+  }
+  if (event === "payment_failed") {
+    return settings.events.paymentFailed;
+  }
+  return false;
 }
 
 function isEventEnabledForCustomer(
   preferences: ReturnType<typeof resolveUserNotificationPreferences>,
   event: NotificationEvent,
 ): boolean {
+  if (event === "booking_received") {
+    return preferences.events.bookingReceived;
+  }
   if (event === "appointment_confirmed") {
     return preferences.events.appointmentConfirmed;
+  }
+  if (event === "appointment_reminder") {
+    return preferences.serviceReminders && preferences.events.appointmentReminder;
   }
   if (event === "appointment_cancelled") {
     return preferences.events.appointmentCancelled;
@@ -230,12 +171,29 @@ function isEventEnabledForCustomer(
   if (event === "appointment_completed") {
     return preferences.events.appointmentCompleted;
   }
+  if (event === "review_request") {
+    return preferences.events.reviewRequest;
+  }
+  if (event === "subscription_checkout_link_sent") {
+    return preferences.events.subscriptionCheckoutLinkSent;
+  }
+  if (event === "subscription_appointment_scheduled") {
+    return preferences.events.subscriptionAppointmentScheduled;
+  }
   return false;
 }
 
-/** Normalize a US phone number to E.164 format (+1XXXXXXXXXX). */
+function isCustomerSmsEvent(event: NotificationEvent): boolean {
+  return (
+    event === "appointment_confirmed" ||
+    event === "appointment_reminder" ||
+    event === "appointment_cancelled" ||
+    event === "appointment_rescheduled" ||
+    event === "appointment_started"
+  );
+}
+
 function normalizePhone(phone: string): string {
-  // Strip everything except digits and leading +
   const digits = phone.replace(/[^\d]/g, "");
   if (digits.length === 10) {
     return `+1${digits}`;
@@ -243,7 +201,6 @@ function normalizePhone(phone: string): string {
   if (digits.length === 11 && digits.startsWith("1")) {
     return `+${digits}`;
   }
-  // Already has + prefix or international — return as-is
   if (phone.trim().startsWith("+")) {
     return phone.trim();
   }
@@ -271,13 +228,45 @@ function buildDedupeKey(args: QueueDispatchArgs): string {
     args.recipient,
     args.userId || "none",
     args.appointmentId || "none",
+    args.invoiceId || "none",
     args.reviewId || "none",
+    args.subscriptionId || "none",
     args.tripLogId || "none",
-    args.transition || "none",
+    args.dedupeContext || args.transition || "none",
   ].join("|");
 }
 
+function adminEmailRecipients(
+  settings: ReturnType<typeof resolveBusinessNotificationSettings>,
+): string[] {
+  return Array.from(
+    new Set(
+      (settings.adminEmailRecipients.length
+        ? settings.adminEmailRecipients
+        : getDefaultAdminEmailRecipients()
+      ).filter(Boolean),
+    ),
+  );
+}
+
+function adminSmsRecipients(
+  settings: ReturnType<typeof resolveBusinessNotificationSettings>,
+): string[] {
+  return Array.from(
+    new Set(
+      (settings.adminSmsRecipients.length
+        ? settings.adminSmsRecipients
+        : getDefaultAdminSmsRecipients()
+      ).filter(Boolean),
+    ),
+  );
+}
+
 async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
+  if (args.channel === "sms") {
+    args.recipient = normalizePhone(args.recipient);
+  }
+
   const dedupeKey = buildDedupeKey(args);
   const existing = await ctx.db
     .query("notificationDispatches")
@@ -285,11 +274,6 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
     .first();
   if (existing) {
     return;
-  }
-
-  // Normalize phone numbers to E.164 before validation
-  if (args.channel === "sms") {
-    args.recipient = normalizePhone(args.recipient);
   }
 
   const now = Date.now();
@@ -303,9 +287,15 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
       status: "failed",
       userId: args.userId,
       appointmentId: args.appointmentId,
+      invoiceId: args.invoiceId,
       reviewId: args.reviewId,
+      subscriptionId: args.subscriptionId,
       tripLogId: args.tripLogId,
       transition: args.transition,
+      dedupeContext: args.dedupeContext,
+      scheduleFingerprint: args.scheduleFingerprint,
+      checkoutUrl: args.checkoutUrl,
+      failureReason: args.failureReason,
       error: `Invalid or missing ${args.channel} recipient`,
       createdAt: now,
       updatedAt: now,
@@ -327,9 +317,15 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
     status: "queued",
     userId: args.userId,
     appointmentId: args.appointmentId,
+    invoiceId: args.invoiceId,
     reviewId: args.reviewId,
+    subscriptionId: args.subscriptionId,
     tripLogId: args.tripLogId,
     transition: args.transition,
+    dedupeContext: args.dedupeContext,
+    scheduleFingerprint: args.scheduleFingerprint,
+    checkoutUrl: args.checkoutUrl,
+    failureReason: args.failureReason,
     createdAt: now,
     updatedAt: now,
   });
@@ -340,15 +336,7 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
       internal.notifications.deliverQueuedNotification,
       {
         dispatchId,
-        event: args.event,
-        channel: args.channel,
-        recipientType: args.recipientType,
-        recipient: args.recipient,
-        userId: args.userId,
-        appointmentId: args.appointmentId,
-        reviewId: args.reviewId,
-        tripLogId: args.tripLogId,
-        transition: args.transition,
+        ...args,
       },
       {
         name: dedupeKey,
@@ -379,26 +367,82 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
       return;
     }
 
-    await ctx.scheduler.runAfter(
-      0,
-      internal.notifications.deliverQueuedNotification,
-      {
-        dispatchId,
-        event: args.event,
-        channel: args.channel,
-        recipientType: args.recipientType,
-        recipient: args.recipient,
-        userId: args.userId,
-        appointmentId: args.appointmentId,
-        reviewId: args.reviewId,
-        tripLogId: args.tripLogId,
-        transition: args.transition,
-      },
-    );
+    await ctx.scheduler.runAfter(0, internal.notifications.deliverQueuedNotification, {
+      dispatchId,
+      ...args,
+    });
 
     await ctx.db.patch(dispatchId, {
       error: `Workpool unavailable, used scheduler fallback: ${message}`,
       updatedAt: Date.now(),
+    });
+  }
+}
+
+async function queueAdminDispatches(
+  ctx: any,
+  settings: ReturnType<typeof resolveBusinessNotificationSettings>,
+  args: Omit<QueueDispatchArgs, "channel" | "recipientType" | "recipient">,
+) {
+  if (!isEventEnabledForBusiness(settings, args.event)) {
+    return;
+  }
+
+  if (settings.emailNotifications) {
+    for (const recipient of adminEmailRecipients(settings)) {
+      await queueDispatch(ctx, {
+        ...args,
+        channel: "email",
+        recipientType: "admin",
+        recipient,
+      });
+    }
+  }
+
+  if (settings.smsNotifications) {
+    for (const recipient of adminSmsRecipients(settings)) {
+      await queueDispatch(ctx, {
+        ...args,
+        channel: "sms",
+        recipientType: "admin",
+        recipient,
+      });
+    }
+  }
+}
+
+async function queueCustomerDispatches(
+  ctx: any,
+  preferences: ReturnType<typeof resolveUserNotificationPreferences>,
+  args: Omit<QueueDispatchArgs, "channel" | "recipientType" | "recipient"> & {
+    email?: string;
+    phone?: string;
+  },
+) {
+  if (!isEventEnabledForCustomer(preferences, args.event)) {
+    return;
+  }
+
+  if (preferences.emailNotifications && args.email) {
+    await queueDispatch(ctx, {
+      ...args,
+      channel: "email",
+      recipientType: "customer",
+      recipient: args.email,
+    });
+  }
+
+  if (
+    preferences.smsNotifications &&
+    preferences.operationalSmsConsent.optedIn &&
+    isCustomerSmsEvent(args.event) &&
+    args.phone
+  ) {
+    await queueDispatch(ctx, {
+      ...args,
+      channel: "sms",
+      recipientType: "customer",
+      recipient: args.phone,
     });
   }
 }
@@ -410,8 +454,11 @@ async function buildSmsBody(
     recipientType: RecipientType;
     userId?: Id<"users">;
     appointmentId?: Id<"appointments">;
+    invoiceId?: Id<"invoices">;
     reviewId?: Id<"reviews">;
+    subscriptionId?: Id<"subscriptions">;
     tripLogId?: Id<"tripLogs">;
+    failureReason?: string;
   },
 ): Promise<string> {
   if (args.event === "new_customer_onboarded") {
@@ -447,10 +494,37 @@ async function buildSmsBody(
         })
       : null;
     const appointmentDate = appointment?.scheduledDate || tripLog.logDate || "unknown date";
-    if (args.recipientType === "admin") {
-      return `River City MD: Mileage log required for completed service on ${appointmentDate}. Open Admin > Logs to complete it.`;
+    return `River City MD: Mileage log required for completed service on ${appointmentDate}. Open Admin > Logs to complete it.`;
+  }
+
+  if (args.event === "payment_failed") {
+    return `River City MD: Payment failed${args.failureReason ? ` - ${args.failureReason}` : ""}. Review the customer payment status in admin.`;
+  }
+
+  if (args.event === "subscription_checkout_link_sent") {
+    if (!args.subscriptionId) throw new Error("Missing subscriptionId for subscription SMS");
+    const sub = await ctx.runQuery(internal.subscriptions.getByIdInternal, {
+      subscriptionId: args.subscriptionId,
+    });
+    if (!sub) throw new Error("Subscription not found");
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: sub.userId,
+    });
+    return `River City MD: Subscription checkout link sent to ${user?.name || user?.email || "customer"} for ${sub.frequency} recurring service.`;
+  }
+
+  if (args.event === "subscription_appointment_scheduled") {
+    if (!args.appointmentId) {
+      throw new Error("Missing appointmentId for subscription appointment SMS");
     }
-    return "River City MD: A required mileage log has been created.";
+    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
+      appointmentId: args.appointmentId,
+    });
+    if (!appointment) throw new Error("Appointment not found");
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: appointment.userId,
+    });
+    return `River City MD: Recurring service scheduled for ${user?.name || "customer"} on ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
   }
 
   if (!args.appointmentId) {
@@ -465,6 +539,17 @@ async function buildSmsBody(
     userId: appointment.userId,
   });
   const customerName = user?.name || "customer";
+
+  if (args.event === "booking_received") {
+    if (args.recipientType === "admin") {
+      return `River City MD: New booking received for ${customerName} on ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
+    }
+    return `River City MD: We received your booking for ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
+  }
+
+  if (args.event === "appointment_reminder") {
+    return `River City MD: Reminder - your appointment is tomorrow, ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
+  }
 
   const statusLabel =
     args.event === "appointment_confirmed"
@@ -489,6 +574,39 @@ async function deliverEmail(ctx: any, args: QueueDispatchArgs): Promise<void> {
     if (!args.userId) throw new Error("Missing userId for onboarding email");
     await ctx.runAction(internal.emails.sendAdminNewCustomerNotification, {
       userId: args.userId,
+      recipientOverride: args.recipient,
+    });
+    return;
+  }
+
+  if (args.event === "booking_received") {
+    if (!args.appointmentId) throw new Error("Missing appointmentId for booking email");
+    if (args.recipientType === "admin") {
+      await ctx.runAction(internal.emails.sendAdminAppointmentNotification, {
+        appointmentId: args.appointmentId,
+        action: "created",
+        recipientOverride: args.recipient,
+      });
+    } else {
+      await ctx.runAction(internal.emails.sendCustomerBookingReceivedEmail, {
+        appointmentId: args.appointmentId,
+      });
+    }
+    return;
+  }
+
+  if (args.event === "appointment_reminder") {
+    if (!args.appointmentId) throw new Error("Missing appointmentId for reminder email");
+    await ctx.runAction(internal.emails.sendAppointmentReminderEmail, {
+      appointmentId: args.appointmentId,
+    });
+    return;
+  }
+
+  if (args.event === "review_request") {
+    if (!args.appointmentId) throw new Error("Missing appointmentId for review request email");
+    await ctx.runAction(internal.emails.sendCustomerReviewRequestEmail, {
+      appointmentId: args.appointmentId,
     });
     return;
   }
@@ -497,6 +615,7 @@ async function deliverEmail(ctx: any, args: QueueDispatchArgs): Promise<void> {
     if (!args.reviewId) throw new Error("Missing reviewId for review email");
     await ctx.runAction(internal.emails.sendAdminReviewSubmittedNotification, {
       reviewId: args.reviewId,
+      recipientOverride: args.recipient,
     });
     return;
   }
@@ -508,6 +627,57 @@ async function deliverEmail(ctx: any, args: QueueDispatchArgs): Promise<void> {
     if (!args.tripLogId) throw new Error("Missing tripLogId for mileage log email");
     await ctx.runAction(internal.emails.sendAdminMileageLogRequiredNotification, {
       tripLogId: args.tripLogId,
+      recipientOverride: args.recipient,
+    });
+    return;
+  }
+
+  if (args.event === "subscription_checkout_link_sent") {
+    if (!args.subscriptionId || !args.checkoutUrl) {
+      throw new Error("Missing subscriptionId or checkoutUrl for subscription checkout email");
+    }
+    if (args.recipientType === "admin") {
+      await ctx.runAction(internal.emails.sendAdminSubscriptionCheckoutLinkNotification, {
+        subscriptionId: args.subscriptionId,
+        checkoutUrl: args.checkoutUrl,
+        recipientOverride: args.recipient,
+      });
+    } else {
+      await ctx.runAction(internal.emails.sendSubscriptionCheckoutLink, {
+        subscriptionId: args.subscriptionId,
+        checkoutUrl: args.checkoutUrl,
+      });
+    }
+    return;
+  }
+
+  if (args.event === "subscription_appointment_scheduled") {
+    if (!args.subscriptionId || !args.appointmentId) {
+      throw new Error("Missing subscriptionId or appointmentId for subscription appointment email");
+    }
+    if (args.recipientType === "admin") {
+      await ctx.runAction(internal.emails.sendAdminAppointmentNotification, {
+        appointmentId: args.appointmentId,
+        action: "created",
+        recipientOverride: args.recipient,
+      });
+    } else {
+      await ctx.runAction(internal.emails.sendSubscriptionAppointmentCreated, {
+        subscriptionId: args.subscriptionId,
+        appointmentId: args.appointmentId,
+      });
+    }
+    return;
+  }
+
+  if (args.event === "payment_failed") {
+    if (args.recipientType !== "admin") return;
+    await ctx.runAction(internal.emails.sendAdminPaymentFailedNotification, {
+      appointmentId: args.appointmentId,
+      invoiceId: args.invoiceId,
+      subscriptionId: args.subscriptionId,
+      failureReason: args.failureReason,
+      recipientOverride: args.recipient,
     });
     return;
   }
@@ -531,6 +701,7 @@ async function deliverEmail(ctx: any, args: QueueDispatchArgs): Promise<void> {
     await ctx.runAction(internal.emails.sendAdminAppointmentNotification, {
       appointmentId: args.appointmentId,
       action,
+      recipientOverride: args.recipient,
     });
     return;
   }
@@ -563,8 +734,11 @@ async function deliverSms(ctx: any, args: QueueDispatchArgs): Promise<void> {
     recipientType: args.recipientType,
     userId: args.userId,
     appointmentId: args.appointmentId,
+    invoiceId: args.invoiceId,
     reviewId: args.reviewId,
+    subscriptionId: args.subscriptionId,
     tripLogId: args.tripLogId,
+    failureReason: args.failureReason,
   });
 
   await ctx.runAction(internal.sms.sendSms, {
@@ -584,27 +758,61 @@ export const queueNewCustomerOnboarded = internalMutation({
     const settings = resolveBusinessNotificationSettings(
       business?.notificationSettings,
     );
-    const adminSmsRecipient = process.env.ADMIN_NOTIFICATION_SMS_TO?.trim();
-    const transition = args.transition || "onboarding_complete";
 
-    // Admin email is always attempted for onboarding completion.
-    await queueDispatch(ctx, {
+    await queueAdminDispatches(ctx, settings, {
       event: "new_customer_onboarded",
-      channel: "email",
-      recipientType: "admin",
-      recipient: ADMIN_NOTIFICATION_EMAIL_TO,
       userId: args.userId,
-      transition,
+      transition: args.transition || "onboarding_complete",
     });
 
-    if (settings.events.newCustomerOnboarded && adminSmsRecipient) {
-      await queueDispatch(ctx, {
-        event: "new_customer_onboarded",
-        channel: "sms",
-        recipientType: "admin",
-        recipient: adminSmsRecipient,
-        userId: args.userId,
+    return null;
+  },
+});
+
+export const queueBookingReceived = internalMutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    invoiceId: v.id("invoices"),
+    transition: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+
+    const business = await ctx.db.query("businessInfo").first();
+    const businessSettings = resolveBusinessNotificationSettings(
+      business?.notificationSettings,
+    );
+    const user = await ctx.db.get(appointment.userId);
+    const transition = args.transition || "checkout_succeeded";
+    const dedupeContext = `invoice:${args.invoiceId}`;
+    const scheduleFingerprint = `${appointment.scheduledDate}|${appointment.scheduledTime}`;
+
+    await queueAdminDispatches(ctx, businessSettings, {
+      event: "booking_received",
+      userId: user?._id,
+      appointmentId: appointment._id,
+      invoiceId: args.invoiceId,
+      transition,
+      dedupeContext,
+      scheduleFingerprint,
+    });
+
+    if (user) {
+      const customerPreferences = resolveUserNotificationPreferences(
+        user.notificationPreferences,
+      );
+      await queueCustomerDispatches(ctx, customerPreferences, {
+        event: "booking_received",
+        userId: user._id,
+        appointmentId: appointment._id,
+        invoiceId: args.invoiceId,
         transition,
+        dedupeContext,
+        scheduleFingerprint,
+        email: user.email || undefined,
+        phone: user.phone || undefined,
       });
     }
 
@@ -617,6 +825,7 @@ export const queueAppointmentLifecycleEvent = internalMutation({
     appointmentId: v.id("appointments"),
     event: appointmentLifecycleEventValidator,
     transition: v.optional(v.string()),
+    dedupeContext: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -643,64 +852,112 @@ export const queueAppointmentLifecycleEvent = internalMutation({
     }
 
     const user = await ctx.db.get(appointment.userId);
-    if (!user) {
-       console.warn(`[notifications] Customer not found for appointment ${args.appointmentId}. Skipping customer notifications.`);
-       // If user is missing, we can still try to notify admin with limited info if needed,
-       // but for now, let's return early to avoid crashes downstream
-       return null;
-    }
-
     const business = await ctx.db.query("businessInfo").first();
     const businessSettings = resolveBusinessNotificationSettings(
       business?.notificationSettings,
     );
-    const customerPreferences = resolveUserNotificationPreferences(
+    const transition = args.transition || args.event;
+    const scheduleFingerprint = `${appointment.scheduledDate}|${appointment.scheduledTime}`;
+    const dedupeContext =
+      args.dedupeContext ||
+      (args.event === "appointment_rescheduled"
+        ? scheduleFingerprint
+        : undefined);
+
+    await queueAdminDispatches(ctx, businessSettings, {
+      event: args.event,
+      userId: user?._id,
+      appointmentId: appointment._id,
+      transition,
+      dedupeContext,
+      scheduleFingerprint,
+    });
+
+    if (user) {
+      const customerPreferences = resolveUserNotificationPreferences(
+        user.notificationPreferences,
+      );
+      await queueCustomerDispatches(ctx, customerPreferences, {
+        event: args.event,
+        userId: user._id,
+        appointmentId: appointment._id,
+        transition,
+        dedupeContext,
+        scheduleFingerprint,
+        email: user.email || undefined,
+        phone: user.phone || undefined,
+      });
+    } else {
+      console.warn(
+        `[notifications] Customer not found for appointment ${args.appointmentId}. Skipping customer notifications.`,
+      );
+    }
+
+    return null;
+  },
+});
+
+export const queueAppointmentReminder = internalMutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    scheduleFingerprint: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) return null;
+    if (
+      appointment.status === "cancelled" ||
+      appointment.status === "rescheduled"
+    ) {
+      return null;
+    }
+
+    const user = await ctx.db.get(appointment.userId);
+    if (!user) return null;
+
+    const preferences = resolveUserNotificationPreferences(
       user.notificationPreferences,
     );
-    const adminSmsRecipient = process.env.ADMIN_NOTIFICATION_SMS_TO?.trim();
-    const transition = args.transition || args.event;
+    await queueCustomerDispatches(ctx, preferences, {
+      event: "appointment_reminder",
+      userId: user._id,
+      appointmentId: appointment._id,
+      transition: "24h_reminder",
+      dedupeContext: args.scheduleFingerprint,
+      scheduleFingerprint: args.scheduleFingerprint,
+      email: user.email || undefined,
+      phone: user.phone || undefined,
+    });
 
-    if (isEventEnabledForBusiness(businessSettings, args.event)) {
-      await queueDispatch(ctx, {
-        event: args.event,
-        channel: "email",
-        recipientType: "admin",
-        recipient: ADMIN_NOTIFICATION_EMAIL_TO,
-        userId: user._id,
-        appointmentId: appointment._id,
-        transition,
-      });
-      await queueDispatch(ctx, {
-        event: args.event,
-        channel: "sms",
-        recipientType: "admin",
-        recipient: adminSmsRecipient || "",
-        userId: user._id,
-        appointmentId: appointment._id,
-        transition,
-      });
-    }
+    return null;
+  },
+});
 
-    if (isEventEnabledForCustomer(customerPreferences, args.event)) {
-      await queueDispatch(ctx, {
-        event: args.event,
-        channel: "email",
-        recipientType: "customer",
-        recipient: user.email || "",
-        userId: user._id,
-        appointmentId: appointment._id,
-        transition,
-      });
-      await queueDispatch(ctx, {
-        event: args.event,
-        channel: "sms",
-        recipientType: "customer",
-        recipient: user.phone || "",
-        userId: user._id,
-        appointmentId: appointment._id,
-        transition,
-      });
-    }
+export const queueReviewRequest = internalMutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    transition: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+    const user = await ctx.db.get(appointment.userId);
+    if (!user) return null;
+
+    const preferences = resolveUserNotificationPreferences(
+      user.notificationPreferences,
+    );
+    await queueCustomerDispatches(ctx, preferences, {
+      event: "review_request",
+      userId: user._id,
+      appointmentId: appointment._id,
+      transition: args.transition || "completed->review_request",
+      dedupeContext: `review_request:${appointment._id}`,
+      email: user.email || undefined,
+      phone: user.phone || undefined,
+    });
 
     return null;
   },
@@ -722,33 +979,13 @@ export const queueReviewSubmitted = internalMutation({
     const settings = resolveBusinessNotificationSettings(
       business?.notificationSettings,
     );
-    if (!settings.events.reviewSubmitted) {
-      return null;
-    }
 
-    const adminSmsRecipient = process.env.ADMIN_NOTIFICATION_SMS_TO?.trim();
-    const transition = args.transition || "review_submitted";
-
-    await queueDispatch(ctx, {
+    await queueAdminDispatches(ctx, settings, {
       event: "review_submitted",
-      channel: "email",
-      recipientType: "admin",
-      recipient: ADMIN_NOTIFICATION_EMAIL_TO,
       reviewId: args.reviewId,
       userId: review.userId,
       appointmentId: review.appointmentId,
-      transition,
-    });
-
-    await queueDispatch(ctx, {
-      event: "review_submitted",
-      channel: "sms",
-      recipientType: "admin",
-      recipient: adminSmsRecipient || "",
-      reviewId: args.reviewId,
-      userId: review.userId,
-      appointmentId: review.appointmentId,
-      transition,
+      transition: args.transition || "review_submitted",
     });
 
     return null;
@@ -772,33 +1009,146 @@ export const queueMileageLogRequired = internalMutation({
     const settings = resolveBusinessNotificationSettings(
       business?.notificationSettings,
     );
-    if (!settings.events.mileageLogRequired) {
-      return null;
-    }
 
-    const adminSmsRecipient = process.env.ADMIN_NOTIFICATION_SMS_TO?.trim();
-    const transition = args.transition || "mileage_log_required";
-
-    await queueDispatch(ctx, {
+    await queueAdminDispatches(ctx, settings, {
       event: "mileage_log_required",
-      channel: "email",
-      recipientType: "admin",
-      recipient: ADMIN_NOTIFICATION_EMAIL_TO,
       userId: tripLog.userId,
       appointmentId: args.appointmentId ?? tripLog.appointmentId,
       tripLogId: tripLog._id,
-      transition,
+      transition: args.transition || "mileage_log_required",
     });
 
-    await queueDispatch(ctx, {
-      event: "mileage_log_required",
-      channel: "sms",
-      recipientType: "admin",
-      recipient: adminSmsRecipient || "",
-      userId: tripLog.userId,
-      appointmentId: args.appointmentId ?? tripLog.appointmentId,
-      tripLogId: tripLog._id,
+    return null;
+  },
+});
+
+export const queueSubscriptionCheckoutLinkSent = internalMutation({
+  args: {
+    subscriptionId: v.id("subscriptions"),
+    checkoutUrl: v.string(),
+    transition: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.subscriptionId);
+    if (!sub) throw new Error("Subscription not found");
+    const user = await ctx.db.get(sub.userId);
+    const business = await ctx.db.query("businessInfo").first();
+    const settings = resolveBusinessNotificationSettings(
+      business?.notificationSettings,
+    );
+    const transition = args.transition || "subscription_checkout_link_sent";
+    const dedupeContext = `checkout:${sub._id}:${args.checkoutUrl}`;
+
+    await queueAdminDispatches(ctx, settings, {
+      event: "subscription_checkout_link_sent",
+      userId: user?._id,
+      subscriptionId: sub._id,
       transition,
+      dedupeContext,
+      checkoutUrl: args.checkoutUrl,
+    });
+
+    if (user) {
+      const preferences = resolveUserNotificationPreferences(
+        user.notificationPreferences,
+      );
+      await queueCustomerDispatches(ctx, preferences, {
+        event: "subscription_checkout_link_sent",
+        userId: user._id,
+        subscriptionId: sub._id,
+        transition,
+        dedupeContext,
+        checkoutUrl: args.checkoutUrl,
+        email: user.email || undefined,
+        phone: user.phone || undefined,
+      });
+    }
+
+    return null;
+  },
+});
+
+export const queueSubscriptionAppointmentScheduled = internalMutation({
+  args: {
+    subscriptionId: v.id("subscriptions"),
+    appointmentId: v.id("appointments"),
+    transition: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+    const user = await ctx.db.get(appointment.userId);
+    const business = await ctx.db.query("businessInfo").first();
+    const settings = resolveBusinessNotificationSettings(
+      business?.notificationSettings,
+    );
+    const transition = args.transition || "subscription_appointment_scheduled";
+    const dedupeContext = `subscription:${args.subscriptionId}:${args.appointmentId}`;
+    const scheduleFingerprint = `${appointment.scheduledDate}|${appointment.scheduledTime}`;
+
+    await queueAdminDispatches(ctx, settings, {
+      event: "subscription_appointment_scheduled",
+      userId: user?._id,
+      subscriptionId: args.subscriptionId,
+      appointmentId: args.appointmentId,
+      transition,
+      dedupeContext,
+      scheduleFingerprint,
+    });
+
+    if (user) {
+      const preferences = resolveUserNotificationPreferences(
+        user.notificationPreferences,
+      );
+      await queueCustomerDispatches(ctx, preferences, {
+        event: "subscription_appointment_scheduled",
+        userId: user._id,
+        subscriptionId: args.subscriptionId,
+        appointmentId: args.appointmentId,
+        transition,
+        dedupeContext,
+        scheduleFingerprint,
+        email: user.email || undefined,
+        phone: user.phone || undefined,
+      });
+    }
+
+    return null;
+  },
+});
+
+export const queuePaymentFailed = internalMutation({
+  args: {
+    appointmentId: v.optional(v.id("appointments")),
+    invoiceId: v.optional(v.id("invoices")),
+    subscriptionId: v.optional(v.id("subscriptions")),
+    userId: v.optional(v.id("users")),
+    failureReason: v.optional(v.string()),
+    transition: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const business = await ctx.db.query("businessInfo").first();
+    const settings = resolveBusinessNotificationSettings(
+      business?.notificationSettings,
+    );
+
+    await queueAdminDispatches(ctx, settings, {
+      event: "payment_failed",
+      userId: args.userId,
+      appointmentId: args.appointmentId,
+      invoiceId: args.invoiceId,
+      subscriptionId: args.subscriptionId,
+      failureReason: args.failureReason,
+      transition: args.transition || "payment_failed",
+      dedupeContext:
+        args.subscriptionId ||
+        args.invoiceId ||
+        args.appointmentId ||
+        args.failureReason ||
+        "payment_failed",
     });
 
     return null;
@@ -814,9 +1164,15 @@ export const deliverQueuedNotification = internalAction({
     recipient: v.string(),
     userId: v.optional(v.id("users")),
     appointmentId: v.optional(v.id("appointments")),
+    invoiceId: v.optional(v.id("invoices")),
     reviewId: v.optional(v.id("reviews")),
+    subscriptionId: v.optional(v.id("subscriptions")),
     tripLogId: v.optional(v.id("tripLogs")),
     transition: v.optional(v.string()),
+    dedupeContext: v.optional(v.string()),
+    scheduleFingerprint: v.optional(v.string()),
+    checkoutUrl: v.optional(v.string()),
+    failureReason: v.optional(v.string()),
   },
   returns: deliveryResultValidator,
   handler: async (ctx, args) => {
@@ -842,7 +1198,6 @@ export const deliverQueuedNotification = internalAction({
       }
     }
 
-    // Update dispatch status for scheduler-fallback path (workpool handles its own via handleNotificationCompletion)
     await ctx.runMutation(internal.notifications.markDispatchDelivered, {
       dispatchId: args.dispatchId,
       delivered: result.delivered,
@@ -922,12 +1277,15 @@ export const markDispatchDelivered = internalMutation({
   handler: async (ctx, args) => {
     const dispatch = await ctx.db.get(args.dispatchId);
     if (!dispatch) return null;
-    // Only update if still queued — avoid overwriting workpool completion
     if (dispatch.status !== "queued") return null;
 
     const now = Date.now();
     if (args.delivered) {
-      await ctx.db.patch(dispatch._id, { status: "sent", error: undefined, updatedAt: now });
+      await ctx.db.patch(dispatch._id, {
+        status: "sent",
+        error: undefined,
+        updatedAt: now,
+      });
     } else {
       await ctx.db.patch(dispatch._id, {
         status: "failed",

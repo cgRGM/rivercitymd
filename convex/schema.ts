@@ -1,46 +1,10 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-
-const userNotificationPreferencesValidator = v.object({
-  emailNotifications: v.boolean(),
-  smsNotifications: v.boolean(),
-  marketingEmails: v.boolean(),
-  serviceReminders: v.boolean(),
-  events: v.object({
-    appointmentConfirmed: v.boolean(),
-    appointmentCancelled: v.boolean(),
-    appointmentRescheduled: v.boolean(),
-    appointmentStarted: v.boolean(),
-    appointmentCompleted: v.boolean(),
-  }),
-});
-
-const businessNotificationSettingsValidator = v.object({
-  emailNotifications: v.boolean(),
-  smsNotifications: v.boolean(),
-  marketingEmails: v.boolean(),
-  events: v.object({
-    newCustomerOnboarded: v.boolean(),
-    appointmentConfirmed: v.boolean(),
-    appointmentCancelled: v.boolean(),
-    appointmentRescheduled: v.boolean(),
-    appointmentStarted: v.boolean(),
-    appointmentCompleted: v.boolean(),
-    reviewSubmitted: v.boolean(),
-    mileageLogRequired: v.optional(v.boolean()),
-  }),
-});
-
-const notificationEventValidator = v.union(
-  v.literal("new_customer_onboarded"),
-  v.literal("appointment_confirmed"),
-  v.literal("appointment_cancelled"),
-  v.literal("appointment_rescheduled"),
-  v.literal("appointment_started"),
-  v.literal("appointment_completed"),
-  v.literal("review_submitted"),
-  v.literal("mileage_log_required"),
-);
+import {
+  businessNotificationSettingsValidator,
+  notificationEventValidator,
+  userNotificationPreferencesValidator,
+} from "./lib/notificationSettings";
 
 const tripLogLocationValidator = v.object({
   addressLabel: v.optional(v.string()),
@@ -204,6 +168,91 @@ const schema = defineSchema({
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])
     .index("by_status", ["status"]),
+
+  bookingDrafts: defineTable({
+    sourceUserId: v.optional(v.id("users")),
+    customerName: v.string(),
+    customerEmail: v.string(),
+    customerPhone: v.string(),
+    smsOptIn: v.optional(v.boolean()),
+    address: v.object({
+      street: v.string(),
+      city: v.string(),
+      state: v.string(),
+      zip: v.string(),
+      notes: v.optional(v.string()),
+    }),
+    existingVehicleIds: v.array(v.id("vehicles")),
+    draftVehicles: v.array(
+      v.object({
+        year: v.number(),
+        make: v.string(),
+        model: v.string(),
+        size: v.optional(
+          v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+        ),
+        color: v.optional(v.string()),
+        licensePlate: v.optional(v.string()),
+      }),
+    ),
+    serviceIds: v.array(v.id("services")),
+    scheduledDate: v.string(),
+    scheduledTime: v.string(),
+    duration: v.number(),
+    vehicleCount: v.number(),
+    vehicleSize: v.union(
+      v.literal("small"),
+      v.literal("medium"),
+      v.literal("large"),
+    ),
+    totalPrice: v.number(),
+    depositAmount: v.number(),
+    remainingBalance: v.number(),
+    paymentOption: v.union(
+      v.literal("deposit"),
+      v.literal("full"),
+      v.literal("in_person"),
+    ),
+    priceSnapshot: v.array(
+      v.object({
+        serviceId: v.id("services"),
+        serviceName: v.string(),
+        quantity: v.number(),
+        unitPrice: v.number(),
+        totalPrice: v.number(),
+      }),
+    ),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("checkout_open"),
+      v.literal("cancelled"),
+      v.literal("expired"),
+      v.literal("completed"),
+      v.literal("converted"),
+    ),
+    resumeToken: v.string(),
+    stripeCheckoutSessionId: v.optional(v.string()),
+    stripeCheckoutUrl: v.optional(v.string()),
+    stripeCustomerId: v.optional(v.string()),
+    holdExpiresAt: v.optional(v.number()),
+    holdExpiryScheduledId: v.optional(v.id("_scheduled_functions")),
+    abandonedEmailScheduledId: v.optional(v.id("_scheduled_functions")),
+    abandonedEmailSentAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    expiredAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    convertedAt: v.optional(v.number()),
+    convertedUserId: v.optional(v.id("users")),
+    convertedAppointmentId: v.optional(v.id("appointments")),
+    convertedInvoiceId: v.optional(v.id("invoices")),
+    claimedAt: v.optional(v.number()),
+    claimedByClerkUserId: v.optional(v.string()),
+    lastActivityAt: v.number(),
+  })
+    .index("by_resume_token", ["resumeToken"])
+    .index("by_status", ["status"])
+    .index("by_checkout_session_id", ["stripeCheckoutSessionId"])
+    .index("by_source_user", ["sourceUserId"]),
 
   // Payment Methods
   paymentMethods: defineTable({
@@ -465,14 +514,32 @@ const schema = defineSchema({
     ),
     userId: v.optional(v.id("users")),
     appointmentId: v.optional(v.id("appointments")),
+    invoiceId: v.optional(v.id("invoices")),
     reviewId: v.optional(v.id("reviews")),
+    subscriptionId: v.optional(v.id("subscriptions")),
     tripLogId: v.optional(v.id("tripLogs")),
     transition: v.optional(v.string()),
+    dedupeContext: v.optional(v.string()),
+    scheduleFingerprint: v.optional(v.string()),
+    checkoutUrl: v.optional(v.string()),
+    failureReason: v.optional(v.string()),
     workId: v.optional(v.string()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_dedupe_key", ["dedupeKey"]),
+
+  bookingClaims: defineTable({
+    token: v.string(),
+    appointmentId: v.id("appointments"),
+    userId: v.id("users"),
+    email: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    claimedByUserId: v.optional(v.id("users")),
+    claimedByClerkUserId: v.optional(v.string()),
+  }).index("by_token", ["token"]),
 });
 
 export default schema;

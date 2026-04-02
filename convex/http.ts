@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { internal, components } from "./_generated/api";
+import { api, internal, components } from "./_generated/api";
 import { resend } from "./emails";
 import { registerTwilioRoutes } from "./sms";
 import { Webhook } from "svix";
@@ -8,6 +8,12 @@ import type { WebhookEvent } from "@clerk/backend";
 import { registerRoutes } from "@convex-dev/stripe";
 import type Stripe from "stripe";
 import type { Id } from "./_generated/dataModel";
+import { formatTime12h } from "./lib/time";
+import {
+  getDefaultAdminEmailRecipients,
+  getDefaultAdminSmsRecipients,
+  normalizeBusinessNotificationSettings,
+} from "./lib/notificationSettings";
 
 const http = httpRouter();
 const CONFIG_ONLY_STRIPE_EVENT_PREFIXES = ["product.", "price.", "payout."] as const;
@@ -36,6 +42,64 @@ async function recordWebhookEvent(
     await (ctx as any).runMutation(internal.webhookDiagnostics.record, args);
   } catch (error) {
     console.error("[webhook-diagnostics] failed to persist webhook event", error);
+  }
+}
+
+async function getAdminSmsRecipients(ctx: any): Promise<string[]> {
+  const business = await ctx.runQuery(api.business.get);
+  const settings = normalizeBusinessNotificationSettings(
+  business?.notificationSettings,
+  );
+  const recipients =
+    settings?.adminSmsRecipients?.length
+      ? settings.adminSmsRecipients
+      : getDefaultAdminSmsRecipients();
+
+  return Array.from(new Set(recipients.filter(Boolean)));
+}
+
+async function getAdminEmailRecipients(ctx: any): Promise<string[]> {
+  const business = await ctx.runQuery(api.business.get);
+  const settings = normalizeBusinessNotificationSettings(
+    business?.notificationSettings,
+  );
+  const recipients =
+    settings?.adminEmailRecipients?.length
+      ? settings.adminEmailRecipients
+      : getDefaultAdminEmailRecipients();
+
+  return Array.from(new Set(recipients.filter(Boolean)));
+}
+
+async function notifyAdminDepositPaid(ctx: any, args: {
+  appointmentId: Id<"appointments">;
+  invoiceId: Id<"invoices">;
+}) {
+  const emailRecipients = await getAdminEmailRecipients(ctx);
+  for (const recipient of emailRecipients) {
+    await ctx.scheduler.runAfter(0, internal.emails.sendAdminDepositPaidNotification, {
+      appointmentId: args.appointmentId,
+      invoiceId: args.invoiceId,
+      recipientOverride: recipient,
+    });
+  }
+
+  const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
+    appointmentId: args.appointmentId,
+  });
+  if (!appointment) return;
+
+  const user = await ctx.runQuery(internal.users.getByIdInternal, {
+    userId: appointment.userId,
+  });
+  const recipients = await getAdminSmsRecipients(ctx);
+  const body = `River City MD: Deposit paid by ${user?.name || user?.email || "customer"} for ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
+
+  for (const recipient of recipients) {
+    await ctx.scheduler.runAfter(0, internal.sms.sendSms, {
+      to: recipient,
+      body,
+    });
   }
 }
 
@@ -93,6 +157,57 @@ registerRoutes(http, components.stripe, {
         // Create the first appointment
         await ctx.scheduler.runAfter(0, internal.subscriptions.createNextAppointment, {
           subscriptionId,
+        });
+        return;
+      }
+
+      const bookingDraftId = session.metadata?.draftId;
+      if (bookingDraftId) {
+        const converted = await ctx.runMutation(
+          internal.bookingDrafts.convertSuccessfulCheckout,
+          {
+            draftId: bookingDraftId as Id<"bookingDrafts">,
+            stripeCustomerId:
+              typeof session.customer === "string" ? session.customer : undefined,
+            paymentIntentId:
+              typeof session.payment_intent === "string"
+                ? session.payment_intent
+                : undefined,
+          },
+        );
+
+        if (!converted) {
+          return;
+        }
+
+        await ctx.scheduler.runAfter(
+          0,
+          internal.notifications.queueBookingReceived,
+          {
+            appointmentId: converted.appointmentId,
+            invoiceId: converted.invoiceId,
+            transition: converted.isFullPayment
+              ? "checkout.session.completed:full"
+              : "checkout.session.completed:deposit",
+          },
+        );
+
+        if (converted.isFullPayment) {
+          const paidUser = await ctx.runQuery(internal.users.getByIdInternal, {
+            userId: converted.userId,
+          });
+          if (paidUser) {
+            await ctx.runMutation(internal.users.updateStats, {
+              userId: converted.userId,
+              timesServiced: (paidUser.timesServiced || 0) + 1,
+              totalSpent: (paidUser.totalSpent || 0) + converted.total,
+            });
+          }
+        }
+
+        await notifyAdminDepositPaid(ctx, {
+          appointmentId: converted.appointmentId,
+          invoiceId: converted.invoiceId,
         });
         return;
       }
@@ -233,6 +348,16 @@ registerRoutes(http, components.stripe, {
             `[stripe-webhook] full payment captured invoiceId=${invoiceId} paymentIntentId=${paymentIntentId || "none"}`,
           );
 
+          await ctx.scheduler.runAfter(
+            0,
+            internal.notifications.queueBookingReceived,
+            {
+              appointmentId: invoice.appointmentId,
+              invoiceId,
+              transition: "checkout.session.completed:full",
+            },
+          );
+
           // Update user stats immediately since invoice is fully paid
           if (appointment) {
             const paidUser = await ctx.runQuery(internal.users.getByIdInternal, {
@@ -247,15 +372,10 @@ registerRoutes(http, components.stripe, {
             }
           }
 
-          // Notify admin
-          await ctx.scheduler.runAfter(
-            0,
-            internal.emails.sendAdminDepositPaidNotification,
-            {
-              appointmentId: invoice.appointmentId,
-              invoiceId,
-            },
-          );
+          await notifyAdminDepositPaid(ctx, {
+            appointmentId: invoice.appointmentId,
+            invoiceId,
+          });
         } else {
           // Deposit payment flow (existing behavior)
           if (invoice.depositPaid) {
@@ -284,24 +404,44 @@ registerRoutes(http, components.stripe, {
               `[stripe-webhook] deposit captured invoiceId=${invoiceId} paymentIntentId=${paymentIntentId || "none"}`,
             );
 
+            await ctx.scheduler.runAfter(
+              0,
+              internal.notifications.queueBookingReceived,
+              {
+                appointmentId: invoice.appointmentId,
+                invoiceId,
+                transition: "checkout.session.completed:deposit",
+              },
+            );
+
             // Deposit paid — appointment stays "pending" for admin review.
             // Admin confirms manually, which triggers Stripe invoice generation.
             console.log(
               `[stripe-webhook] deposit paid, appointment stays pending for admin review appointmentId=${invoice.appointmentId}`,
             );
 
-            // Notify admin that deposit was paid so they can confirm the appointment
-            await ctx.scheduler.runAfter(
-              0,
-              internal.emails.sendAdminDepositPaidNotification,
-              {
-                appointmentId: invoice.appointmentId,
-                invoiceId,
-              },
-            );
+            await notifyAdminDepositPaid(ctx, {
+              appointmentId: invoice.appointmentId,
+              invoiceId,
+            });
           }
         }
       }
+    },
+
+    "checkout.session.expired": async (
+      ctx,
+      event: Stripe.CheckoutSessionExpiredEvent,
+    ) => {
+      const session = event.data.object;
+      const bookingDraftId = session.metadata?.draftId;
+      if (!bookingDraftId) {
+        return;
+      }
+
+      await ctx.runMutation(internal.bookingDrafts.markExpiredInternal, {
+        draftId: bookingDraftId as Id<"bookingDrafts">,
+      });
     },
 
     // Handle payment intent success (backup for deposit payments)
@@ -366,6 +506,16 @@ registerRoutes(http, components.stripe, {
             `[stripe-webhook] full payment captured via payment intent invoiceId=${invoiceId}`,
           );
 
+          await ctx.scheduler.runAfter(
+            0,
+            internal.notifications.queueBookingReceived,
+            {
+              appointmentId: invoice.appointmentId,
+              invoiceId,
+              transition: "payment_intent.succeeded:full",
+            },
+          );
+
           // Update user stats
           const appointment = await ctx.runQuery(
             internal.appointments.getByIdInternal,
@@ -384,15 +534,10 @@ registerRoutes(http, components.stripe, {
             }
           }
 
-          // Notify admin (mirrors the primary checkout.session.completed path)
-          await ctx.scheduler.runAfter(
-            0,
-            internal.emails.sendAdminDepositPaidNotification,
-            {
-              appointmentId: invoice.appointmentId,
-              invoiceId,
-            },
-          );
+          await notifyAdminDepositPaid(ctx, {
+            appointmentId: invoice.appointmentId,
+            invoiceId,
+          });
         } else {
           // Deposit payment backup handler (existing behavior)
           if (invoice.depositPaid) {
@@ -416,40 +561,24 @@ registerRoutes(http, components.stripe, {
               `[stripe-webhook] deposit captured via payment intent invoiceId=${invoiceId}`,
             );
 
-            // Route through appointment status mutation (single source of truth for invoice generation)
-            const appointment = await ctx.runQuery(
-              internal.appointments.getByIdInternal,
+            await ctx.scheduler.runAfter(
+              0,
+              internal.notifications.queueBookingReceived,
               {
                 appointmentId: invoice.appointmentId,
+                invoiceId,
+                transition: "payment_intent.succeeded:deposit",
               },
             );
-            if (
-              appointment &&
-              (appointment.status === "pending" ||
-                appointment.status === "confirmed")
-            ) {
-              console.log(
-                `[stripe-webhook] confirming appointment after payment_intent deposit appointmentId=${invoice.appointmentId}`,
-              );
-              try {
-                await ctx.runMutation(
-                  internal.appointments.updateStatusInternal,
-                  {
-                    appointmentId: invoice.appointmentId,
-                    status: "confirmed",
-                  },
-                );
-                console.log(
-                  `[stripe-webhook] appointment confirmed and invoice generation scheduled appointmentId=${invoice.appointmentId}`,
-                );
-              } catch (error) {
-                console.error(
-                  `[stripe-webhook] failed to confirm appointment after payment_intent deposit appointmentId=${invoice.appointmentId}`,
-                  error,
-                );
-                throw error;
-              }
-            }
+
+            console.log(
+              `[stripe-webhook] deposit paid via payment intent; appointment remains pending for admin review appointmentId=${invoice.appointmentId}`,
+            );
+
+            await notifyAdminDepositPaid(ctx, {
+              appointmentId: invoice.appointmentId,
+              invoiceId,
+            });
           }
         }
       }
@@ -538,6 +667,15 @@ registerRoutes(http, components.stripe, {
             subscriptionId: ourSub._id,
             status: "past_due",
           });
+          await ctx.runMutation(internal.notifications.queuePaymentFailed, {
+            subscriptionId: ourSub._id,
+            userId: ourSub.userId,
+            failureReason:
+              invoice.attempt_count && invoice.attempt_count > 1
+                ? `Stripe invoice payment failed after ${invoice.attempt_count} attempts`
+                : "Stripe invoice payment failed",
+            transition: "invoice.payment_failed:subscription",
+          });
           return;
         }
       }
@@ -552,6 +690,16 @@ registerRoutes(http, components.stripe, {
 
       if (ourInvoice) {
         console.log(`Payment failed for our invoice ${ourInvoice._id}`);
+        await ctx.runMutation(internal.notifications.queuePaymentFailed, {
+          appointmentId: ourInvoice.appointmentId,
+          invoiceId: ourInvoice._id,
+          userId: ourInvoice.userId,
+          failureReason:
+            invoice.attempt_count && invoice.attempt_count > 1
+              ? `Stripe invoice payment failed after ${invoice.attempt_count} attempts`
+              : "Stripe invoice payment failed",
+          transition: "invoice.payment_failed:invoice",
+        });
       }
     },
 

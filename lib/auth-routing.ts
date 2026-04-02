@@ -47,3 +47,18 @@ export function getPostVerificationRedirectPath(args: {
     ? "/dashboard/appointments?payment=success"
     : "/dashboard";
 }
+
+export function sanitizeRedirectPath(
+  redirectPath: string | null | undefined,
+  fallbackPath: string,
+) {
+  if (!redirectPath) {
+    return fallbackPath;
+  }
+
+  if (!redirectPath.startsWith("/") || redirectPath.startsWith("//")) {
+    return fallbackPath;
+  }
+
+  return redirectPath;
+}

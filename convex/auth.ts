@@ -8,20 +8,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-
-const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
-  emailNotifications: true,
-  smsNotifications: true,
-  marketingEmails: false,
-  serviceReminders: true,
-  events: {
-    appointmentConfirmed: true,
-    appointmentCancelled: true,
-    appointmentRescheduled: true,
-    appointmentStarted: true,
-    appointmentCompleted: true,
-  },
-} as const;
+import { DEFAULT_USER_NOTIFICATION_PREFERENCES } from "./lib/notificationSettings";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -84,7 +71,9 @@ function extractIdentityEmail(value: unknown, depth = 0): string | null {
   return null;
 }
 
-function getNormalizedIdentityEmail(identity: { email?: unknown }): string | null {
+export function getNormalizedIdentityEmail(identity: {
+  email?: unknown;
+}): string | null {
   return extractIdentityEmail(identity.email);
 }
 

@@ -2,6 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ interface TimeSlotPickerProps {
   selectedTime?: string;
   onTimeSelect: (time: string) => void;
   serviceDuration?: number;
+  ignoreAppointmentId?: Id<"appointments">;
 }
 
 export function TimeSlotPicker({
@@ -30,10 +32,12 @@ export function TimeSlotPicker({
   selectedTime,
   onTimeSelect,
   serviceDuration = 60, // Default to 60 min if not specified
+  ignoreAppointmentId,
 }: TimeSlotPickerProps) {
   const slots = useQuery(api.availability.getAvailableTimeSlots, {
     date: date || "",
     serviceDuration,
+    ignoreAppointmentId,
   });
 
   // No date selected — show disabled placeholder

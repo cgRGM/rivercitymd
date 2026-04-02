@@ -251,6 +251,225 @@ describe("appointments", () => {
     expect(dateAppointments.length).toBe(1);
   });
 
+  test("getUserAppointments keeps unresolved appointments actionable even after their scheduled date passes", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t);
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Actionable User",
+        email: "actionable@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const categoryId = await t.run(async (ctx) => {
+      return await ctx.db.insert("serviceCategories", {
+        name: "Maintenance",
+        type: "standard",
+      });
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Interior Detail",
+        description: "Interior detail",
+        basePrice: 150,
+        duration: 120,
+        categoryId,
+        isActive: true,
+      });
+    });
+
+    const vehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2023,
+        make: "Ford",
+        model: "Escape",
+        color: "Black",
+      });
+    });
+
+    const currentDate = new Date();
+    const yesterday = new Date(currentDate);
+    yesterday.setDate(currentDate.getDate() - 1);
+    const tomorrow = new Date(currentDate);
+    tomorrow.setDate(currentDate.getDate() + 1);
+
+    const formatDateKey = (value: Date) =>
+      [
+        value.getFullYear(),
+        String(value.getMonth() + 1).padStart(2, "0"),
+        String(value.getDate()).padStart(2, "0"),
+      ].join("-");
+
+    const yesterdayKey = formatDateKey(yesterday);
+    const tomorrowKey = formatDateKey(tomorrow);
+
+    const unresolvedPastId = await t.run(async (ctx) => {
+      return await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: yesterdayKey,
+        scheduledTime: "09:00",
+        duration: 120,
+        location: {
+          street: "123 Main St",
+          city: "Searcy",
+          state: "AR",
+          zip: "72143",
+        },
+        status: "pending",
+        totalPrice: 150,
+        createdBy: userId,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: tomorrowKey,
+        scheduledTime: "14:00",
+        duration: 120,
+        location: {
+          street: "123 Main St",
+          city: "Searcy",
+          state: "AR",
+          zip: "72143",
+        },
+        status: "confirmed",
+        totalPrice: 150,
+        createdBy: userId,
+      });
+    });
+
+    const cancelledId = await t.run(async (ctx) => {
+      return await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: yesterdayKey,
+        scheduledTime: "11:00",
+        duration: 120,
+        location: {
+          street: "123 Main St",
+          city: "Searcy",
+          state: "AR",
+          zip: "72143",
+        },
+        status: "cancelled",
+        totalPrice: 150,
+        createdBy: userId,
+      });
+    });
+
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "actionable@example.com",
+    });
+
+    const result = await asUser.query(api.appointments.getUserAppointments, {});
+
+    expect(result.upcoming.map((appointment) => appointment._id)).toContain(
+      unresolvedPastId,
+    );
+    expect(result.past.map((appointment) => appointment._id)).toContain(
+      cancelledId,
+    );
+    expect(result.past.map((appointment) => appointment._id)).not.toContain(
+      unresolvedPastId,
+    );
+  });
+
+  test("reschedule preserves pending status for deposit-paid appointments", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t);
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Reschedule User",
+        email: "reschedule@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const categoryId = await t.run(async (ctx) => {
+      return await ctx.db.insert("serviceCategories", {
+        name: "Detailing",
+        type: "standard",
+      });
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Full Detail",
+        description: "Complete detail",
+        basePrice: 200,
+        duration: 120,
+        categoryId,
+        isActive: true,
+      });
+    });
+
+    const vehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2021,
+        make: "Toyota",
+        model: "Corolla",
+        color: "White",
+        size: "small",
+      });
+    });
+
+    const appointmentId = await t.run(async (ctx) => {
+      return await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: "2024-12-02",
+        scheduledTime: "10:00",
+        duration: 120,
+        location: {
+          street: "123 Main St",
+          city: "Searcy",
+          state: "AR",
+          zip: "72143",
+        },
+        status: "pending",
+        totalPrice: 200,
+        createdBy: userId,
+      });
+    });
+
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "reschedule@example.com",
+    });
+
+    await asUser.mutation(api.appointments.reschedule, {
+      appointmentId,
+      newDate: "2024-12-03",
+      newTime: "11:00",
+    });
+
+    const updated = await t.run(async (ctx) => ctx.db.get(appointmentId));
+    expect(updated).not.toBeNull();
+    expect(updated?.scheduledDate).toBe("2024-12-03");
+    expect(updated?.scheduledTime).toBe("11:00");
+    expect(updated?.status).toBe("pending");
+  });
+
   test("list/getById enforce owner-or-admin scoping", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t, { includeBookableService: false });

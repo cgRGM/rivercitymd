@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -85,6 +86,10 @@ function getEffectivePrice(
 export default function AppointmentDetailClient({ appointmentId }: Props) {
   const router = useRouter();
   const data = useQuery(api.appointments.getByIdWithDetails, { appointmentId });
+  const customerVehiclesQuery = useQuery(
+    api.vehicles.getByUser,
+    data?.userId ? { userId: data.userId } : "skip",
+  );
   const allServices = useQuery(api.services.list);
   const updateStatus = useMutation(api.appointments.updateStatus);
   const updateAppointment = useMutation(api.appointments.update);
@@ -109,6 +114,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const [editLocationNotes, setEditLocationNotes] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editServiceIds, setEditServiceIds] = useState<Id<"services">[]>([]);
+  const [editVehicleIds, setEditVehicleIds] = useState<Id<"vehicles">[]>([]);
   const [editVehicleSizes, setEditVehicleSizes] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -179,8 +185,15 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     setEditLocationNotes(data.location.notes || "");
     setEditNotes(data.notes || "");
     setEditServiceIds(data.serviceIds);
+    setEditVehicleIds(
+      data.vehicles.length > 0
+        ? data.vehicles.map((vehicle) => vehicle._id)
+        : (customerVehiclesQuery?.length === 1
+            ? [customerVehiclesQuery[0]._id]
+            : []),
+    );
     const sizes: Record<string, string> = {};
-    for (const v of data.vehicles) {
+    for (const v of customerVehiclesQuery || data.vehicles) {
       sizes[v._id] = v.size || "medium";
     }
     setEditVehicleSizes(sizes);
@@ -192,10 +205,18 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   };
 
   const handleSave = async () => {
+    if (editVehicleIds.length === 0) {
+      toast.error("Select at least one customer vehicle before saving");
+      return;
+    }
+
     setLoading(true);
     try {
       // Update vehicle sizes first
-      for (const v of data.vehicles) {
+      for (const v of customerVehiclesQuery || data.vehicles) {
+        if (!editVehicleIds.includes(v._id)) {
+          continue;
+        }
         const newSize = editVehicleSizes[v._id] as "small" | "medium" | "large" | undefined;
         if (newSize && newSize !== (v.size || "medium")) {
           await updateVehicle({ id: v._id, size: newSize });
@@ -206,7 +227,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       await updateAppointment({
         appointmentId,
         userId: data.userId,
-        vehicleIds: data.vehicleIds,
+        vehicleIds: editVehicleIds,
         serviceIds: editServiceIds,
         scheduledDate: editDate,
         scheduledTime: editTime,
@@ -233,6 +254,12 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       prev.includes(serviceId)
         ? prev.filter((id) => id !== serviceId)
         : [...prev, serviceId],
+    );
+  };
+
+  const toggleVehicle = (vehicleId: Id<"vehicles">, checked: boolean) => {
+    setEditVehicleIds((prev) =>
+      checked ? [...prev, vehicleId] : prev.filter((id) => id !== vehicleId),
     );
   };
 
@@ -274,6 +301,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   };
 
   const { user, services, vehicles, invoice, tripLog, location } = data;
+  const customerVehicles = customerVehiclesQuery ?? [];
   const canEdit = data.status === "pending" || data.status === "confirmed";
   const canEditBilling =
     !!invoice &&
@@ -471,12 +499,76 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
             <CardTitle className="text-lg">
               <span className="flex items-center gap-2">
                 <Car className="h-5 w-5" />
-                Vehicles ({vehicles.length})
+                Vehicles ({editing ? editVehicleIds.length : vehicles.length})
               </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {vehicles.length === 0 ? (
+            {data.vehicleIds.length !== vehicles.length && (
+              <div className="mb-3 rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+                Some saved vehicle records linked to this appointment are missing. The appointment may need repair.
+              </div>
+            )}
+            {editing ? (
+              customerVehiclesQuery === undefined ? (
+                <p className="text-sm text-muted-foreground">
+                  Loading customer vehicles...
+                </p>
+              ) : customerVehicles.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  This customer has no saved vehicles yet.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {customerVehicles.map((v) => {
+                    const checked = editVehicleIds.includes(v._id);
+                    return (
+                      <div
+                        key={v._id}
+                        className="rounded-md border p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                toggleVehicle(v._id, value === true)
+                              }
+                              className="mt-1"
+                            />
+                            <div>
+                              <p className="font-medium text-sm">
+                                {v.year} {v.make} {v.model}
+                              </p>
+                              <div className="flex gap-2 text-xs text-muted-foreground">
+                                {v.color && <span>{v.color}</span>}
+                                {v.licensePlate && <span>{v.licensePlate}</span>}
+                              </div>
+                            </div>
+                          </div>
+                          <Select
+                            value={editVehicleSizes[v._id] || "medium"}
+                            onValueChange={(val) =>
+                              setEditVehicleSizes((prev) => ({ ...prev, [v._id]: val }))
+                            }
+                            disabled={!checked}
+                          >
+                            <SelectTrigger className="w-28">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="small">Small</SelectItem>
+                              <SelectItem value="medium">Medium</SelectItem>
+                              <SelectItem value="large">Large</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : vehicles.length === 0 ? (
               <p className="text-sm text-muted-foreground">No vehicles linked</p>
             ) : (
               <div className="space-y-3">
@@ -492,27 +584,9 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                         </div>
                       </div>
                     </div>
-                    {editing ? (
-                      <Select
-                        value={editVehicleSizes[v._id] || "medium"}
-                        onValueChange={(val) =>
-                          setEditVehicleSizes((prev) => ({ ...prev, [v._id]: val }))
-                        }
-                      >
-                        <SelectTrigger className="w-28">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="small">Small</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="large">Large</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Badge variant="secondary" className="capitalize">
-                        {v.size || "medium"}
-                      </Badge>
-                    )}
+                    <Badge variant="secondary" className="capitalize">
+                      {v.size || "medium"}
+                    </Badge>
                   </div>
                 ))}
               </div>

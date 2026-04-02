@@ -30,13 +30,20 @@ import { v } from "convex/values";
 import { render } from "@react-email/render";
 import { components, api, internal } from "./_generated/api";
 import { Resend } from "@convex-dev/resend";
+import type { Id } from "./_generated/dataModel";
 import { formatTime12h } from "./lib/time";
+import {
+  getDefaultAdminEmailRecipients,
+  normalizeBusinessNotificationSettings,
+} from "./lib/notificationSettings";
 
 // Import all template components from the shared file
 import {
   WelcomeEmail,
   AppointmentConfirmationEmail,
   AppointmentReminderEmail,
+  BookingReceivedEmail,
+  AbandonedCheckoutRecoveryEmail,
   AdminNewCustomerNotificationEmail,
   AdminReviewSubmittedNotificationEmail,
   CustomerReviewRequestEmailTemplate,
@@ -46,6 +53,8 @@ import {
   AdminDepositPaidNotificationEmail,
   SubscriptionCheckoutLinkEmail,
   SubscriptionAppointmentCreatedEmail,
+  AdminSubscriptionCheckoutLinkNotificationEmail,
+  AdminPaymentFailedNotificationEmail,
 } from "./emailTemplates";
 
 // Initialize Resend component
@@ -65,6 +74,163 @@ function siteUrl(): string {
 
 function logoUrl(): string {
   return `${siteUrl()}/BoldRiverCityMobileDetailingLogo.png`;
+}
+
+type EmailAttachment = {
+  filename: string;
+  content: string;
+  contentType?: string;
+};
+
+async function sendEmailMessage(
+  ctx: any,
+  args: {
+    from: string;
+    to: string | string[];
+    subject: string;
+    html: string;
+    attachments?: EmailAttachment[];
+  },
+): Promise<void> {
+  if (!args.attachments?.length) {
+    await resend.sendEmail(ctx, args);
+    return;
+  }
+
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is required to send emails with attachments");
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: args.from,
+      to: Array.isArray(args.to) ? args.to : [args.to],
+      subject: args.subject,
+      html: args.html,
+      attachments: args.attachments.map((attachment) => ({
+        filename: attachment.filename,
+        content: Buffer.from(attachment.content, "utf8").toString("base64"),
+        content_type: attachment.contentType || "text/calendar; charset=utf-8",
+      })),
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Resend attachment send failed (${response.status}): ${body}`);
+  }
+}
+
+function formatIcsTimestamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function formatFloatingIcsDateTime(date: string, time: string): string {
+  return `${date.replace(/-/g, "")}T${time.replace(/:/g, "")}00`;
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function addMinutesToDate(date: string, time: string, minutes: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, mins] = time.split(":").map(Number);
+  const dt = new Date(Date.UTC(year, month - 1, day, hours, mins));
+  dt.setUTCMinutes(dt.getUTCMinutes() + minutes);
+  const yyyy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  const hh = String(dt.getUTCHours()).padStart(2, "0");
+  const min = String(dt.getUTCMinutes()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}T${hh}${min}00`;
+}
+
+function buildAppointmentIcs(args: {
+  appointmentId: Id<"appointments">;
+  businessName: string;
+  action: "created" | "confirmed" | "cancelled" | "rescheduled";
+  customerName: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  location: string;
+  serviceNames: string[];
+  duration: number;
+}): EmailAttachment {
+  const uid = `${args.appointmentId}@rivercitymd.com`;
+  const now = formatIcsTimestamp(new Date());
+  const status = args.action === "cancelled" ? "CANCELLED" : "CONFIRMED";
+  const method = args.action === "cancelled" ? "CANCEL" : "REQUEST";
+  const summaryPrefix =
+    args.action === "created"
+      ? "New Booking"
+      : args.action === "rescheduled"
+        ? "Rescheduled Appointment"
+        : args.action === "confirmed"
+          ? "Confirmed Appointment"
+          : "Cancelled Appointment";
+  const description = escapeIcsText(
+    [
+      `${summaryPrefix} for ${args.customerName}`,
+      `Services: ${args.serviceNames.join(", ")}`,
+      `Location: ${args.location}`,
+    ].join("\n"),
+  );
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//River City Mobile Detailing//Notifications//EN",
+    `METHOD:${method}`,
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${now}`,
+    `DTSTART;TZID=America/Chicago:${formatFloatingIcsDateTime(args.appointmentDate, args.appointmentTime)}`,
+    `DTEND;TZID=America/Chicago:${addMinutesToDate(args.appointmentDate, args.appointmentTime, args.duration || 120)}`,
+    `SUMMARY:${escapeIcsText(`${summaryPrefix}: ${args.customerName}`)}`,
+    `DESCRIPTION:${description}`,
+    `LOCATION:${escapeIcsText(args.location)}`,
+    `STATUS:${status}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+
+  return {
+    filename: `river-city-md-${args.action}-${args.appointmentDate}-${args.appointmentId}.ics`,
+    content: `${lines.join("\r\n")}\r\n`,
+    contentType: `text/calendar; method=${method}; charset=utf-8`,
+  };
+}
+
+async function getBusinessAndFromName(ctx: any) {
+  const business = await ctx.runQuery(api.business.get);
+  if (!business) return null;
+
+  return {
+    business,
+    from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+  };
+}
+
+async function getPrimaryAdminRecipient(ctx: any): Promise<string> {
+  const business = await ctx.runQuery(api.business.get);
+  const settings = normalizeBusinessNotificationSettings(
+    business?.notificationSettings,
+  );
+  return (
+    settings?.adminEmailRecipients?.[0] ||
+    getDefaultAdminEmailRecipients()[0] ||
+    "dustin@rivercitymd.com"
+  );
 }
 
 // --- Helper to get service names for an appointment ---
@@ -103,22 +269,22 @@ export const sendWelcomeEmail = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const html = await render(
       WelcomeEmail({
         userName: user.name || "Valued Customer",
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         dashboardUrl: `${siteUrl()}/dashboard`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
       to: user.email,
-      subject: `Welcome to ${business.name}!`,
+      subject: `Welcome to ${businessInfo.business.name}!`,
       html,
     });
   },
@@ -143,15 +309,15 @@ export const sendAppointmentConfirmationEmail = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
     const html = await render(
       AppointmentConfirmationEmail({
         customerName: user.name || "Valued Customer",
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         appointmentDate: appointment.scheduledDate,
         appointmentTime: formatTime12h(appointment.scheduledTime),
         services: serviceNames,
@@ -163,8 +329,8 @@ export const sendAppointmentConfirmationEmail = internalAction({
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
       to: user.email,
       subject: `Appointment Confirmed - ${appointment.scheduledDate}`,
       html,
@@ -201,15 +367,15 @@ export const sendAppointmentReminderEmail = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
     const html = await render(
       AppointmentReminderEmail({
         customerName: user.name || "Valued Customer",
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         appointmentDate: appointment.scheduledDate,
         appointmentTime: formatTime12h(appointment.scheduledTime),
         services: serviceNames,
@@ -219,10 +385,91 @@ export const sendAppointmentReminderEmail = internalAction({
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
       to: user.email,
       subject: `Reminder: Your appointment is tomorrow - ${appointment.scheduledDate}`,
+      html,
+    });
+  },
+});
+
+export const sendCustomerBookingReceivedEmail = internalAction({
+  args: {
+    appointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const appointment = await ctx.runQuery(
+      internal.appointments.getByIdInternal,
+      { appointmentId: args.appointmentId },
+    );
+    if (!appointment) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: appointment.userId,
+    });
+    if (!user || !user.email) return;
+
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
+
+    const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
+    const html = await render(
+      BookingReceivedEmail({
+        customerName: user.name || "Valued Customer",
+        businessName: businessInfo.business.name,
+        appointmentDate: appointment.scheduledDate,
+        appointmentTime: formatTime12h(appointment.scheduledTime),
+        services: serviceNames,
+        location: formatLocation(appointment.location),
+        totalPrice: appointment.totalPrice,
+        dashboardUrl: `${siteUrl()}/dashboard/appointments`,
+        logoUrl: logoUrl(),
+      }),
+    );
+
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: user.email,
+      subject: `Booking Received - ${appointment.scheduledDate}`,
+      html,
+    });
+  },
+});
+
+export const sendAbandonedCheckoutRecoveryEmail = internalAction({
+  args: {
+    customerName: v.string(),
+    to: v.string(),
+    scheduledDate: v.string(),
+    scheduledTime: v.string(),
+    serviceNames: v.array(v.string()),
+    resumeUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
+
+    const html = await render(
+      AbandonedCheckoutRecoveryEmail({
+        customerName: args.customerName || "there",
+        businessName: businessInfo.business.name,
+        appointmentDate: args.scheduledDate,
+        appointmentTime: formatTime12h(args.scheduledTime),
+        services: args.serviceNames,
+        resumeUrl: args.resumeUrl,
+        logoUrl: logoUrl(),
+      }),
+    );
+
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.to,
+      subject: `Finish your booking for ${args.scheduledDate}`,
       html,
     });
   },
@@ -251,34 +498,32 @@ export const sendAdminDepositPaidNotification = internalAction({
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: appointment.userId,
     });
-    if (!user) return;
-
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
     const html = await render(
       AdminDepositPaidNotificationEmail({
-        customerName: user.name || "N/A",
-        customerEmail: user.email || "N/A",
-        customerPhone: user.phone || "N/A",
+        customerName: user?.name || "N/A",
+        customerEmail: user?.email || "N/A",
+        customerPhone: user?.phone || "N/A",
         appointmentDate: appointment.scheduledDate,
         appointmentTime: formatTime12h(appointment.scheduledTime),
         serviceNames,
         location: formatLocation(appointment.location),
         depositAmount: invoice?.depositAmount || 0,
         totalPrice: appointment.totalPrice,
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         appointmentUrl: `${siteUrl()}/admin/appointments/${args.appointmentId}`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: args.recipientOverride || "dustin@rivercitymd.com",
-      subject: `Deposit Paid - ${user.name || user.email} - ${appointment.scheduledDate}`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.recipientOverride || (await getPrimaryAdminRecipient(ctx)),
+      subject: `Deposit Paid - ${user?.name || user?.email || "Customer"} - ${appointment.scheduledDate}`,
       html,
     });
   },
@@ -298,8 +543,8 @@ export const sendAdminNewCustomerNotification = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const vehicles = await ctx.runQuery(internal.vehicles.listByUserInternal, {
       userId: args.userId,
@@ -315,15 +560,15 @@ export const sendAdminNewCustomerNotification = internalAction({
           : undefined,
         vehicleCount: vehicles.length,
         signupDate: new Date().toLocaleDateString(),
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         adminUrl: `${siteUrl()}/admin/customers`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: args.recipientOverride || "dustin@rivercitymd.com",
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.recipientOverride || (await getPrimaryAdminRecipient(ctx)),
       subject: `New Customer: ${user.name || user.email}`,
       html,
     });
@@ -355,8 +600,8 @@ export const sendAdminReviewSubmittedNotification = internalAction({
     );
     if (!appointment) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
     const stars = "\u2B50".repeat(review.rating);
@@ -371,15 +616,15 @@ export const sendAdminReviewSubmittedNotification = internalAction({
         isPublic: review.isPublic,
         appointmentDate: appointment.scheduledDate,
         serviceNames,
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         adminUrl: `${siteUrl()}/admin/reviews`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: args.recipientOverride || "dustin@rivercitymd.com",
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.recipientOverride || (await getPrimaryAdminRecipient(ctx)),
       subject: `New Review: ${stars} from ${user.name || user.email}`,
       html,
     });
@@ -405,8 +650,8 @@ export const sendCustomerReviewRequestEmail = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
@@ -415,16 +660,16 @@ export const sendCustomerReviewRequestEmail = internalAction({
         customerName: user.name || "Valued Customer",
         appointmentDate: appointment.scheduledDate,
         serviceNames,
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         reviewUrl: `${siteUrl()}/dashboard/reviews`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
       to: user.email,
-      subject: `How was your service? - ${business.name}`,
+      subject: `How was your service? - ${businessInfo.business.name}`,
       html,
     });
   },
@@ -455,8 +700,8 @@ export const sendCustomerAppointmentStatusEmail = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
@@ -491,14 +736,14 @@ export const sendCustomerAppointmentStatusEmail = internalAction({
         appointmentTime: formatTime12h(appointment.scheduledTime),
         serviceNames,
         location: formatLocation(appointment.location),
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         dashboardUrl: `${siteUrl()}/dashboard/appointments`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
       to: user.email,
       subject: `Appointment ${statusLabel} - ${appointment.scheduledDate}`,
       html,
@@ -533,10 +778,9 @@ export const sendAdminAppointmentNotification = internalAction({
     const user = await ctx.runQuery(internal.users.getByIdInternal, {
       userId: appointment.userId,
     });
-    if (!user) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
@@ -560,9 +804,9 @@ export const sendAdminAppointmentNotification = internalAction({
     const html = await render(
       AdminAppointmentNotificationEmailTemplate({
         actionText,
-        customerName: user.name || "N/A",
-        customerEmail: user.email || "N/A",
-        customerPhone: user.phone || "N/A",
+        customerName: user?.name || "N/A",
+        customerEmail: user?.email || "N/A",
+        customerPhone: user?.phone || "N/A",
         appointmentDate: appointment.scheduledDate,
         appointmentTime: formattedTime,
         duration: appointment.duration,
@@ -571,17 +815,38 @@ export const sendAdminAppointmentNotification = internalAction({
         location: formatLocation(appointment.location),
         status: appointment.status,
         notes: appointment.notes,
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         adminUrl: `${siteUrl()}/admin/appointments`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: args.recipientOverride || "dustin@rivercitymd.com",
+    const attachment =
+      args.action === "created" ||
+      args.action === "confirmed" ||
+      args.action === "rescheduled" ||
+      args.action === "cancelled"
+        ? [
+            buildAppointmentIcs({
+              appointmentId: args.appointmentId,
+              businessName: businessInfo.business.name,
+              action: args.action,
+              customerName: user?.name || user?.email || "Customer",
+              appointmentDate: appointment.scheduledDate,
+              appointmentTime: appointment.scheduledTime,
+              location: formatLocation(appointment.location),
+              serviceNames,
+              duration: appointment.duration,
+            }),
+          ]
+        : undefined;
+
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.recipientOverride || (await getPrimaryAdminRecipient(ctx)),
       subject: `${actionText} - ${appointment.scheduledDate} ${formattedTime}`,
       html,
+      attachments: attachment,
     });
   },
 });
@@ -597,7 +862,7 @@ export const sendRawEmail = internalAction({
     if (shouldSkipEmails()) return;
     const business = await ctx.runQuery(api.business.get);
     const fromName = business?.name || "River City MD";
-    await resend.sendEmail(ctx, {
+    await sendEmailMessage(ctx, {
       from: `${fromName} <no-reply@notifications.rivercitymd.com>`,
       to: args.to,
       subject: args.subject,
@@ -629,8 +894,8 @@ export const sendAdminMileageLogRequiredNotification = internalAction({
           userId: appointment.userId,
         })
       : null;
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const destination = tripLog.stops[0];
     const destinationLabel =
@@ -661,15 +926,15 @@ export const sendAdminMileageLogRequiredNotification = internalAction({
         destinationLabel,
         appointmentInfo,
         customerInfo,
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         adminUrl: `${siteUrl()}/admin/logs`,
         logoUrl: logoUrl(),
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
-      to: args.recipientOverride || "dustin@rivercitymd.com",
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.recipientOverride || (await getPrimaryAdminRecipient(ctx)),
       subject: `Mileage log required - ${tripLog.logDate}`,
       html,
     });
@@ -695,15 +960,15 @@ export const sendSubscriptionCheckoutLink = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, sub.serviceIds);
 
     const html = await render(
       SubscriptionCheckoutLinkEmail({
         customerName: user.name || "Valued Customer",
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         serviceName: serviceNames.join(", "),
         frequency: sub.frequency,
         price: sub.totalPrice,
@@ -712,10 +977,10 @@ export const sendSubscriptionCheckoutLink = internalAction({
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
       to: user.email,
-      subject: `Set Up Your Recurring Service — ${business.name}`,
+      subject: `Set Up Your Recurring Service — ${businessInfo.business.name}`,
       html,
     });
   },
@@ -746,15 +1011,15 @@ export const sendSubscriptionAppointmentCreated = internalAction({
     });
     if (!user || !user.email) return;
 
-    const business = await ctx.runQuery(api.business.get);
-    if (!business) return;
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
     const html = await render(
       SubscriptionAppointmentCreatedEmail({
         customerName: user.name || "Valued Customer",
-        businessName: business.name,
+        businessName: businessInfo.business.name,
         appointmentDate: appointment.scheduledDate,
         appointmentTime: formatTime12h(appointment.scheduledTime),
         serviceNames,
@@ -764,10 +1029,122 @@ export const sendSubscriptionAppointmentCreated = internalAction({
       }),
     );
 
-    await resend.sendEmail(ctx, {
-      from: `${business.name} <no-reply@notifications.rivercitymd.com>`,
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
       to: user.email,
       subject: `Your Upcoming Service is Scheduled — ${appointment.scheduledDate}`,
+      html,
+    });
+  },
+});
+
+export const sendAdminSubscriptionCheckoutLinkNotification = internalAction({
+  args: {
+    subscriptionId: v.id("subscriptions"),
+    checkoutUrl: v.string(),
+    recipientOverride: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const sub = await ctx.runQuery(internal.subscriptions.getByIdInternal, {
+      subscriptionId: args.subscriptionId,
+    });
+    if (!sub) return;
+
+    const user = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: sub.userId,
+    });
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
+
+    const serviceNames = await getServiceNames(ctx, sub.serviceIds);
+    const html = await render(
+      AdminSubscriptionCheckoutLinkNotificationEmail({
+        customerName: user?.name || user?.email || "Customer",
+        customerEmail: user?.email || "N/A",
+        businessName: businessInfo.business.name,
+        serviceNames,
+        frequency: sub.frequency,
+        price: sub.totalPrice,
+        checkoutUrl: args.checkoutUrl,
+        adminUrl: `${siteUrl()}/admin/subscriptions`,
+        logoUrl: logoUrl(),
+      }),
+    );
+
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.recipientOverride || (await getPrimaryAdminRecipient(ctx)),
+      subject: `Subscription Checkout Link Sent - ${user?.name || user?.email || "Customer"}`,
+      html,
+    });
+  },
+});
+
+export const sendAdminPaymentFailedNotification = internalAction({
+  args: {
+    appointmentId: v.optional(v.id("appointments")),
+    invoiceId: v.optional(v.id("invoices")),
+    subscriptionId: v.optional(v.id("subscriptions")),
+    failureReason: v.optional(v.string()),
+    recipientOverride: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const appointment = args.appointmentId
+      ? await ctx.runQuery(internal.appointments.getByIdInternal, {
+          appointmentId: args.appointmentId,
+        })
+      : null;
+    const invoice = args.invoiceId
+      ? await ctx.runQuery(internal.invoices.getByIdInternal, {
+          invoiceId: args.invoiceId,
+        })
+      : null;
+    const subscription = args.subscriptionId
+      ? await ctx.runQuery(internal.subscriptions.getByIdInternal, {
+          subscriptionId: args.subscriptionId,
+        })
+      : null;
+
+    const userId =
+      appointment?.userId || invoice?.userId || subscription?.userId;
+    const user = userId
+      ? await ctx.runQuery(internal.users.getByIdInternal, { userId })
+      : null;
+
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
+
+    const paymentContext = args.subscriptionId
+      ? `Subscription payment${subscription?.frequency ? ` (${subscription.frequency})` : ""}`
+      : args.invoiceId
+        ? `Invoice payment${invoice?.stripeInvoiceId ? ` (${invoice.stripeInvoiceId})` : ""}`
+        : "Payment attempt";
+
+    const appointmentSummary = appointment
+      ? `${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}`
+      : undefined;
+
+    const html = await render(
+      AdminPaymentFailedNotificationEmail({
+        businessName: businessInfo.business.name,
+        customerName: user?.name,
+        customerEmail: user?.email,
+        appointmentSummary,
+        failureReason: args.failureReason,
+        paymentContext,
+        adminUrl: `${siteUrl()}/admin/invoices`,
+        logoUrl: logoUrl(),
+      }),
+    );
+
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: args.recipientOverride || (await getPrimaryAdminRecipient(ctx)),
+      subject: `Payment Failed - ${user?.name || user?.email || "Customer"}`,
       html,
     });
   },
