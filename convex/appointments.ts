@@ -27,6 +27,13 @@ function shouldScheduleNotificationJobs(): boolean {
   return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
 }
 
+function getScheduleFingerprint(
+  scheduledDate: string,
+  scheduledTime: string,
+): string {
+  return `${scheduledDate}|${scheduledTime}`;
+}
+
 async function scheduleReminder(
   ctx: any,
   appointmentId: Id<"appointments">,
@@ -40,8 +47,11 @@ async function scheduleReminder(
   if (reminderTime > Date.now()) {
     const scheduledId = await ctx.scheduler.runAt(
       reminderTime,
-      internal.emails.sendAppointmentReminderEmail,
-      { appointmentId },
+      internal.notifications.queueAppointmentReminder,
+      {
+        appointmentId,
+        scheduleFingerprint: getScheduleFingerprint(scheduledDate, scheduledTime),
+      },
     );
     await ctx.db.patch(appointmentId, { reminderScheduledId: scheduledId });
   }
@@ -169,6 +179,85 @@ export const getPendingCount = query({
       .collect();
 
     return appointments.length;
+  },
+});
+
+export const repairMissingVehicleReferences = mutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    candidates: v.number(),
+    cleanedStaleReferences: v.number(),
+    reattachedAppointments: v.number(),
+    unresolved: v.number(),
+    dryRun: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const dryRun = args.dryRun ?? true;
+    const appointments = await ctx.db.query("appointments").collect();
+
+    let candidates = 0;
+    let cleanedStaleReferences = 0;
+    let reattachedAppointments = 0;
+    let unresolved = 0;
+
+    for (const appointment of appointments) {
+      if (appointment.vehicleIds.length === 0) {
+        candidates += 1;
+        unresolved += 1;
+        continue;
+      }
+
+      const resolvedVehicles = (
+        await Promise.all(appointment.vehicleIds.map((vehicleId) => ctx.db.get(vehicleId)))
+      ).filter((vehicle): vehicle is NonNullable<typeof vehicle> => vehicle !== null);
+
+      if (resolvedVehicles.length === appointment.vehicleIds.length) {
+        continue;
+      }
+
+      candidates += 1;
+
+      if (resolvedVehicles.length > 0) {
+        if (!dryRun) {
+          await ctx.db.patch(appointment._id, {
+            vehicleIds: resolvedVehicles.map((vehicle) => vehicle._id),
+          });
+        }
+        cleanedStaleReferences += 1;
+        continue;
+      }
+
+      const customerVehicles = await ctx.db
+        .query("vehicles")
+        .withIndex("by_user", (q) => q.eq("userId", appointment.userId))
+        .collect();
+
+      if (customerVehicles.length === 1) {
+        if (!dryRun) {
+          await ctx.db.patch(appointment._id, {
+            vehicleIds: [customerVehicles[0]._id],
+          });
+        }
+        reattachedAppointments += 1;
+        continue;
+      }
+
+      unresolved += 1;
+    }
+
+    return {
+      scanned: appointments.length,
+      candidates,
+      cleanedStaleReferences,
+      reattachedAppointments,
+      unresolved,
+      dryRun,
+    };
   },
 });
 
@@ -567,6 +656,8 @@ export const update = mutation({
     if (!userId) throw new Error("Not authenticated");
 
     const { appointmentId, ...updates } = args;
+    const existingAppointment = await ctx.db.get(appointmentId);
+    if (!existingAppointment) throw new Error("Appointment not found");
 
     const services = await Promise.all(
       updates.serviceIds.map((id) => ctx.db.get(id)),
@@ -591,6 +682,34 @@ export const update = mutation({
       (sum, service) => sum + (service!.duration || 0),
       0,
     );
+
+    const scheduleChanged =
+      existingAppointment.scheduledDate !== updates.scheduledDate ||
+      existingAppointment.scheduledTime !== updates.scheduledTime;
+    const materialChangeFingerprint = JSON.stringify({
+      scheduledDate: updates.scheduledDate,
+      scheduledTime: updates.scheduledTime,
+      street: updates.street,
+      city: updates.city,
+      state: updates.state,
+      zip: updates.zip,
+      locationNotes: updates.locationNotes || "",
+      serviceIds: [...updates.serviceIds].sort(),
+      vehicleIds: [...updates.vehicleIds].sort(),
+    });
+    const previousMaterialFingerprint = JSON.stringify({
+      scheduledDate: existingAppointment.scheduledDate,
+      scheduledTime: existingAppointment.scheduledTime,
+      street: existingAppointment.location.street,
+      city: existingAppointment.location.city,
+      state: existingAppointment.location.state,
+      zip: existingAppointment.location.zip,
+      locationNotes: existingAppointment.location.notes || "",
+      serviceIds: [...existingAppointment.serviceIds].sort(),
+      vehicleIds: [...existingAppointment.vehicleIds].sort(),
+    });
+    const materialChanged =
+      materialChangeFingerprint !== previousMaterialFingerprint;
 
     await ctx.db.patch(appointmentId, {
       userId: updates.userId,
@@ -638,6 +757,40 @@ export const update = mutation({
         total,
         remainingBalance,
       });
+    }
+
+    if (
+      shouldScheduleNotificationJobs() &&
+      existingAppointment.status === "confirmed" &&
+      materialChanged
+    ) {
+      if (scheduleChanged && existingAppointment.reminderScheduledId) {
+        await cancelReminder(
+          ctx,
+          appointmentId,
+          existingAppointment.reminderScheduledId,
+        );
+      }
+
+      if (scheduleChanged) {
+        await scheduleReminder(
+          ctx,
+          appointmentId,
+          updates.scheduledDate,
+          updates.scheduledTime,
+        );
+      }
+
+      await ctx.scheduler.runAfter(
+        0,
+        internal.notifications.queueAppointmentLifecycleEvent,
+        {
+          appointmentId,
+          event: "appointment_rescheduled",
+          transition: `${existingAppointment.status}->${existingAppointment.status}`,
+          dedupeContext: materialChangeFingerprint,
+        },
+      );
     }
 
     return appointmentId;
@@ -833,9 +986,12 @@ export const updateStatus = mutation({
       }
 
       // Send review request email to customer
-      await ctx.scheduler.runAfter(0, internal.emails.sendCustomerReviewRequestEmail, {
-        appointmentId: args.appointmentId,
-      });
+      if (shouldScheduleNotificationJobs()) {
+        await ctx.scheduler.runAfter(0, internal.notifications.queueReviewRequest, {
+          appointmentId: args.appointmentId,
+          transition: "completed->review_request",
+        });
+      }
 
       if (shouldScheduleNotificationJobs()) {
         await ctx.scheduler.runAfter(
@@ -988,12 +1144,12 @@ export const updateStatusInternal = internalMutation({
 
     // When appointment is completed, send review request email
     if (args.status === "completed" && oldStatus !== "completed") {
-      // Send review request email to customer
-      await ctx.scheduler.runAfter(0, internal.emails.sendCustomerReviewRequestEmail, {
-        appointmentId: args.appointmentId,
-      });
-
       if (shouldScheduleNotificationJobs()) {
+        await ctx.scheduler.runAfter(0, internal.notifications.queueReviewRequest, {
+          appointmentId: args.appointmentId,
+          transition: "completed->review_request",
+        });
+
         await ctx.scheduler.runAfter(
           0,
           (internal as any).tripLogs.ensureDraftForCompletedAppointment,
@@ -1022,10 +1178,34 @@ export const reschedule = mutation({
     const appointment = await ctx.db.get(args.appointmentId);
     if (!appointment) throw new Error("Appointment not found");
 
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && appointment.userId !== userId) {
+      throw new Error("Access denied");
+    }
+
+    if (
+      appointment.status === "cancelled" ||
+      appointment.status === "completed" ||
+      appointment.status === "in_progress"
+    ) {
+      throw new Error("This appointment can no longer be rescheduled");
+    }
+
+    const normalizedDate = normalizeDateKey(args.newDate);
+    const availability = await ctx.runQuery(api.availability.checkAvailability, {
+      date: normalizedDate,
+      startTime: args.newTime,
+      duration: Math.max(appointment.duration || 0, BOOKING_BLOCK_MINUTES),
+      ignoreAppointmentId: args.appointmentId,
+    });
+
+    if (!availability.available) {
+      throw new Error(availability.reason || "Selected time is no longer available");
+    }
+
     await ctx.db.patch(args.appointmentId, {
-      scheduledDate: args.newDate,
+      scheduledDate: normalizedDate,
       scheduledTime: args.newTime,
-      status: "confirmed",
     });
 
     if (shouldScheduleNotificationJobs()) {
@@ -1035,22 +1215,27 @@ export const reschedule = mutation({
         {
           appointmentId: args.appointmentId,
           event: "appointment_rescheduled",
-          transition: `${appointment.status}->confirmed`,
+          transition: `${appointment.status}->${appointment.status}`,
+          dedupeContext: getScheduleFingerprint(normalizedDate, args.newTime),
         },
       );
 
-      // Cancel old reminder and schedule new one for updated date/time
-      await cancelReminder(
-        ctx,
-        args.appointmentId,
-        appointment.reminderScheduledId,
-      );
-      await scheduleReminder(
-        ctx,
-        args.appointmentId,
-        args.newDate,
-        args.newTime,
-      );
+      if (appointment.reminderScheduledId) {
+        await cancelReminder(
+          ctx,
+          args.appointmentId,
+          appointment.reminderScheduledId,
+        );
+      }
+
+      if (appointment.status === "confirmed") {
+        await scheduleReminder(
+          ctx,
+          args.appointmentId,
+          normalizedDate,
+          args.newTime,
+        );
+      }
     }
 
     return args.appointmentId;
@@ -1183,9 +1368,6 @@ export const getUserAppointments = query({
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) return { upcoming: [], past: [] };
 
-    const today = new Date();
-    const todayStr = today.toISOString().split("T")[0];
-
     const appointments = await ctx.db
       .query("appointments")
       .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -1213,7 +1395,6 @@ export const getUserAppointments = query({
     const upcoming = enrichedAppointments
       .filter(
         (apt) =>
-          apt.scheduledDate >= todayStr &&
           apt.status !== "cancelled" &&
           apt.status !== "completed",
       )
@@ -1227,7 +1408,6 @@ export const getUserAppointments = query({
     const past = enrichedAppointments
       .filter(
         (apt) =>
-          apt.scheduledDate < todayStr ||
           apt.status === "completed" ||
           apt.status === "cancelled",
       )

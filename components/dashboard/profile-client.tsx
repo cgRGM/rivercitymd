@@ -21,12 +21,23 @@ type NotificationPreferences = {
   smsNotifications: boolean;
   marketingEmails: boolean;
   serviceReminders: boolean;
+  operationalSmsConsent: {
+    optedIn: boolean;
+    optedInAt?: number;
+    optedOutAt?: number;
+    source?: string;
+  };
   events: {
+    bookingReceived: boolean;
     appointmentConfirmed: boolean;
+    appointmentReminder: boolean;
     appointmentCancelled: boolean;
     appointmentRescheduled: boolean;
     appointmentStarted: boolean;
     appointmentCompleted: boolean;
+    reviewRequest: boolean;
+    subscriptionCheckoutLinkSent: boolean;
+    subscriptionAppointmentScheduled: boolean;
   };
 };
 
@@ -51,12 +62,24 @@ function getUserNotificationPreferences(
 ): NotificationPreferences {
   return {
     emailNotifications: user?.notificationPreferences?.emailNotifications ?? true,
-    smsNotifications: user?.notificationPreferences?.smsNotifications ?? true,
+    smsNotifications: user?.notificationPreferences?.smsNotifications ?? false,
     marketingEmails: user?.notificationPreferences?.marketingEmails ?? false,
     serviceReminders: user?.notificationPreferences?.serviceReminders ?? true,
+    operationalSmsConsent: {
+      optedIn:
+        user?.notificationPreferences?.operationalSmsConsent?.optedIn ?? false,
+      optedInAt: user?.notificationPreferences?.operationalSmsConsent?.optedInAt,
+      optedOutAt:
+        user?.notificationPreferences?.operationalSmsConsent?.optedOutAt,
+      source: user?.notificationPreferences?.operationalSmsConsent?.source,
+    },
     events: {
+      bookingReceived:
+        user?.notificationPreferences?.events?.bookingReceived ?? true,
       appointmentConfirmed:
         user?.notificationPreferences?.events?.appointmentConfirmed ?? true,
+      appointmentReminder:
+        user?.notificationPreferences?.events?.appointmentReminder ?? true,
       appointmentCancelled:
         user?.notificationPreferences?.events?.appointmentCancelled ?? true,
       appointmentRescheduled:
@@ -65,6 +88,13 @@ function getUserNotificationPreferences(
         user?.notificationPreferences?.events?.appointmentStarted ?? true,
       appointmentCompleted:
         user?.notificationPreferences?.events?.appointmentCompleted ?? true,
+      reviewRequest: user?.notificationPreferences?.events?.reviewRequest ?? true,
+      subscriptionCheckoutLinkSent:
+        user?.notificationPreferences?.events?.subscriptionCheckoutLinkSent ??
+        true,
+      subscriptionAppointmentScheduled:
+        user?.notificationPreferences?.events
+          ?.subscriptionAppointmentScheduled ?? true,
     },
   };
 }
@@ -206,11 +236,7 @@ export default function ProfileClient() {
     setSavingSection("notifications");
     try {
       await updateUserProfile({
-        notificationPreferences: {
-          ...notifications,
-          emailNotifications: true,
-          smsNotifications: true,
-        },
+        notificationPreferences: notifications,
       });
       setIsEditingNotifications(false);
       setIsNotificationsDirty(false);
@@ -505,19 +531,50 @@ export default function ProfileClient() {
             <div>
               <div className="font-medium">Email Notifications</div>
               <div className="text-sm text-muted-foreground">
-                Required for operational notifications
+                Receive booking and appointment updates by email
               </div>
             </div>
-            <Switch checked disabled />
+            <Switch
+              checked={notifications.emailNotifications}
+              disabled={!isEditingNotifications}
+              onCheckedChange={(checked) => {
+                if (!isEditingNotifications) return;
+                setIsNotificationsDirty(true);
+                setNotifications((prev) => ({
+                  ...prev,
+                  emailNotifications: checked,
+                }));
+              }}
+            />
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium">SMS Notifications</div>
+              <div className="font-medium">Urgent SMS Updates</div>
               <div className="text-sm text-muted-foreground">
-                Required for operational notifications
+                Texts for confirmations, reminders, cancellations, reschedules,
+                and start notifications
               </div>
             </div>
-            <Switch checked disabled />
+            <Switch
+              checked={
+                notifications.smsNotifications &&
+                notifications.operationalSmsConsent.optedIn
+              }
+              disabled={!isEditingNotifications}
+              onCheckedChange={(checked) => {
+                if (!isEditingNotifications) return;
+                setIsNotificationsDirty(true);
+                setNotifications((prev) => ({
+                  ...prev,
+                  smsNotifications: checked,
+                  operationalSmsConsent: {
+                    ...prev.operationalSmsConsent,
+                    optedIn: checked,
+                    source: "profile_ui",
+                  },
+                }));
+              }}
+            />
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -565,6 +622,23 @@ export default function ProfileClient() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
+                  <div className="font-medium">Booking Received</div>
+                </div>
+                <Switch
+                  checked={notifications.events.bookingReceived}
+                  disabled={!isEditingNotifications}
+                  onCheckedChange={(checked) => {
+                    if (!isEditingNotifications) return;
+                    setIsNotificationsDirty(true);
+                    setNotifications((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, bookingReceived: checked },
+                    }));
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
                   <div className="font-medium">Appointment Confirmed</div>
                 </div>
                 <Switch
@@ -576,6 +650,23 @@ export default function ProfileClient() {
                     setNotifications((prev) => ({
                       ...prev,
                       events: { ...prev.events, appointmentConfirmed: checked },
+                    }));
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Appointment Reminder</div>
+                </div>
+                <Switch
+                  checked={notifications.events.appointmentReminder}
+                  disabled={!isEditingNotifications}
+                  onCheckedChange={(checked) => {
+                    if (!isEditingNotifications) return;
+                    setIsNotificationsDirty(true);
+                    setNotifications((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, appointmentReminder: checked },
                     }));
                   }}
                 />
@@ -647,6 +738,63 @@ export default function ProfileClient() {
                     setNotifications((prev) => ({
                       ...prev,
                       events: { ...prev.events, appointmentCompleted: checked },
+                    }));
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Review Request</div>
+                </div>
+                <Switch
+                  checked={notifications.events.reviewRequest}
+                  disabled={!isEditingNotifications}
+                  onCheckedChange={(checked) => {
+                    if (!isEditingNotifications) return;
+                    setIsNotificationsDirty(true);
+                    setNotifications((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, reviewRequest: checked },
+                    }));
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Subscription Checkout Link</div>
+                </div>
+                <Switch
+                  checked={notifications.events.subscriptionCheckoutLinkSent}
+                  disabled={!isEditingNotifications}
+                  onCheckedChange={(checked) => {
+                    if (!isEditingNotifications) return;
+                    setIsNotificationsDirty(true);
+                    setNotifications((prev) => ({
+                      ...prev,
+                      events: {
+                        ...prev.events,
+                        subscriptionCheckoutLinkSent: checked,
+                      },
+                    }));
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Subscription Appointments</div>
+                </div>
+                <Switch
+                  checked={notifications.events.subscriptionAppointmentScheduled}
+                  disabled={!isEditingNotifications}
+                  onCheckedChange={(checked) => {
+                    if (!isEditingNotifications) return;
+                    setIsNotificationsDirty(true);
+                    setNotifications((prev) => ({
+                      ...prev,
+                      events: {
+                        ...prev.events,
+                        subscriptionAppointmentScheduled: checked,
+                      },
                     }));
                   }}
                 />

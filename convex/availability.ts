@@ -163,12 +163,29 @@ async function getAppointmentsForDate(ctx: any, dateKey: string) {
   return [...deduped.values()].filter((appointment) => appointment.status !== "cancelled");
 }
 
+async function getActiveDraftHoldsForDate(ctx: any, dateKey: string) {
+  const now = Date.now();
+  const drafts = await ctx.db
+    .query("bookingDrafts")
+    .withIndex("by_status", (q: any) => q.eq("status", "checkout_open"))
+    .collect();
+
+  return drafts.filter(
+    (draft: any) =>
+      draft.scheduledDate === dateKey &&
+      typeof draft.holdExpiresAt === "number" &&
+      draft.holdExpiresAt > now,
+  );
+}
+
 // Helper function for availability checking
 async function checkSlotAvailability(
   ctx: any,
   dateInput: string,
   startTime: string,
   duration: number,
+  ignoreBookingDraftId?: string,
+  ignoreAppointmentId?: string,
 ): Promise<SlotAvailability> {
   const dateKey = normalizeDateKey(dateInput);
   const businessHours = await getBusinessHoursForDate(ctx, dateKey);
@@ -205,6 +222,10 @@ async function checkSlotAvailability(
   // Check for existing appointments
   const appointments = await getAppointmentsForDate(ctx, dateKey);
   for (const appointment of appointments) {
+    if (ignoreAppointmentId && appointment._id === ignoreAppointmentId) {
+      continue;
+    }
+
     const occupiedDuration = Math.max(
       appointment.duration || 0,
       BOOKING_BLOCK_MINUTES,
@@ -221,6 +242,26 @@ async function checkSlotAvailability(
 
     if (requestedStart < appointmentEnd && requestedEnd > appointment.scheduledTime) {
       return { available: false, reason: "Time slot already booked" };
+    }
+  }
+
+  const draftHolds = await getActiveDraftHoldsForDate(ctx, dateKey);
+  for (const draft of draftHolds) {
+    if (ignoreBookingDraftId && draft._id === ignoreBookingDraftId) {
+      continue;
+    }
+
+    const occupiedDuration = Math.max(draft.duration || 0, BOOKING_BLOCK_MINUTES);
+    const draftEndMinutes =
+      parseInt(draft.scheduledTime.split(":")[0], 10) * 60 +
+      parseInt(draft.scheduledTime.split(":")[1], 10) +
+      occupiedDuration;
+    const draftEnd = `${Math.floor(draftEndMinutes / 60)
+      .toString()
+      .padStart(2, "0")}:${(draftEndMinutes % 60).toString().padStart(2, "0")}`;
+
+    if (requestedStart < draftEnd && requestedEnd > draft.scheduledTime) {
+      return { available: false, reason: "Time slot is being held during checkout" };
     }
   }
 
@@ -283,6 +324,8 @@ export const checkAvailability = query({
     date: v.string(),
     startTime: v.string(),
     duration: v.number(), // in minutes
+    ignoreBookingDraftId: v.optional(v.id("bookingDrafts")),
+    ignoreAppointmentId: v.optional(v.id("appointments")),
   },
   handler: async (ctx, args) => {
     return await checkSlotAvailability(
@@ -290,6 +333,8 @@ export const checkAvailability = query({
       args.date,
       args.startTime,
       args.duration,
+      args.ignoreBookingDraftId,
+      args.ignoreAppointmentId,
     );
   },
 });
@@ -299,6 +344,7 @@ export const getAvailableTimeSlots = query({
   args: {
     date: v.string(),
     serviceDuration: v.number(), // retained for API compatibility
+    ignoreAppointmentId: v.optional(v.id("appointments")),
   },
   handler: async (ctx, args) => {
     if (!args.date) {
@@ -331,6 +377,8 @@ export const getAvailableTimeSlots = query({
         dateKey,
         timeString,
         BOOKING_BLOCK_MINUTES,
+        undefined,
+        args.ignoreAppointmentId,
       );
 
       slots.push({

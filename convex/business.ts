@@ -1,82 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAdmin } from "./auth";
-
-const DEFAULT_BUSINESS_NOTIFICATION_SETTINGS = {
-  emailNotifications: true,
-  smsNotifications: true,
-  marketingEmails: false,
-  events: {
-    newCustomerOnboarded: true,
-    appointmentConfirmed: true,
-    appointmentCancelled: true,
-    appointmentRescheduled: true,
-    appointmentStarted: true,
-    appointmentCompleted: true,
-    reviewSubmitted: true,
-    mileageLogRequired: true,
-  },
-} as const;
-
-function normalizeBusinessNotificationSettings(
-  settings?: {
-    emailNotifications: boolean;
-    smsNotifications: boolean;
-    marketingEmails: boolean;
-    events: {
-      newCustomerOnboarded: boolean;
-      appointmentConfirmed: boolean;
-      appointmentCancelled: boolean;
-      appointmentRescheduled: boolean;
-      appointmentStarted: boolean;
-      appointmentCompleted: boolean;
-      reviewSubmitted: boolean;
-      mileageLogRequired?: boolean;
-    };
-  },
-) {
-  if (!settings) {
-    return undefined;
-  }
-
-  return {
-    emailNotifications:
-      settings.emailNotifications ??
-      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.emailNotifications,
-    smsNotifications:
-      settings.smsNotifications ??
-      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.smsNotifications,
-    marketingEmails:
-      settings.marketingEmails ??
-      DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.marketingEmails,
-    events: {
-      newCustomerOnboarded:
-        settings.events.newCustomerOnboarded ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.newCustomerOnboarded,
-      appointmentConfirmed:
-        settings.events.appointmentConfirmed ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentConfirmed,
-      appointmentCancelled:
-        settings.events.appointmentCancelled ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentCancelled,
-      appointmentRescheduled:
-        settings.events.appointmentRescheduled ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentRescheduled,
-      appointmentStarted:
-        settings.events.appointmentStarted ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentStarted,
-      appointmentCompleted:
-        settings.events.appointmentCompleted ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.appointmentCompleted,
-      reviewSubmitted:
-        settings.events.reviewSubmitted ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.reviewSubmitted,
-      mileageLogRequired:
-        settings.events.mileageLogRequired ??
-        DEFAULT_BUSINESS_NOTIFICATION_SETTINGS.events.mileageLogRequired,
-    },
-  };
-}
+import {
+  businessNotificationSettingsValidator,
+  normalizeBusinessNotificationSettings,
+} from "./lib/notificationSettings";
 
 export const generateUploadUrl = mutation({
   handler: async (ctx) => {
@@ -114,21 +42,7 @@ export const update = mutation({
     country: v.optional(v.string()),
     logoId: v.optional(v.id("_storage")),
     notificationSettings: v.optional(
-      v.object({
-        emailNotifications: v.boolean(),
-        smsNotifications: v.boolean(),
-        marketingEmails: v.boolean(),
-        events: v.object({
-          newCustomerOnboarded: v.boolean(),
-          appointmentConfirmed: v.boolean(),
-          appointmentCancelled: v.boolean(),
-          appointmentRescheduled: v.boolean(),
-          appointmentStarted: v.boolean(),
-          appointmentCompleted: v.boolean(),
-          reviewSubmitted: v.boolean(),
-          mileageLogRequired: v.optional(v.boolean()),
-        }),
-      }),
+      businessNotificationSettingsValidator,
     ),
   },
   handler: async (ctx, args) => {

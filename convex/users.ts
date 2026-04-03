@@ -16,20 +16,11 @@ import {
   normalizeServiceType,
   type VehicleSize,
 } from "./lib/pricing";
-
-const DEFAULT_USER_NOTIFICATION_PREFERENCES = {
-  emailNotifications: true,
-  smsNotifications: true,
-  marketingEmails: false,
-  serviceReminders: true,
-  events: {
-    appointmentConfirmed: true,
-    appointmentCancelled: true,
-    appointmentRescheduled: true,
-    appointmentStarted: true,
-    appointmentCompleted: true,
-  },
-} as const;
+import {
+  DEFAULT_USER_NOTIFICATION_PREFERENCES,
+  normalizeUserNotificationPreferences,
+  userNotificationPreferencesValidator,
+} from "./lib/notificationSettings";
 
 const STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS = [
   0,
@@ -51,6 +42,62 @@ type ClerkAccountSyncResult = {
   invited: boolean;
   linked: boolean;
 };
+
+function applyNotificationPreferenceUpdate(
+  currentPreferences: Doc<"users">["notificationPreferences"] | undefined,
+  nextPreferences:
+    | Doc<"users">["notificationPreferences"]
+    | ReturnType<typeof normalizeUserNotificationPreferences>
+    | undefined,
+  source: string,
+) {
+  const current = normalizeUserNotificationPreferences(currentPreferences);
+  const next = normalizeUserNotificationPreferences(
+    nextPreferences ?? currentPreferences,
+  );
+  const now = Date.now();
+
+  if (next.smsNotifications) {
+    return {
+      ...next,
+      operationalSmsConsent: {
+        optedIn: true,
+        optedInAt: current.operationalSmsConsent.optedInAt ?? now,
+        optedOutAt: undefined,
+        source,
+      },
+    };
+  }
+
+  return {
+    ...next,
+    smsNotifications: false,
+    operationalSmsConsent: {
+      optedIn: false,
+      optedInAt: current.operationalSmsConsent.optedInAt,
+      optedOutAt: current.operationalSmsConsent.optedIn
+        ? now
+        : current.operationalSmsConsent.optedOutAt,
+      source,
+    },
+  };
+}
+
+function buildDefaultNotificationPreferences(
+  source: string,
+  smsOptIn = false,
+) {
+  return applyNotificationPreferenceUpdate(
+    undefined,
+    {
+      ...normalizeUserNotificationPreferences(
+        DEFAULT_USER_NOTIFICATION_PREFERENCES,
+      ),
+      smsNotifications: smsOptIn,
+    },
+    source,
+  );
+}
 
 function resolvePreferredName(args: {
   onboardingName?: string;
@@ -430,7 +477,9 @@ export const create = mutation({
       status: "active",
       cancellationCount: 0,
       notes: args.notes,
-      notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
+      notificationPreferences: buildDefaultNotificationPreferences(
+        "admin_create",
+      ),
     });
 
     if (args.vehicles?.length) {
@@ -555,7 +604,9 @@ export const createUserProfile = mutation({
           timesServiced: 0,
           totalSpent: 0,
           status: "active",
-          notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
+          notificationPreferences: buildDefaultNotificationPreferences(
+            "onboarding",
+          ),
           // stripeCustomerId will be set by onboarding/payment Stripe sync flows
         };
         if (identity.email) {
@@ -586,7 +637,7 @@ export const createUserProfile = mutation({
           role: "client",
           notificationPreferences:
             existingUser.notificationPreferences ||
-            DEFAULT_USER_NOTIFICATION_PREFERENCES,
+            buildDefaultNotificationPreferences("onboarding"),
         });
       }
       if (!existingUser.stripeCustomerId) {
@@ -627,7 +678,7 @@ export const createUserProfile = mutation({
       status: "active",
       notificationPreferences:
         existingUser?.notificationPreferences ||
-        DEFAULT_USER_NOTIFICATION_PREFERENCES,
+        buildDefaultNotificationPreferences("onboarding"),
     });
 
     // Only create vehicles if they don't already exist (idempotent)
@@ -784,7 +835,9 @@ export const upsertFromClerk = internalMutation({
       timesServiced: 0,
       totalSpent: 0,
       status: "active",
-      notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
+      notificationPreferences: buildDefaultNotificationPreferences(
+        "clerk_webhook",
+      ),
     });
 
     if (shouldScheduleStripeCustomerSync()) {
@@ -947,26 +1000,17 @@ export const updateUserProfile = mutation({
         zip: v.string(),
       }),
     ),
-    notificationPreferences: v.optional(
-      v.object({
-        emailNotifications: v.boolean(),
-        smsNotifications: v.boolean(),
-        marketingEmails: v.boolean(),
-        serviceReminders: v.boolean(),
-        events: v.object({
-          appointmentConfirmed: v.boolean(),
-          appointmentCancelled: v.boolean(),
-          appointmentRescheduled: v.boolean(),
-          appointmentStarted: v.boolean(),
-          appointmentCompleted: v.boolean(),
-        }),
-      }),
-    ),
+    notificationPreferences: v.optional(userNotificationPreferencesValidator),
   },
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) {
       throw new Error("Not authenticated");
+    }
+
+    const user = await ctx.db.get(userId);
+    if (!user) {
+      throw new Error("User not found");
     }
 
     const updates: any = {};
@@ -975,7 +1019,11 @@ export const updateUserProfile = mutation({
     if (args.phone !== undefined) updates.phone = args.phone;
     if (args.address !== undefined) updates.address = args.address;
     if (args.notificationPreferences !== undefined) {
-      updates.notificationPreferences = args.notificationPreferences;
+      updates.notificationPreferences = applyNotificationPreferenceUpdate(
+        user.notificationPreferences,
+        args.notificationPreferences,
+        "profile",
+      );
     }
 
     await ctx.db.patch(userId, updates);
@@ -1044,6 +1092,7 @@ export const ensureGuestUser = internalMutation({
     name: v.string(),
     email: v.string(),
     phone: v.string(),
+    smsOptIn: v.optional(v.boolean()),
   },
   returns: v.id("users"),
   handler: async (ctx, args) => {
@@ -1080,6 +1129,16 @@ export const ensureGuestUser = internalMutation({
       if (user.phone !== args.phone && !user.clerkUserId) {
          updates.phone = args.phone;
       }
+      if (args.smsOptIn !== undefined) {
+        updates.notificationPreferences = applyNotificationPreferenceUpdate(
+          user.notificationPreferences,
+          {
+            ...normalizeUserNotificationPreferences(user.notificationPreferences),
+            smsNotifications: args.smsOptIn,
+          },
+          "booking",
+        );
+      }
       if (Object.keys(updates).length > 0) {
         await ctx.db.patch(user._id, updates);
       }
@@ -1094,7 +1153,10 @@ export const ensureGuestUser = internalMutation({
         totalSpent: 0,
         status: "active",
         cancellationCount: 0,
-        notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
+        notificationPreferences: buildDefaultNotificationPreferences(
+          "booking",
+          args.smsOptIn ?? false,
+        ),
       });
       user = (await ctx.db.get(newUserId))!;
     } else {
@@ -1357,6 +1419,7 @@ export const createUserWithAppointment = mutation({
     scheduledDate: v.string(),
     scheduledTime: v.string(),
     locationNotes: v.optional(v.string()),
+    smsOptIn: v.optional(v.boolean()),
     paymentOption: v.optional(
       v.union(v.literal("deposit"), v.literal("full"), v.literal("in_person")),
     ),
@@ -1417,6 +1480,18 @@ export const createUserWithAppointment = mutation({
       if (!existingUser.name || existingUser.name === existingUser.email) {
         updateData.name = args.name;
       }
+      if (args.smsOptIn !== undefined) {
+        updateData.notificationPreferences = applyNotificationPreferenceUpdate(
+          existingUser.notificationPreferences,
+          {
+            ...normalizeUserNotificationPreferences(
+              existingUser.notificationPreferences,
+            ),
+            smsNotifications: args.smsOptIn,
+          },
+          "booking",
+        );
+      }
       if (Object.keys(updateData).length > 0) {
         await ctx.db.patch(userId, updateData);
       }
@@ -1432,7 +1507,10 @@ export const createUserWithAppointment = mutation({
         totalSpent: 0,
         status: "active",
         cancellationCount: 0,
-        notificationPreferences: DEFAULT_USER_NOTIFICATION_PREFERENCES,
+        notificationPreferences: buildDefaultNotificationPreferences(
+          "marketing_booking",
+          args.smsOptIn ?? false,
+        ),
       });
     }
 

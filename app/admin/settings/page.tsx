@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
@@ -54,8 +55,11 @@ type AdminNotificationSettings = {
   emailNotifications: boolean;
   smsNotifications: boolean;
   marketingEmails: boolean;
+  adminEmailRecipients: string[];
+  adminSmsRecipients: string[];
   events: {
     newCustomerOnboarded: boolean;
+    bookingReceived: boolean;
     appointmentConfirmed: boolean;
     appointmentCancelled: boolean;
     appointmentRescheduled: boolean;
@@ -63,6 +67,9 @@ type AdminNotificationSettings = {
     appointmentCompleted: boolean;
     reviewSubmitted: boolean;
     mileageLogRequired: boolean;
+    subscriptionCheckoutLinkSent: boolean;
+    subscriptionAppointmentScheduled: boolean;
+    paymentFailed: boolean;
   };
 };
 
@@ -70,8 +77,11 @@ const DEFAULT_NOTIFICATION_SETTINGS: AdminNotificationSettings = {
   emailNotifications: true,
   smsNotifications: true,
   marketingEmails: false,
+  adminEmailRecipients: [],
+  adminSmsRecipients: [],
   events: {
-    newCustomerOnboarded: true,
+    newCustomerOnboarded: false,
+    bookingReceived: true,
     appointmentConfirmed: true,
     appointmentCancelled: true,
     appointmentRescheduled: true,
@@ -79,8 +89,26 @@ const DEFAULT_NOTIFICATION_SETTINGS: AdminNotificationSettings = {
     appointmentCompleted: true,
     reviewSubmitted: true,
     mileageLogRequired: true,
+    subscriptionCheckoutLinkSent: true,
+    subscriptionAppointmentScheduled: true,
+    paymentFailed: true,
   },
 };
+
+function parseRecipients(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,;]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function formatRecipients(value: string[] | undefined): string {
+  return (value || []).join("\n");
+}
 
 function formatTime12h(time: string): string {
   const [h, m] = time.split(":").map(Number);
@@ -107,6 +135,8 @@ export default function SettingsPage() {
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
   const [notificationSettings, setNotificationSettings] =
     useState<AdminNotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  const [adminEmailRecipientsText, setAdminEmailRecipientsText] = useState("");
+  const [adminSmsRecipientsText, setAdminSmsRecipientsText] = useState("");
   const [isTimeBlockDialogOpen, setIsTimeBlockDialogOpen] = useState(false);
   const [timeBlockForm, setTimeBlockForm] = useState({
     date: "",
@@ -149,9 +179,16 @@ export default function SettingsPage() {
         smsNotifications: business.notificationSettings?.smsNotifications ?? true,
         marketingEmails:
           business.notificationSettings?.marketingEmails ?? false,
+        adminEmailRecipients:
+          business.notificationSettings?.adminEmailRecipients ?? [],
+        adminSmsRecipients:
+          business.notificationSettings?.adminSmsRecipients ?? [],
         events: {
           newCustomerOnboarded:
-            business.notificationSettings?.events?.newCustomerOnboarded ?? true,
+            business.notificationSettings?.events?.newCustomerOnboarded ??
+            false,
+          bookingReceived:
+            business.notificationSettings?.events?.bookingReceived ?? true,
           appointmentConfirmed:
             business.notificationSettings?.events?.appointmentConfirmed ?? true,
           appointmentCancelled:
@@ -167,8 +204,22 @@ export default function SettingsPage() {
             business.notificationSettings?.events?.reviewSubmitted ?? true,
           mileageLogRequired:
             business.notificationSettings?.events?.mileageLogRequired ?? true,
+          subscriptionCheckoutLinkSent:
+            business.notificationSettings?.events?.subscriptionCheckoutLinkSent ??
+            true,
+          subscriptionAppointmentScheduled:
+            business.notificationSettings?.events
+              ?.subscriptionAppointmentScheduled ?? true,
+          paymentFailed:
+            business.notificationSettings?.events?.paymentFailed ?? true,
         },
       });
+      setAdminEmailRecipientsText(
+        formatRecipients(business.notificationSettings?.adminEmailRecipients),
+      );
+      setAdminSmsRecipientsText(
+        formatRecipients(business.notificationSettings?.adminSmsRecipients),
+      );
     }
   }, [business, form]);
 
@@ -193,8 +244,8 @@ export default function SettingsPage() {
         country: data.country,
         notificationSettings: {
           ...notificationSettings,
-          emailNotifications: true,
-          smsNotifications: true,
+          adminEmailRecipients: parseRecipients(adminEmailRecipientsText),
+          adminSmsRecipients: parseRecipients(adminSmsRecipientsText),
         },
       });
       toast.success(
@@ -244,8 +295,8 @@ export default function SettingsPage() {
         id: business._id,
         notificationSettings: {
           ...notificationSettings,
-          emailNotifications: true,
-          smsNotifications: true,
+          adminEmailRecipients: parseRecipients(adminEmailRecipientsText),
+          adminSmsRecipients: parseRecipients(adminSmsRecipientsText),
         },
       });
       toast.success("Notification settings saved");
@@ -692,19 +743,35 @@ export default function SettingsPage() {
             <div>
               <div className="font-medium">Email Notifications</div>
               <div className="text-sm text-muted-foreground">
-                Required for operational notifications
+                Send operational alerts to the admin email list
               </div>
             </div>
-            <Switch checked disabled />
+            <Switch
+              checked={notificationSettings.emailNotifications}
+              onCheckedChange={(checked) =>
+                setNotificationSettings((prev) => ({
+                  ...prev,
+                  emailNotifications: checked,
+                }))
+              }
+            />
           </div>
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">SMS Notifications</div>
               <div className="text-sm text-muted-foreground">
-                Required for operational notifications
+                Send urgent ops alerts to the admin SMS list
               </div>
             </div>
-            <Switch checked disabled />
+            <Switch
+              checked={notificationSettings.smsNotifications}
+              onCheckedChange={(checked) =>
+                setNotificationSettings((prev) => ({
+                  ...prev,
+                  smsNotifications: checked,
+                }))
+              }
+            />
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -724,6 +791,36 @@ export default function SettingsPage() {
             />
           </div>
 
+          <div className="space-y-2 pt-2 border-t">
+            <Label htmlFor="admin-email-recipients">Admin Email Recipients</Label>
+            <Textarea
+              id="admin-email-recipients"
+              value={adminEmailRecipientsText}
+              onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setAdminEmailRecipientsText(event.target.value)
+              }
+              placeholder="one@example.com&#10;two@example.com"
+            />
+            <p className="text-sm text-muted-foreground">
+              One address per line. Used for admin operational emails.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="admin-sms-recipients">Admin SMS Recipients</Label>
+            <Textarea
+              id="admin-sms-recipients"
+              value={adminSmsRecipientsText}
+              onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setAdminSmsRecipientsText(event.target.value)
+              }
+              placeholder="+15015550100&#10;+15015550101"
+            />
+            <p className="text-sm text-muted-foreground">
+              One phone number per line in E.164 or US format.
+            </p>
+          </div>
+
           <div className="pt-2 border-t">
             <p className="text-sm font-medium mb-3">Event Notifications</p>
             <div className="space-y-4">
@@ -740,6 +837,23 @@ export default function SettingsPage() {
                     setNotificationSettings((prev) => ({
                       ...prev,
                       events: { ...prev.events, newCustomerOnboarded: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Booking Received</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify after successful checkout while the appointment is still awaiting confirmation
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.bookingReceived}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, bookingReceived: checked },
                     }))
                   }
                 />
@@ -862,6 +976,65 @@ export default function SettingsPage() {
                     setNotificationSettings((prev) => ({
                       ...prev,
                       events: { ...prev.events, mileageLogRequired: checked },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Subscription Checkout Link Sent</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when a recurring-service payment link is sent or resent
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.subscriptionCheckoutLinkSent}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: {
+                        ...prev.events,
+                        subscriptionCheckoutLinkSent: checked,
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Subscription Appointment Scheduled</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when a recurring appointment is auto-scheduled
+                  </div>
+                </div>
+                <Switch
+                  checked={
+                    notificationSettings.events.subscriptionAppointmentScheduled
+                  }
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: {
+                        ...prev.events,
+                        subscriptionAppointmentScheduled: checked,
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">Payment Failed</div>
+                  <div className="text-sm text-muted-foreground">
+                    Notify when Stripe reports a failed invoice or subscription payment
+                  </div>
+                </div>
+                <Switch
+                  checked={notificationSettings.events.paymentFailed}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings((prev) => ({
+                      ...prev,
+                      events: { ...prev.events, paymentFailed: checked },
                     }))
                   }
                 />

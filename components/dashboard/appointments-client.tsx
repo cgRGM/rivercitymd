@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useConvexAuth } from "convex/react";
 import { useSearchParams } from "next/navigation";
@@ -34,7 +34,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { DashboardAppointmentForm } from "@/components/forms/dashboard/dashboard-appointment-form";
+import { TimeSlotPicker } from "@/components/home/time-slot-picker";
 import { toast } from "sonner";
 import { formatDateString, formatTime12h } from "@/lib/time";
 
@@ -96,10 +98,14 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] =
     useState<Appointment | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("");
+  const [isRescheduling, setIsRescheduling] = useState(false);
 
   const queryArgs = isAuthenticated ? {} : ("skip" as const);
   const appointmentsData = useQuery(api.appointments.getUserAppointments, queryArgs);
   const updateStatus = useMutation(api.appointments.updateStatus);
+  const rescheduleAppointment = useMutation(api.appointments.reschedule);
 
   // Handle payment success/cancelled redirects from Stripe
   useEffect(() => {
@@ -114,6 +120,107 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [searchParams]);
+
+  const appointments = appointmentsData ?? { upcoming: [], past: [] };
+
+  const handleCancelAppointment = useCallback(
+    async (appointmentId: Id<"appointments">) => {
+      try {
+        await updateStatus({
+          appointmentId,
+          status: "cancelled",
+        });
+        toast.success("Appointment cancelled successfully");
+      } catch {
+        toast.error("Failed to cancel appointment");
+      }
+    },
+    [updateStatus],
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated || isAuthLoading || appointmentsData === undefined || appointmentsData === null) {
+      return;
+    }
+
+    const appointmentId = searchParams.get("appointmentId");
+    const action = searchParams.get("action");
+
+    if (!appointmentId || !action) {
+      return;
+    }
+
+    const matchingAppointment = appointments.upcoming.find(
+      (appointment: Appointment) => appointment._id === appointmentId,
+    );
+    if (!matchingAppointment) {
+      return;
+    }
+
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete("appointmentId");
+    nextUrl.searchParams.delete("action");
+    window.history.replaceState({}, "", nextUrl.pathname + nextUrl.search);
+
+    if (action === "reschedule") {
+      setSelectedAppointment(matchingAppointment);
+      setIsRescheduleOpen(true);
+      return;
+    }
+
+    if (action === "cancel") {
+      void handleCancelAppointment(matchingAppointment._id);
+    }
+  }, [
+    appointments.upcoming,
+    appointmentsData,
+    handleCancelAppointment,
+    isAuthenticated,
+    isAuthLoading,
+    searchParams,
+  ]);
+
+  useEffect(() => {
+    if (!selectedAppointment) {
+      setRescheduleDate("");
+      setRescheduleTime("");
+      return;
+    }
+
+    setRescheduleDate(selectedAppointment.scheduledDate);
+    setRescheduleTime(selectedAppointment.scheduledTime);
+  }, [selectedAppointment]);
+
+  const handleConfirmReschedule = useCallback(async () => {
+    if (!selectedAppointment || !rescheduleDate || !rescheduleTime) {
+      toast.error("Please choose a new date and time");
+      return;
+    }
+
+    setIsRescheduling(true);
+    try {
+      await rescheduleAppointment({
+        appointmentId: selectedAppointment._id,
+        newDate: rescheduleDate,
+        newTime: rescheduleTime,
+      });
+      toast.success(
+        selectedAppointment.status === "pending"
+          ? "Appointment request updated. We’ll review the new time."
+          : "Appointment rescheduled successfully",
+      );
+      setIsRescheduleOpen(false);
+      setSelectedAppointment(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to reschedule appointment",
+      );
+    } finally {
+      setIsRescheduling(false);
+    }
+  }, [rescheduleAppointment, rescheduleDate, rescheduleTime, selectedAppointment]);
 
   // Handle loading state
   if (isAuthLoading || (isAuthenticated && appointmentsData === undefined)) {
@@ -238,20 +345,6 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
     );
   }
 
-  const appointments = appointmentsData ?? { upcoming: [], past: [] };
-
-  const handleCancelAppointment = async (appointmentId: Id<"appointments">) => {
-    try {
-      await updateStatus({
-        appointmentId,
-        status: "cancelled",
-      });
-      toast.success("Appointment cancelled successfully");
-    } catch {
-      toast.error("Failed to cancel appointment");
-    }
-  };
-
   const formatAppointmentData = (appointment: Appointment) => {
     const serviceNames =
       appointment.services?.map((s) => s.name).join(", ") || "Service";
@@ -367,7 +460,11 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
                           }
                           onOpenChange={(open) => {
                             setIsRescheduleOpen(open);
-                            if (open) setSelectedAppointment(appointment);
+                            if (open) {
+                              setSelectedAppointment(appointment);
+                              return;
+                            }
+                            setSelectedAppointment(null);
                           }}
                         >
                           <DialogTrigger asChild>
@@ -395,20 +492,59 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
                                   </div>
                                 </div>
                               </div>
-                              <div className="h-[300px] flex items-center justify-center bg-secondary/30 rounded-lg">
-                                <p className="text-muted-foreground">
-                                  Cal.com scheduling widget would go here
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor={`reschedule-date-${formatted.id}`}>
+                                    New Date
+                                  </Label>
+                                  <Input
+                                    id={`reschedule-date-${formatted.id}`}
+                                    type="date"
+                                    value={rescheduleDate}
+                                    onChange={(event) => {
+                                      setRescheduleDate(event.target.value);
+                                      setRescheduleTime("");
+                                    }}
+                                    disabled={isRescheduling}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>New Time</Label>
+                                  <TimeSlotPicker
+                                    date={rescheduleDate}
+                                    selectedTime={rescheduleTime}
+                                    onTimeSelect={setRescheduleTime}
+                                    serviceDuration={appointment.duration}
+                                    ignoreAppointmentId={appointment._id}
+                                  />
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {appointment.status === "pending"
+                                    ? "Your rescheduled request will stay pending until the team reviews it."
+                                    : "We’ll notify you if anything changes after you move this appointment."}
                                 </p>
                               </div>
                               <div className="flex gap-2">
                                 <Button
                                   variant="outline"
                                   className="flex-1 bg-transparent"
-                                  onClick={() => setIsRescheduleOpen(false)}
+                                  onClick={() => {
+                                    setIsRescheduleOpen(false);
+                                    setSelectedAppointment(null);
+                                  }}
+                                  disabled={isRescheduling}
                                 >
                                   Cancel
                                 </Button>
-                                <Button className="flex-1">
+                                <Button
+                                  className="flex-1"
+                                  onClick={() => void handleConfirmReschedule()}
+                                  disabled={
+                                    isRescheduling ||
+                                    !rescheduleDate ||
+                                    !rescheduleTime
+                                  }
+                                >
                                   Confirm Reschedule
                                 </Button>
                               </div>

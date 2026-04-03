@@ -11,8 +11,13 @@ import { getUserIdFromIdentity, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { stripeClient } from "./stripeClient";
+import { BOOKING_BLOCK_MINUTES } from "./lib/booking";
 
 const paymentsInternal: any = (internal as any).payments;
+const STRIPE_API_MAX_ATTEMPTS = 3;
+const STRIPE_API_RETRY_DELAYS_MS = [250, 750] as const;
+const BOOKING_HOLD_DURATION_MS = 15 * 60 * 1000;
+const ABANDONED_RECOVERY_DELAY_MS = 60 * 60 * 1000;
 
 // Helper function to get Stripe secret key from environment
 function getStripeSecretKey(): string {
@@ -29,21 +34,71 @@ function getStripeSecretKey(): string {
 async function stripeApiCall(endpoint: string, options: RequestInit = {}) {
   const stripeSecretKey = getStripeSecretKey();
   const url = `https://api.stripe.com/v1/${endpoint}`;
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${stripeSecretKey}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      ...options.headers,
-    },
-  });
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Stripe API error: ${response.status} ${error}`);
+  for (let attempt = 1; attempt <= STRIPE_API_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...options.headers,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        const shouldRetry =
+          response.status === 429 || response.status >= 500;
+        const stripeError = new Error(
+          `Stripe API error: ${response.status} ${error}`,
+        );
+
+        if (!shouldRetry || attempt === STRIPE_API_MAX_ATTEMPTS) {
+          throw stripeError;
+        }
+
+        lastError = stripeError;
+      } else {
+        return response.json();
+      }
+    } catch (error) {
+      const stripeError =
+        error instanceof Error ? error : new Error(String(error));
+
+      if (
+        !isTransientStripeConnectionError(stripeError) ||
+        attempt === STRIPE_API_MAX_ATTEMPTS
+      ) {
+        throw stripeError;
+      }
+
+      lastError = stripeError;
+    }
+
+    await delay(STRIPE_API_RETRY_DELAYS_MS[attempt - 1] ?? 1_500);
   }
 
-  return response.json();
+  throw lastError ?? new Error("Stripe API request failed");
+}
+
+function isTransientStripeConnectionError(error: Error) {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("tunnel error") ||
+    message.includes("client error (connect)") ||
+    message.includes("fetch failed") ||
+    message.includes("networkerror") ||
+    message.includes("timeout") ||
+    message.includes("temporar") ||
+    message.includes("econnreset") ||
+    message.includes("enotfound")
+  );
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const backfillSummaryValidator = v.object({
@@ -135,6 +190,21 @@ type RemainingBalanceCollectionMethod =
   | "send_invoice"
   | "charge_automatically";
 
+type BookingCheckoutResult = {
+  sessionId: string;
+  url: string;
+  token: string;
+};
+
+type ResumeBookingDraftCheckoutResult = {
+  status: "redirect" | "requires_new_time" | "converted";
+  url?: string;
+};
+
+type CancelBookingDraftCheckoutResult = {
+  status: "cancelled" | "converted" | "missing";
+};
+
 function appendMetadata(
   params: URLSearchParams,
   metadata: Record<string, string>,
@@ -159,6 +229,38 @@ function getRemainingBalanceCollectionMethod(
 
 function formatStripeLineItemDescription(item: any, quantity: number): string {
   return quantity > 1 ? `${item.serviceName} x${quantity}` : item.serviceName;
+}
+
+function buildBookingRedirectUrl(origin: string, pathname: string, token: string) {
+  const url = new URL(pathname, origin);
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+async function expireStripeCheckoutSessionIfPossible(
+  checkoutSessionId: string | undefined,
+) {
+  if (!checkoutSessionId?.trim()) {
+    return;
+  }
+
+  try {
+    await stripeApiCall(`checkout/sessions/${checkoutSessionId}/expire`, {
+      method: "POST",
+      body: new URLSearchParams(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    if (
+      message.includes("already expired") ||
+      message.includes("already completed") ||
+      message.includes("cannot expire") ||
+      message.includes("no such checkout.session")
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 function toStripeDueDateTimestamp(dateString: string): string {
@@ -2103,53 +2205,29 @@ export const syncPaymentStatus = action({
 });
 
 // Create a checkout session for booking (guest or auth)
-export const createBookingCheckout = action({
-  args: {
-    appointmentId: v.id("appointments"),
-    invoiceId: v.id("invoices"),
-    successUrl: v.string(),
-    cancelUrl: v.string(),
-    // Optional contact info to fix user data if missing
-    name: v.optional(v.string()),
-    email: v.optional(v.string()),
-    phone: v.optional(v.string()),
-    paymentOption: v.optional(
-      v.union(v.literal("deposit"), v.literal("full"), v.literal("in_person")),
-    ),
-  },
-  returns: v.object({
-    sessionId: v.string(),
-    url: v.string(),
-  }),
-  handler: async (ctx, args) => {
-    // 1. Ensure user exists and is linked if contact info provided
-    if (args.name && args.email && args.phone) {
-      await ctx.runMutation(internal.users.ensureGuestUser, {
-        appointmentId: args.appointmentId,
-        name: args.name,
-        email: args.email,
-        phone: args.phone,
+async function ensureStripeCustomerForBookingDraft(
+  ctx: any,
+  draft: Doc<"bookingDrafts">,
+) {
+  let user =
+    (draft.sourceUserId
+      ? await ctx.runQuery(internal.users.getByIdInternal, {
+          userId: draft.sourceUserId,
+        })
+      : null) ?? null;
+
+  if (!user) {
+    const existingUserId = await ctx.runQuery(internal.auth.getUserIdByEmail, {
+      email: draft.customerEmail,
+    });
+    if (existingUserId) {
+      user = await ctx.runQuery(internal.users.getByIdInternal, {
+        userId: existingUserId,
       });
     }
+  }
 
-    // Get invoice and appointment details using internal queries to bypass auth checks
-    const invoice = await ctx.runQuery(internal.invoices.getByIdInternal, {
-      invoiceId: args.invoiceId,
-    });
-    if (!invoice) throw new Error("Invoice not found");
-
-    const appointment = await ctx.runQuery(internal.appointments.getByIdInternal, {
-      appointmentId: args.appointmentId,
-    });
-    if (!appointment) throw new Error("Appointment not found");
-
-    // Get user details (fetch fresh after potential ensureGuestUser update)
-    const user = await ctx.runQuery(internal.users.getByIdInternal, {
-      userId: appointment.userId,
-    });
-    if (!user) throw new Error("User not found");
-
-    // Ensure Stripe customer exists (create if needed)
+  if (user) {
     let stripeCustomerId = user.stripeCustomerId;
     if (!stripeCustomerId) {
       stripeCustomerId = await ctx.runAction(internal.users.ensureStripeCustomer, {
@@ -2160,133 +2238,401 @@ export const createBookingCheckout = action({
       throw new Error("Could not ensure Stripe customer");
     }
 
-    const paymentOption = args.paymentOption ?? "deposit";
+    return { stripeCustomerId, userId: user._id };
+  }
 
-    // For "full" payment, we charge the entire invoice total
-    // For "deposit" and "in_person", we charge the deposit amount
-    if (paymentOption !== "full") {
-      if (!invoice.depositAmount || invoice.depositAmount <= 0) {
-        throw new Error("No deposit amount found for this invoice");
-      }
+  if (draft.stripeCustomerId?.trim()) {
+    return { stripeCustomerId: draft.stripeCustomerId, userId: undefined };
+  }
+
+  const params = new URLSearchParams();
+  params.set("email", draft.customerEmail);
+  params.set("name", draft.customerName);
+  if (draft.customerPhone?.trim()) {
+    params.set("phone", draft.customerPhone);
+  }
+
+  const customer = await stripeApiCall("customers", {
+    method: "POST",
+    body: params,
+  });
+
+  if (!customer.id) {
+    throw new Error("Failed to create a Stripe customer for this booking");
+  }
+
+  return { stripeCustomerId: customer.id as string, userId: undefined };
+}
+
+async function createCheckoutSessionForDraft(
+  ctx: any,
+  draft: Doc<"bookingDrafts">,
+  origin: string,
+): Promise<BookingCheckoutResult> {
+  if (draft.status === "converted") {
+    throw new Error("This booking has already been completed.");
+  }
+
+  const now = Date.now();
+  if (
+    draft.status === "checkout_open" &&
+    draft.holdExpiresAt &&
+    draft.holdExpiresAt > now &&
+    draft.stripeCheckoutUrl
+  ) {
+    return {
+      sessionId: draft.stripeCheckoutSessionId ?? "",
+      url: draft.stripeCheckoutUrl,
+      token: draft.resumeToken,
+    };
+  }
+
+  const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
+    date: draft.scheduledDate,
+    startTime: draft.scheduledTime,
+    duration: BOOKING_BLOCK_MINUTES,
+    ignoreBookingDraftId: draft._id,
+  });
+  if (!slotAvailability.available) {
+    throw new Error(
+      slotAvailability.reason || "Selected time is no longer available.",
+    );
+  }
+
+  if (draft.stripeCheckoutSessionId) {
+    await expireStripeCheckoutSessionIfPossible(draft.stripeCheckoutSessionId);
+  }
+
+  const { stripeCustomerId } = await ensureStripeCustomerForBookingDraft(ctx, draft);
+  const successUrl = buildBookingRedirectUrl(
+    origin,
+    "/booking/success",
+    draft.resumeToken,
+  );
+  const cancelUrl = buildBookingRedirectUrl(
+    origin,
+    "/booking/cancelled",
+    draft.resumeToken,
+  );
+
+  const metadata = {
+    draftId: String(draft._id),
+    resumeToken: draft.resumeToken,
+    type: draft.paymentOption === "full" ? "full" : "deposit",
+  };
+
+  let depositPriceId: string | undefined;
+  try {
+    const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
+    depositPriceId = depositSettings?.stripePriceId;
+  } catch (error) {
+    console.warn("Could not fetch deposit settings:", error);
+  }
+
+  const vehicleCount = draft.vehicleCount;
+  let sessionId = "";
+  let url = "";
+
+  if (draft.paymentOption === "full") {
+    const totalAmountInCents = Math.round(draft.totalPrice * 100);
+    const sessionData = new URLSearchParams({
+      mode: "payment",
+      customer: stripeCustomerId,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+    });
+    appendMetadata(sessionData, metadata);
+    sessionData.append(
+      "payment_intent_data[metadata][draftId]",
+      String(draft._id),
+    );
+    sessionData.append(
+      "payment_intent_data[metadata][resumeToken]",
+      draft.resumeToken,
+    );
+    sessionData.append("payment_intent_data[metadata][type]", "full");
+    sessionData.append("line_items[0][price_data][currency]", "usd");
+    sessionData.append(
+      "line_items[0][price_data][unit_amount]",
+      totalAmountInCents.toString(),
+    );
+    sessionData.append(
+      "line_items[0][price_data][product_data][name]",
+      `Full Service Payment (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
+    );
+    sessionData.append("line_items[0][quantity]", "1");
+
+    const session = await stripeApiCall("checkout/sessions", {
+      method: "POST",
+      body: sessionData,
+    });
+    sessionId = session.id;
+    url = session.url;
+  } else if (depositPriceId) {
+    const session = await stripeClient.createCheckoutSession(ctx, {
+      priceId: depositPriceId,
+      customerId: stripeCustomerId,
+      mode: "payment",
+      successUrl,
+      cancelUrl,
+      quantity: vehicleCount,
+      metadata,
+      paymentIntentMetadata: metadata,
+    });
+    sessionId = session.sessionId;
+    url = session.url || "";
+  } else {
+    const depositAmountInCents = Math.round(draft.depositAmount * 100);
+    const sessionData = new URLSearchParams({
+      mode: "payment",
+      customer: stripeCustomerId,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+    });
+    appendMetadata(sessionData, metadata);
+    sessionData.append(
+      "payment_intent_data[metadata][draftId]",
+      String(draft._id),
+    );
+    sessionData.append(
+      "payment_intent_data[metadata][resumeToken]",
+      draft.resumeToken,
+    );
+    sessionData.append("payment_intent_data[metadata][type]", "deposit");
+    sessionData.append("line_items[0][price_data][currency]", "usd");
+    sessionData.append(
+      "line_items[0][price_data][unit_amount]",
+      depositAmountInCents.toString(),
+    );
+    sessionData.append(
+      "line_items[0][price_data][product_data][name]",
+      `Deposit (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
+    );
+    sessionData.append("line_items[0][quantity]", "1");
+
+    const session = await stripeApiCall("checkout/sessions", {
+      method: "POST",
+      body: sessionData,
+    });
+    sessionId = session.id;
+    url = session.url;
+  }
+
+  if (!sessionId || !url) {
+    throw new Error("Failed to create checkout session");
+  }
+
+  const holdExpiryScheduledId = await ctx.scheduler.runAfter(
+    BOOKING_HOLD_DURATION_MS,
+    internal.payments.expireBookingDraftCheckout,
+    {
+      draftId: draft._id,
+    },
+  );
+  const abandonedEmailScheduledId = await ctx.scheduler.runAfter(
+    ABANDONED_RECOVERY_DELAY_MS,
+    internal.payments.sendAbandonedBookingRecoveryEmail,
+    {
+      draftId: draft._id,
+    },
+  );
+
+  await ctx.runMutation(internal.bookingDrafts.markCheckoutOpenInternal, {
+    draftId: draft._id,
+    stripeCheckoutSessionId: sessionId,
+    stripeCheckoutUrl: url,
+    stripeCustomerId,
+    holdExpiresAt: now + BOOKING_HOLD_DURATION_MS,
+    holdExpiryScheduledId,
+    abandonedEmailScheduledId,
+  });
+
+  return {
+    sessionId,
+    url,
+    token: draft.resumeToken,
+  };
+}
+
+export const createBookingCheckout = action({
+  args: {
+    draftId: v.id("bookingDrafts"),
+    origin: v.string(),
+  },
+  returns: v.object({
+    sessionId: v.string(),
+    url: v.string(),
+    token: v.string(),
+  }),
+  handler: async (ctx, args): Promise<BookingCheckoutResult> => {
+    const draft: Doc<"bookingDrafts"> | null = await ctx.runQuery(
+      internal.bookingDrafts.getByIdInternal,
+      {
+      draftId: args.draftId,
+      },
+    );
+    if (!draft) {
+      throw new Error("Booking draft not found");
     }
 
-    // Get deposit settings
-    let depositPriceId: string | undefined;
-    try {
-      const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
-      depositPriceId = depositSettings?.stripePriceId;
-    } catch (error) {
-      console.warn("Could not fetch deposit settings:", error);
+    return await createCheckoutSessionForDraft(ctx, draft, args.origin);
+  },
+});
+
+export const resumeBookingDraftCheckout = action({
+  args: {
+    token: v.string(),
+    origin: v.string(),
+  },
+  returns: v.object({
+    status: v.union(
+      v.literal("redirect"),
+      v.literal("requires_new_time"),
+      v.literal("converted"),
+    ),
+    url: v.optional(v.string()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<ResumeBookingDraftCheckoutResult> => {
+    const draft: Doc<"bookingDrafts"> | null = await ctx.runQuery(
+      internal.bookingDrafts.getByTokenInternal,
+      {
+        resumeToken: args.token,
+      },
+    );
+    if (!draft) {
+      throw new Error("Booking draft not found");
     }
 
-    // Calculate quantity
-    const vehicleCount = appointment.vehicleIds.length;
-
-    const successUrl = args.successUrl;
-
-    // Determine checkout type and amount based on payment option
-    const metadataType = paymentOption === "full" ? "full" : "deposit";
-
-    // Create Stripe checkout session
-    if (paymentOption === "full") {
-      // Full price checkout — charge entire invoice total via price_data
-      const totalAmountInCents = Math.round(invoice.total * 100);
-      const sessionData = new URLSearchParams({
-        mode: "payment",
-        customer: stripeCustomerId,
-        success_url: successUrl,
-        cancel_url: args.cancelUrl,
-        "metadata[appointmentId]": args.appointmentId,
-        "metadata[invoiceId]": args.invoiceId,
-        "metadata[type]": "full",
-        "payment_intent_data[metadata][appointmentId]": args.appointmentId,
-        "payment_intent_data[metadata][invoiceId]": args.invoiceId,
-        "payment_intent_data[metadata][type]": "full",
-      });
-
-      sessionData.append("line_items[0][price_data][currency]", "usd");
-      sessionData.append(
-        "line_items[0][price_data][unit_amount]",
-        totalAmountInCents.toString(),
-      );
-      sessionData.append(
-        "line_items[0][price_data][product_data][name]",
-        `Full Service Payment (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
-      );
-      sessionData.append("line_items[0][quantity]", "1");
-
-      const session = await stripeApiCall("checkout/sessions", {
-        method: "POST",
-        body: sessionData,
-      });
-
+    if (draft.status === "converted") {
       return {
-        sessionId: session.id,
-        url: session.url,
-      };
-    } else if (depositPriceId) {
-      // Deposit or in_person — charge deposit using deposit price ID
-      const session = await stripeClient.createCheckoutSession(ctx, {
-        priceId: depositPriceId,
-        customerId: stripeCustomerId,
-        mode: "payment",
-        successUrl: successUrl,
-        cancelUrl: args.cancelUrl,
-        quantity: vehicleCount,
-        metadata: {
-          appointmentId: args.appointmentId,
-          invoiceId: args.invoiceId,
-          type: metadataType,
-        },
-        paymentIntentMetadata: {
-          appointmentId: args.appointmentId,
-          invoiceId: args.invoiceId,
-          type: metadataType,
-        },
-      });
-
-      if (!session.url) throw new Error("Failed to create checkout session URL");
-
-      return {
-        sessionId: session.sessionId,
-        url: session.url,
-      };
-    } else {
-      // Fallback: manual price data for deposit
-      const depositAmountInCents = Math.round(invoice.depositAmount! * 100);
-      const sessionData = new URLSearchParams({
-        mode: "payment",
-        customer: stripeCustomerId,
-        success_url: successUrl,
-        cancel_url: args.cancelUrl,
-        "metadata[appointmentId]": args.appointmentId,
-        "metadata[invoiceId]": args.invoiceId,
-        "metadata[type]": metadataType,
-        "payment_intent_data[metadata][appointmentId]": args.appointmentId,
-        "payment_intent_data[metadata][invoiceId]": args.invoiceId,
-        "payment_intent_data[metadata][type]": metadataType,
-      });
-
-      sessionData.append("line_items[0][price_data][currency]", "usd");
-      sessionData.append(
-        "line_items[0][price_data][unit_amount]",
-        depositAmountInCents.toString(),
-      );
-      sessionData.append(
-        "line_items[0][price_data][product_data][name]",
-        `Deposit (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
-      );
-      sessionData.append("line_items[0][quantity]", "1");
-
-      const session = await stripeApiCall("checkout/sessions", {
-        method: "POST",
-        body: sessionData,
-      });
-
-      return {
-        sessionId: session.id,
-        url: session.url,
+        status: "converted",
+        url: buildBookingRedirectUrl(args.origin, "/booking/success", draft.resumeToken),
       };
     }
+
+    const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
+      date: draft.scheduledDate,
+      startTime: draft.scheduledTime,
+      duration: BOOKING_BLOCK_MINUTES,
+      ignoreBookingDraftId: draft._id,
+    });
+    if (!slotAvailability.available) {
+      return {
+        status: "requires_new_time",
+      };
+    }
+
+    const checkout = await createCheckoutSessionForDraft(ctx, draft, args.origin);
+    return {
+      status: "redirect",
+      url: checkout.url,
+    };
+  },
+});
+
+export const cancelBookingDraftCheckout = action({
+  args: {
+    token: v.string(),
+  },
+  returns: v.object({
+    status: v.union(
+      v.literal("cancelled"),
+      v.literal("converted"),
+      v.literal("missing"),
+    ),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<CancelBookingDraftCheckoutResult> => {
+    const draft: Doc<"bookingDrafts"> | null = await ctx.runQuery(
+      internal.bookingDrafts.getByTokenInternal,
+      {
+        resumeToken: args.token,
+      },
+    );
+    if (!draft) {
+      return { status: "missing" };
+    }
+    if (draft.status === "converted") {
+      return { status: "converted" };
+    }
+
+    await expireStripeCheckoutSessionIfPossible(draft.stripeCheckoutSessionId);
+    await ctx.runMutation(internal.bookingDrafts.markCancelledInternal, {
+      draftId: draft._id,
+    });
+
+    return { status: "cancelled" };
+  },
+});
+
+export const expireBookingDraftCheckout = internalAction({
+  args: {
+    draftId: v.id("bookingDrafts"),
+  },
+  handler: async (ctx, args) => {
+    const draft = await ctx.runQuery(internal.bookingDrafts.getByIdInternal, {
+      draftId: args.draftId,
+    });
+    if (!draft || draft.status === "converted") {
+      return false;
+    }
+    if (draft.holdExpiresAt && draft.holdExpiresAt > Date.now()) {
+      return false;
+    }
+
+    await expireStripeCheckoutSessionIfPossible(draft.stripeCheckoutSessionId);
+    await ctx.runMutation(internal.bookingDrafts.markExpiredInternal, {
+      draftId: draft._id,
+    });
+
+    return true;
+  },
+});
+
+export const sendAbandonedBookingRecoveryEmail = internalAction({
+  args: {
+    draftId: v.id("bookingDrafts"),
+  },
+  handler: async (ctx, args) => {
+    const draft = await ctx.runQuery(internal.bookingDrafts.getByIdInternal, {
+      draftId: args.draftId,
+    });
+    if (!draft) {
+      return false;
+    }
+    if (
+      draft.status === "converted" ||
+      draft.status === "draft" ||
+      draft.abandonedEmailSentAt
+    ) {
+      return false;
+    }
+
+    const appOrigin =
+      process.env.CONVEX_SITE_URL || "https://patient-wombat-877.convex.site";
+    await ctx.runAction(internal.emails.sendAbandonedCheckoutRecoveryEmail, {
+      customerName: draft.customerName,
+      to: draft.customerEmail,
+      scheduledDate: draft.scheduledDate,
+      scheduledTime: draft.scheduledTime,
+      serviceNames: draft.priceSnapshot.map(
+        (item: { serviceName: string }) => item.serviceName,
+      ),
+      resumeUrl: buildBookingRedirectUrl(
+        appOrigin,
+        "/booking/resume",
+        draft.resumeToken,
+      ),
+    });
+    await ctx.runMutation(internal.bookingDrafts.markAbandonedEmailSentInternal, {
+      draftId: draft._id,
+    });
+
+    return true;
   },
 });

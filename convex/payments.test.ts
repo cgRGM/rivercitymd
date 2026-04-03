@@ -117,6 +117,70 @@ describe("payments", () => {
     return { appointmentId, invoiceId, serviceId };
   }
 
+  async function createTestBookingDraft(t: any, userId: any) {
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const categoryId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("serviceCategories", {
+        name: "Draft Category",
+        type: "standard",
+      });
+    });
+
+    const serviceId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("services", {
+        name: "Draft Service",
+        description: "Draft service description",
+        basePrice: 100,
+        stripePriceIds: [
+          "price_test_small",
+          "price_test_medium",
+          "price_test_large",
+        ],
+        duration: 60,
+        categoryId,
+        isActive: true,
+      });
+    });
+
+    const vehicleId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2020,
+        make: "Toyota",
+        model: "Camry",
+        color: "Blue",
+        size: "medium",
+      });
+    });
+
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
+
+    return await asUser.mutation(api.bookingDrafts.createOrUpdate, {
+      name: "Test User",
+      email: "test@example.com",
+      phone: "555-1234",
+      smsOptIn: true,
+      address: {
+        street: "123 Main St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      existingVehicleIds: [vehicleId],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-01",
+      scheduledTime: "10:00",
+      paymentOption: "deposit",
+    });
+  }
+
   test("create deposit checkout session", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t, true);
@@ -276,7 +340,7 @@ describe("payments", () => {
     expect(updatedUser?.stripeCustomerId).toBe(`cus_test_${userId}`);
   });
 
-  test("guest booking flow creates user/appointment/invoice and returns checkout URL", async () => {
+  test("guest booking flow creates a draft and returns checkout URL", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t, {
       includeBookableService: false,
@@ -295,7 +359,7 @@ describe("payments", () => {
       });
     });
 
-    const booking = await t.mutation(api.users.createUserWithAppointment, {
+    const booking = await t.mutation(api.bookingDrafts.createOrUpdate, {
       name: "Guest Booker",
       email: "guest-booker@example.com",
       phone: "555-3030",
@@ -318,19 +382,6 @@ describe("payments", () => {
       scheduledDate: "2024-12-02",
       scheduledTime: "10:00",
     });
-
-    const appointment = await t.run(async (ctx: any) => {
-      return await ctx.db.get(booking.appointmentId);
-    });
-    const invoice = await t.run(async (ctx: any) => {
-      return await ctx.db.get(booking.invoiceId);
-    });
-    expect(appointment?._id).toBe(booking.appointmentId);
-    expect(invoice?._id).toBe(booking.invoiceId);
-
-    const successUrl =
-      "https://example.com/sign-up?after=booking&redirect=%2Fdashboard%2Fappointments";
-    const cancelUrl = "https://example.com/booking/cancel";
 
     let checkoutRequestBody = "";
     vi.stubGlobal(
@@ -356,13 +407,8 @@ describe("payments", () => {
     );
 
     const checkout = await t.action(api.payments.createBookingCheckout, {
-      appointmentId: booking.appointmentId,
-      invoiceId: booking.invoiceId,
-      successUrl,
-      cancelUrl,
-      name: "Guest Booker",
-      email: "guest-booker@example.com",
-      phone: "555-3030",
+      draftId: booking.draftId,
+      origin: "https://example.com",
     });
 
     expect(checkout.sessionId).toBe("cs_guest_123");
@@ -370,9 +416,11 @@ describe("payments", () => {
 
     const bodyParams = new URLSearchParams(checkoutRequestBody);
     expect(bodyParams.get("success_url")).toBe(
-      "https://example.com/sign-up?after=booking&redirect=%2Fdashboard%2Fappointments",
+      `https://example.com/booking/success?token=${booking.resumeToken}`,
     );
-    expect(bodyParams.get("cancel_url")).toBe(cancelUrl);
+    expect(bodyParams.get("cancel_url")).toBe(
+      `https://example.com/booking/cancelled?token=${booking.resumeToken}`,
+    );
   });
 
   test("handle webhook - checkout.session.completed for deposit", async () => {
@@ -433,6 +481,55 @@ describe("payments", () => {
 
     expect(invoice?.depositPaid).toBe(true);
     expect(invoice?.depositPaymentIntentId).toBeDefined();
+  });
+
+  test("create booking checkout retries transient Stripe tunnel errors", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+    const booking = await createTestBookingDraft(t, userId);
+
+    let checkoutAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("checkout/sessions")) {
+          checkoutAttempts += 1;
+
+          if (checkoutAttempts < 3) {
+            throw new Error(
+              "client error (Connect): tunnel error: unsuccessful",
+            );
+          }
+
+          return {
+            ok: true,
+            json: async () => ({
+              id: "cs_retry_123",
+              url: "https://checkout.stripe.com/retry",
+            }),
+          } as Response;
+        }
+
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const checkout = await t.action(api.payments.createBookingCheckout, {
+      draftId: booking.draftId,
+      origin: "https://example.com",
+    });
+
+    expect(checkoutAttempts).toBe(3);
+    expect(checkout.sessionId).toBe("cs_retry_123");
+    expect(checkout.url).toBe("https://checkout.stripe.com/retry");
   });
 
   test("handle webhook - payment_intent.succeeded for final payment", async () => {

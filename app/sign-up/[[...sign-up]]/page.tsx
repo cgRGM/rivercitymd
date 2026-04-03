@@ -2,18 +2,24 @@
 
 import { SignUp } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
+import { sanitizeRedirectPath } from "@/lib/auth-routing";
 
 export default function SignUpPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isSignedIn } = useAuth();
+  const redirectPath = sanitizeRedirectPath(
+    searchParams.get("redirect_url"),
+    "/onboarding",
+  );
 
   useEffect(() => {
     if (isSignedIn) {
-      router.push("/onboarding");
+      router.push(redirectPath);
     }
-  }, [isSignedIn, router]);
+  }, [isSignedIn, redirectPath, router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-background p-4">
@@ -27,9 +33,8 @@ export default function SignUpPage() {
         routing="path"
         path="/sign-up"
         signInUrl="/sign-in"
-        forceRedirectUrl="/onboarding"
+        forceRedirectUrl={redirectPath}
       />
     </div>
   );
 }
-

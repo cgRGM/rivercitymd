@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { ServiceCard } from "@/components/home/service-card";
 import { TimeSlotPicker } from "@/components/home/time-slot-picker";
 import {
@@ -79,6 +80,7 @@ export function DashboardAppointmentForm({
   const [paymentOption, setPaymentOption] = useState<
     "deposit" | "full" | "in_person"
   >("deposit");
+  const [smsOptIn, setSmsOptIn] = useState(false);
 
   // Queries
   const currentUser = useQuery(api.users.getCurrentUser);
@@ -87,7 +89,7 @@ export function DashboardAppointmentForm({
   const nextBookableDate = useQuery(api.availability.getNextBookableDate, {});
 
   // Mutations/Actions
-  const createAppointment = useMutation(api.appointments.create);
+  const upsertBookingDraft = useMutation(api.bookingDrafts.createOrUpdate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
 
   // Pre-fill address when user data loads
@@ -99,6 +101,12 @@ export function DashboardAppointmentForm({
       setZip(currentUser.address.zip);
     }
   }, [currentUser, street]);
+
+  React.useEffect(() => {
+    if (currentUser?.notificationPreferences?.operationalSmsConsent?.optedIn) {
+      setSmsOptIn(true);
+    }
+  }, [currentUser?.notificationPreferences?.operationalSmsConsent?.optedIn]);
 
   // Pre-fill next bookable date
   React.useEffect(() => {
@@ -230,25 +238,28 @@ export function DashboardAppointmentForm({
 
     setIsLoading(true);
     try {
-      const { appointmentId, invoiceId } = await createAppointment({
-        userId: currentUser._id,
-        vehicleIds: [selectedVehicleId] as Id<"vehicles">[],
+      const { draftId } = await upsertBookingDraft({
+        name: currentUser.name || currentUser.email || "Customer",
+        email: currentUser.email || "",
+        phone: currentUser.phone || "",
+        smsOptIn,
+        address: {
+          street,
+          city,
+          state,
+          zip,
+          notes: locationNotes || undefined,
+        },
+        existingVehicleIds: [selectedVehicleId] as Id<"vehicles">[],
         serviceIds: allSelectedServiceIds as Id<"services">[],
         scheduledDate,
         scheduledTime,
-        street,
-        city,
-        state,
-        zip,
-        locationNotes: locationNotes || undefined,
+        paymentOption,
       });
 
       const { url } = await createBookingCheckout({
-        appointmentId,
-        invoiceId,
-        successUrl: `${window.location.origin}/dashboard/appointments?payment=success`,
-        cancelUrl: `${window.location.origin}/dashboard/appointments?payment=cancelled`,
-        paymentOption,
+        draftId,
+        origin: window.location.origin,
       });
 
       if (url) {
@@ -743,6 +754,17 @@ export function DashboardAppointmentForm({
                   in person.
                 </p>
               )}
+            </div>
+
+            <div className="rounded-lg border p-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium text-sm">Urgent SMS Updates</p>
+                <p className="text-xs text-muted-foreground">
+                  Text me about confirmations, reminders, cancellations,
+                  reschedules, and when service begins.
+                </p>
+              </div>
+              <Switch checked={smsOptIn} onCheckedChange={setSmsOptIn} />
             </div>
           </div>
         )}

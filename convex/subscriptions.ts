@@ -485,7 +485,7 @@ export const sendCheckoutLink = internalAction({
     checkoutUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    await ctx.runAction(internal.emails.sendSubscriptionCheckoutLink, {
+    await ctx.runMutation(internal.notifications.queueSubscriptionCheckoutLinkSent, {
       subscriptionId: args.subscriptionId,
       checkoutUrl: args.checkoutUrl,
     });
@@ -600,16 +600,9 @@ export const createNextAppointment = internalAction({
       totalSpent: (user.totalSpent || 0) + sub.totalPrice,
     });
 
-    // Send notification email to customer
-    await ctx.runAction(internal.emails.sendSubscriptionAppointmentCreated, {
+    await ctx.runMutation(internal.notifications.queueSubscriptionAppointmentScheduled, {
       subscriptionId: args.subscriptionId,
       appointmentId,
-    });
-
-    // Notify admin
-    await ctx.runAction(internal.emails.sendAdminAppointmentNotification, {
-      appointmentId,
-      action: "created",
     });
   },
 });

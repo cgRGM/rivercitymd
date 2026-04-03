@@ -449,6 +449,144 @@ export function AppointmentReminderEmail(props: AppointmentReminderProps) {
   );
 }
 
+export interface BookingReceivedEmailProps {
+  customerName: string;
+  businessName: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  services: string[];
+  location: string;
+  totalPrice: number;
+  dashboardUrl?: string;
+  logoUrl?: string;
+}
+
+export function BookingReceivedEmail(props: BookingReceivedEmailProps) {
+  const {
+    customerName,
+    businessName,
+    appointmentDate,
+    appointmentTime,
+    services,
+    location,
+    totalPrice,
+    dashboardUrl = "#",
+    logoUrl,
+  } = props;
+
+  return (
+    <EmailLayout
+      preview={`We received your booking request for ${appointmentDate} at ${appointmentTime}.`}
+      logoUrl={logoUrl}
+      businessName={businessName}
+    >
+      <Heading style={emailStyles.heading}>
+        Booking Received
+      </Heading>
+      <Text style={emailStyles.text}>
+        Hi {customerName}, we received your booking and payment details.
+        Our team will review everything and send a confirmation once your
+        appointment is approved.
+      </Text>
+
+      <Section style={emailStyles.detailBox}>
+        <DetailField label="Requested Date" value={appointmentDate} />
+        <DetailField label="Requested Time" value={appointmentTime} />
+        <DetailField label="Location" value={location} />
+        <DetailField label="Services" value="" />
+        <ul style={{ ...emailStyles.serviceList, marginBottom: "14px" }}>
+          {services.map((service, index) => (
+            <li key={index}>{service}</li>
+          ))}
+        </ul>
+        <Hr style={{ ...emailStyles.hr, margin: "16px 0" }} />
+        <Text
+          style={{
+            ...emailStyles.detailValue,
+            fontSize: "18px",
+            fontWeight: "600",
+            marginBottom: "0",
+          }}
+        >
+          Estimated Total: ${totalPrice.toFixed(2)}
+        </Text>
+      </Section>
+
+      <Text style={emailStyles.textBody}>
+        You do not need to take any further action right now. We&apos;ll keep
+        you posted if anything changes.
+      </Text>
+
+      <Section style={{ textAlign: "center", marginBottom: "8px" }}>
+        <Button href={dashboardUrl} style={emailStyles.primaryButton}>
+          View Booking
+        </Button>
+      </Section>
+    </EmailLayout>
+  );
+}
+
+export interface AbandonedCheckoutRecoveryEmailProps {
+  customerName: string;
+  businessName: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  services: string[];
+  resumeUrl: string;
+  logoUrl?: string;
+}
+
+export function AbandonedCheckoutRecoveryEmail(
+  props: AbandonedCheckoutRecoveryEmailProps,
+) {
+  const {
+    customerName,
+    businessName,
+    appointmentDate,
+    appointmentTime,
+    services,
+    resumeUrl,
+    logoUrl,
+  } = props;
+
+  return (
+    <EmailLayout
+      preview={`Finish your booking for ${appointmentDate} at ${appointmentTime}.`}
+      logoUrl={logoUrl}
+      businessName={businessName}
+    >
+      <Heading style={emailStyles.heading}>Still thinking it over?</Heading>
+      <Text style={emailStyles.text}>
+        Hi {customerName}, we saved your booking details, but checkout was not
+        completed. Your original request is still available if you&apos;d like
+        to pick back up where you left off.
+      </Text>
+
+      <Section style={emailStyles.detailBox}>
+        <DetailField label="Requested Date" value={appointmentDate} />
+        <DetailField label="Requested Time" value={appointmentTime} />
+        <DetailField label="Services" value="" />
+        <ul style={{ ...emailStyles.serviceList, marginBottom: "0" }}>
+          {services.map((service, index) => (
+            <li key={index}>{service}</li>
+          ))}
+        </ul>
+      </Section>
+
+      <Text style={emailStyles.textBody}>
+        Use the link below to finish checkout. If that time is no longer open,
+        we&apos;ll bring your details back and help you choose a new slot.
+      </Text>
+
+      <Section style={{ textAlign: "center", marginBottom: "8px" }}>
+        <Button href={resumeUrl} style={emailStyles.primaryButton}>
+          Resume Booking
+        </Button>
+      </Section>
+    </EmailLayout>
+  );
+}
+
 // Admin New Customer Notification Email
 export interface AdminNewCustomerNotificationEmailProps {
   userName: string;
@@ -946,6 +1084,63 @@ export function SubscriptionCheckoutLinkEmail({
   );
 }
 
+export function AdminSubscriptionCheckoutLinkNotificationEmail({
+  customerName,
+  customerEmail,
+  businessName,
+  serviceNames,
+  frequency,
+  price,
+  checkoutUrl,
+  adminUrl,
+  logoUrl,
+}: {
+  customerName: string;
+  customerEmail: string;
+  businessName: string;
+  serviceNames: string[];
+  frequency: string;
+  price: number;
+  checkoutUrl: string;
+  adminUrl: string;
+  logoUrl?: string;
+}) {
+  return (
+    <EmailLayout
+      preview={`Subscription checkout link sent to ${customerName}`}
+      logoUrl={logoUrl}
+      businessName={businessName}
+    >
+      <Heading style={emailStyles.heading}>
+        Subscription Checkout Link Sent
+      </Heading>
+      <Text style={emailStyles.textBody}>
+        A recurring service checkout link was sent to the customer below.
+      </Text>
+
+      <Section style={emailStyles.detailBox}>
+        <DetailField label="Customer" value={`${customerName} (${customerEmail})`} />
+        <DetailField label="Services" value={serviceNames.join(", ")} />
+        <DetailField
+          label="Frequency"
+          value={frequency === "monthly" ? "Monthly" : "Every 2 Weeks"}
+        />
+        <DetailField
+          label="Recurring Total"
+          value={`$${price.toFixed(2)} / ${frequency === "monthly" ? "month" : "2 weeks"}`}
+        />
+        <DetailField label="Checkout Link" value={checkoutUrl} />
+      </Section>
+
+      <Section style={{ textAlign: "center", marginBottom: "8px" }}>
+        <Button href={adminUrl} style={emailStyles.primaryButton}>
+          View Subscription
+        </Button>
+      </Section>
+    </EmailLayout>
+  );
+}
+
 // --- Subscription Appointment Created Email ---
 export function SubscriptionAppointmentCreatedEmail({
   customerName,
@@ -990,6 +1185,71 @@ export function SubscriptionAppointmentCreatedEmail({
       <Section style={{ textAlign: "center", marginBottom: "8px" }}>
         <Button href={dashboardUrl} style={emailStyles.primaryButton}>
           View Appointment
+        </Button>
+      </Section>
+    </EmailLayout>
+  );
+}
+
+export function AdminPaymentFailedNotificationEmail({
+  businessName,
+  customerName,
+  customerEmail,
+  appointmentSummary,
+  failureReason,
+  paymentContext,
+  adminUrl,
+  logoUrl,
+}: {
+  businessName: string;
+  customerName?: string;
+  customerEmail?: string;
+  appointmentSummary?: string;
+  failureReason?: string;
+  paymentContext: string;
+  adminUrl: string;
+  logoUrl?: string;
+}) {
+  return (
+    <EmailLayout
+      preview={`Payment failed for ${customerName || "a customer"}`}
+      logoUrl={logoUrl}
+      businessName={businessName}
+    >
+      <Heading style={emailStyles.heading}>
+        Payment Failed
+      </Heading>
+      <Text style={emailStyles.textBody}>
+        A payment failed and may need manual follow-up from the admin team.
+      </Text>
+
+      <Section
+        style={{
+          ...emailStyles.detailBox,
+          borderLeftColor: brand.warningAmber,
+        }}
+      >
+        <DetailField label="Payment Context" value={paymentContext} />
+        <DetailField
+          label="Customer"
+          value={
+            customerName || customerEmail
+              ? `${customerName || "Unknown"}${customerEmail ? ` (${customerEmail})` : ""}`
+              : "Unknown"
+          }
+        />
+        {appointmentSummary ? (
+          <DetailField label="Appointment" value={appointmentSummary} />
+        ) : null}
+        <DetailField
+          label="Failure Reason"
+          value={failureReason || "Stripe reported a payment failure."}
+        />
+      </Section>
+
+      <Section style={{ textAlign: "center", marginBottom: "8px" }}>
+        <Button href={adminUrl} style={emailStyles.primaryButton}>
+          Review in Admin
         </Button>
       </Section>
     </EmailLayout>

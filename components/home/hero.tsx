@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,18 @@ import { ArrowRight, Sparkles, MapPin, Phone } from "lucide-react";
 
 export default function HeroSection() {
   const [bookingOpen, setBookingOpen] = useState(false);
+  const searchParams = useSearchParams();
   const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
+
+  useEffect(() => {
+    if (searchParams.get("resumeBooking") !== "1") {
+      return;
+    }
+    setBookingOpen(true);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete("resumeBooking");
+    window.history.replaceState({}, "", nextUrl.pathname + nextUrl.search);
+  }, [searchParams]);
 
   const handleBookNow = () => {
     if (bookingReadiness && !bookingReadiness.isReady) {

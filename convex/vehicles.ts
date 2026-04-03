@@ -134,6 +134,43 @@ export const deleteVehicle = mutation({
       throw new Error("Access denied");
     }
 
+    const [appointments, subscriptions, bookingDrafts] = await Promise.all([
+      ctx.db.query("appointments").collect(),
+      ctx.db.query("subscriptions").collect(),
+      ctx.db.query("bookingDrafts").collect(),
+    ]);
+
+    const linkedAppointment = appointments.find((appointment) =>
+      appointment.vehicleIds.includes(args.id),
+    );
+    if (linkedAppointment) {
+      throw new Error(
+        "This vehicle is attached to an appointment and cannot be deleted.",
+      );
+    }
+
+    const linkedSubscription = subscriptions.find((subscription) =>
+      subscription.vehicleIds.includes(args.id),
+    );
+    if (linkedSubscription) {
+      throw new Error(
+        "This vehicle is attached to a subscription and cannot be deleted.",
+      );
+    }
+
+    const linkedDraft = bookingDrafts.find(
+      (draft) =>
+        draft.existingVehicleIds.includes(args.id) &&
+        draft.status !== "converted" &&
+        draft.status !== "cancelled" &&
+        draft.status !== "expired",
+    );
+    if (linkedDraft) {
+      throw new Error(
+        "This vehicle is attached to an in-progress booking and cannot be deleted.",
+      );
+    }
+
     await ctx.db.delete(args.id);
   },
 });

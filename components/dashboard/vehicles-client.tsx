@@ -236,8 +236,10 @@ export default function VehiclesClient({}: VehiclesClientProps) {
     try {
       await deleteVehicle({ id: vehicleId as Id<"vehicles"> });
       toast.success("Vehicle deleted successfully");
-    } catch {
-      toast.error("Failed to delete vehicle");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete vehicle",
+      );
     }
   };
 
