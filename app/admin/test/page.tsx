@@ -21,31 +21,118 @@ type ScenarioConfig = {
 };
 
 const CUSTOMER_SCENARIOS: ScenarioConfig[] = [
-  { key: "welcome_email", title: "Welcome Email", description: "Sends welcome email to test customer" },
-  { key: "appointment_confirmed", title: "Appointment Confirmed", description: "Confirmation email + admin notification + SMS" },
-  { key: "appointment_cancelled", title: "Appointment Cancelled", description: "Cancellation email + admin notification + SMS" },
-  { key: "appointment_rescheduled", title: "Appointment Rescheduled", description: "Reschedule email + admin notification + SMS" },
-  { key: "appointment_started", title: "Appointment Started", description: "In-progress email + admin notification + SMS" },
-  { key: "appointment_completed", title: "Appointment Completed", description: "Completion + review request emails + SMS" },
-  { key: "reminder", title: "24h Reminder", description: "Appointment reminder email to customer" },
+  {
+    key: "booking_received",
+    title: "Booking Received",
+    description:
+      "Customer booking-received email plus the paired admin booking alert.",
+  },
+  {
+    key: "appointment_confirmed",
+    title: "Appointment Confirmed",
+    description:
+      "Customer confirmation email plus the paired admin appointment update.",
+  },
+  {
+    key: "appointment_cancelled",
+    title: "Appointment Cancelled",
+    description:
+      "Customer cancellation email plus the paired admin appointment update.",
+  },
+  {
+    key: "appointment_rescheduled",
+    title: "Appointment Rescheduled",
+    description:
+      "Customer reschedule email plus the paired admin appointment update.",
+  },
+  {
+    key: "appointment_started",
+    title: "Appointment Started",
+    description:
+      "Customer in-progress email plus the paired admin appointment update.",
+  },
+  {
+    key: "appointment_completed",
+    title: "Appointment Completed",
+    description:
+      "Customer completion email, admin completion alert, and review-request follow-up.",
+  },
+  {
+    key: "review_request",
+    title: "Review Request",
+    description: "Standalone customer review-request email after completion.",
+  },
+  {
+    key: "reminder",
+    title: "24h Reminder",
+    description: "Customer reminder email for the day before service.",
+  },
+  {
+    key: "abandoned_checkout_recovery",
+    title: "Abandoned Checkout Recovery",
+    description:
+      "Customer recovery email for a saved booking draft that was never paid.",
+  },
 ];
 
 const ADMIN_SCENARIOS: ScenarioConfig[] = [
-  { key: "new_customer_onboarded", title: "New Customer Onboarded", description: "Admin email + SMS for new customer" },
-  { key: "deposit_paid", title: "Deposit Paid", description: "Admin notification for deposit payment" },
-  { key: "review_submitted", title: "Review Submitted", description: "Admin email + SMS for new review" },
-  { key: "mileage_log_required", title: "Mileage Log Required", description: "Admin email + SMS for pending mileage log" },
+  {
+    key: "deposit_paid",
+    title: "Deposit Paid",
+    description: "Admin finance alert for a successful booking deposit payment.",
+  },
+  {
+    key: "review_submitted",
+    title: "Review Submitted",
+    description: "Admin alert for a newly submitted customer review.",
+  },
+  {
+    key: "mileage_log_required",
+    title: "Mileage Log Required",
+    description: "Admin alert when a completed appointment needs a mileage log.",
+  },
+  {
+    key: "payment_failed",
+    title: "Payment Failed",
+    description:
+      "Admin alert for a failed invoice or subscription payment attempt.",
+  },
 ];
 
 const SUBSCRIPTION_SCENARIOS: ScenarioConfig[] = [
-  { key: "subscription_checkout_link", title: "Subscription Checkout Link", description: "Email sent to customer with Stripe checkout link for recurring service" },
-  { key: "subscription_appointment_created", title: "Subscription Appointment Created", description: "Email sent when auto-scheduled appointment is created" },
+  {
+    key: "subscription_checkout_link",
+    title: "Subscription Checkout Link",
+    description:
+      "Customer checkout-link email plus the paired admin notification.",
+  },
+  {
+    key: "subscription_appointment_created",
+    title: "Subscription Appointment Created",
+    description:
+      "Customer recurring appointment email plus the paired admin appointment alert.",
+  },
 ];
 
 const FLOW_SCENARIOS: ScenarioConfig[] = [
-  { key: "full_guest_checkout", title: "Full Flow: Guest Checkout", description: "New Customer -> Deposit Paid -> Confirmed -> Started -> Completed" },
-  { key: "full_returning_customer", title: "Full Flow: Returning Customer", description: "Welcome -> Confirmed -> Started -> Completed" },
-  { key: "full_subscription_flow", title: "Full Flow: Subscription", description: "Checkout Link -> Appointment Created -> Admin Notification" },
+  {
+    key: "full_self_serve_booking",
+    title: "Full Flow: Self-Serve Booking",
+    description:
+      "Booking Received -> Deposit Paid -> Confirmed -> Started -> Completed -> Review Request.",
+  },
+  {
+    key: "full_subscription_flow",
+    title: "Full Flow: Subscription",
+    description:
+      "Checkout Link -> Subscription Appointment Created -> Admin visibility.",
+  },
+  {
+    key: "abandoned_checkout_recovery_flow",
+    title: "Full Flow: Abandoned Recovery",
+    description:
+      "Saved draft checkout recovery email for a customer who did not finish payment.",
+  },
 ];
 
 type TestResult = {
@@ -193,28 +280,31 @@ export default function TestNotificationsPage() {
           Test Notifications & Flows
         </h1>
         <p className="text-sm text-muted-foreground">
-          Run end-to-end tests of the notification pipeline. Emails sent to
-          dustin@rivercitymd.com and cg@rocktownlabs.com. SMS sent to admin
-          phone.
+          Run safe internal notification tests against the current production
+          event catalog. These scenarios send test emails to internal inboxes
+          only and mirror the live booking, subscription, failure, and recovery
+          flows without contacting real customers. SMS delivery still rides the
+          live Twilio notification path, so this screen is focused on template
+          and scenario coverage.
         </p>
       </div>
 
       <ScenarioSection
-        title="Customer Emails"
+        title="Booking & Customer Lifecycle"
         scenarios={CUSTOMER_SCENARIOS}
         results={results}
         onRun={handleRun}
       />
 
       <ScenarioSection
-        title="Admin Emails"
+        title="Admin Operations"
         scenarios={ADMIN_SCENARIOS}
         results={results}
         onRun={handleRun}
       />
 
       <ScenarioSection
-        title="Subscription Emails"
+        title="Subscription Notifications"
         scenarios={SUBSCRIPTION_SCENARIOS}
         results={results}
         onRun={handleRun}
