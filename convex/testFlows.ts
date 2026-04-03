@@ -129,23 +129,16 @@ export const runTestScenario = internalAction({
 
       switch (args.scenario) {
         // -------------------------------------------------------------------
-        // 1. new_customer_onboarded
+        // 1. booking_received
         // -------------------------------------------------------------------
-        case "new_customer_onboarded": {
-          await sendTest(ctx, "admin_new_customer");
+        case "booking_received": {
+          await sendTest(ctx, "customer_booking_received");
+          await sendTest(ctx, "admin_booking_received");
           break;
         }
 
         // -------------------------------------------------------------------
-        // 2. welcome_email
-        // -------------------------------------------------------------------
-        case "welcome_email": {
-          await sendTest(ctx, "welcome");
-          break;
-        }
-
-        // -------------------------------------------------------------------
-        // 3. deposit_paid
+        // 2. deposit_paid
         // -------------------------------------------------------------------
         case "deposit_paid": {
           await sendTest(ctx, "admin_deposit_paid");
@@ -153,7 +146,7 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 4. appointment_confirmed
+        // 3. appointment_confirmed
         // -------------------------------------------------------------------
         case "appointment_confirmed": {
           await sendTest(ctx, "appointment_confirmation");
@@ -162,7 +155,7 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 5. appointment_cancelled
+        // 4. appointment_cancelled
         // -------------------------------------------------------------------
         case "appointment_cancelled": {
           await sendTest(ctx, "customer_status_cancelled");
@@ -171,7 +164,7 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 6. appointment_rescheduled
+        // 5. appointment_rescheduled
         // -------------------------------------------------------------------
         case "appointment_rescheduled": {
           await sendTest(ctx, "customer_status_rescheduled");
@@ -180,7 +173,7 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 7. appointment_started
+        // 6. appointment_started
         // -------------------------------------------------------------------
         case "appointment_started": {
           await sendTest(ctx, "customer_status_in_progress");
@@ -189,11 +182,19 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 8. appointment_completed
+        // 7. appointment_completed
         // -------------------------------------------------------------------
         case "appointment_completed": {
           await sendTest(ctx, "customer_status_completed");
           await sendTest(ctx, "admin_appointment_completed");
+          await sendTest(ctx, "customer_review_request");
+          break;
+        }
+
+        // -------------------------------------------------------------------
+        // 8. review_request
+        // -------------------------------------------------------------------
+        case "review_request": {
           await sendTest(ctx, "customer_review_request");
           break;
         }
@@ -207,7 +208,15 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 10. review_submitted
+        // 10. abandoned_checkout_recovery
+        // -------------------------------------------------------------------
+        case "abandoned_checkout_recovery": {
+          await sendTest(ctx, "abandoned_checkout_recovery");
+          break;
+        }
+
+        // -------------------------------------------------------------------
+        // 11. review_submitted
         // -------------------------------------------------------------------
         case "review_submitted": {
           await sendTest(ctx, "admin_review_submitted");
@@ -215,7 +224,7 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 11. mileage_log_required
+        // 12. mileage_log_required
         // -------------------------------------------------------------------
         case "mileage_log_required": {
           await sendTest(ctx, "admin_mileage_log_required");
@@ -223,61 +232,71 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 12. subscription_checkout_link
+        // 13. payment_failed
+        // -------------------------------------------------------------------
+        case "payment_failed": {
+          await sendTest(ctx, "admin_payment_failed");
+          break;
+        }
+
+        // -------------------------------------------------------------------
+        // 14. subscription_checkout_link
         // -------------------------------------------------------------------
         case "subscription_checkout_link": {
           await sendTest(ctx, "subscription_checkout_link");
+          await sendTest(ctx, "admin_subscription_checkout_link");
           break;
         }
 
         // -------------------------------------------------------------------
-        // 13. subscription_appointment_created
+        // 15. subscription_appointment_created
         // -------------------------------------------------------------------
         case "subscription_appointment_created": {
           await sendTest(ctx, "subscription_appointment_created");
+          await sendTest(ctx, "admin_subscription_appointment_created");
           break;
         }
 
         // -------------------------------------------------------------------
-        // 14. full_subscription_flow (checkout link → appointment created)
+        // 16. full_subscription_flow (checkout link → appointment created)
         // -------------------------------------------------------------------
         case "full_subscription_flow": {
           // Step 1: checkout link sent
           await sendTest(ctx, "subscription_checkout_link");
+          await sendTest(ctx, "admin_subscription_checkout_link");
           await new Promise((r) => setTimeout(r, 1000));
 
           // Step 2: appointment auto-created after payment
           await sendTest(ctx, "subscription_appointment_created");
+          await sendTest(ctx, "admin_subscription_appointment_created");
           await new Promise((r) => setTimeout(r, 1000));
-
-          // Step 3: admin gets appointment notification
-          await sendTest(ctx, "admin_appointment_confirmed");
           break;
         }
 
         // -------------------------------------------------------------------
-        // 15. full_guest_checkout (1→3→4→7→8)
+        // 17. full_self_serve_booking
         // -------------------------------------------------------------------
-        case "full_guest_checkout": {
-          // Step 1: new customer
-          await sendTest(ctx, "admin_new_customer");
+        case "full_self_serve_booking": {
+          // Step 1: booking received
+          await sendTest(ctx, "customer_booking_received");
+          await sendTest(ctx, "admin_booking_received");
           await new Promise((r) => setTimeout(r, 1000));
 
-          // Step 3: deposit paid
+          // Step 2: deposit paid
           await sendTest(ctx, "admin_deposit_paid");
           await new Promise((r) => setTimeout(r, 1000));
 
-          // Step 4: confirmed
+          // Step 3: confirmed
           await sendTest(ctx, "appointment_confirmation");
           await sendTest(ctx, "admin_appointment_confirmed");
           await new Promise((r) => setTimeout(r, 1000));
 
-          // Step 7: started
+          // Step 4: started
           await sendTest(ctx, "customer_status_in_progress");
           await sendTest(ctx, "admin_appointment_started");
           await new Promise((r) => setTimeout(r, 1000));
 
-          // Step 8: completed
+          // Step 5: completed
           await sendTest(ctx, "customer_status_completed");
           await sendTest(ctx, "admin_appointment_completed");
           await sendTest(ctx, "customer_review_request");
@@ -285,27 +304,10 @@ export const runTestScenario = internalAction({
         }
 
         // -------------------------------------------------------------------
-        // 13. full_returning_customer (2→4→7→8)
+        // 18. abandoned_checkout_recovery_flow
         // -------------------------------------------------------------------
-        case "full_returning_customer": {
-          // Step 2: welcome
-          await sendTest(ctx, "welcome");
-          await new Promise((r) => setTimeout(r, 1000));
-
-          // Step 4: confirmed
-          await sendTest(ctx, "appointment_confirmation");
-          await sendTest(ctx, "admin_appointment_confirmed");
-          await new Promise((r) => setTimeout(r, 1000));
-
-          // Step 7: started
-          await sendTest(ctx, "customer_status_in_progress");
-          await sendTest(ctx, "admin_appointment_started");
-          await new Promise((r) => setTimeout(r, 1000));
-
-          // Step 8: completed
-          await sendTest(ctx, "customer_status_completed");
-          await sendTest(ctx, "admin_appointment_completed");
-          await sendTest(ctx, "customer_review_request");
+        case "abandoned_checkout_recovery_flow": {
+          await sendTest(ctx, "abandoned_checkout_recovery");
           break;
         }
 

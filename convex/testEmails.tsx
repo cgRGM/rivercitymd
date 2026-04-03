@@ -15,9 +15,10 @@ import { resend } from "./emails";
 import { formatTime12h } from "./lib/time";
 
 import {
-  WelcomeEmail,
   AppointmentConfirmationEmail,
   AppointmentReminderEmail,
+  BookingReceivedEmail,
+  AbandonedCheckoutRecoveryEmail,
   AdminNewCustomerNotificationEmail,
   AdminReviewSubmittedNotificationEmail,
   CustomerReviewRequestEmailTemplate,
@@ -27,6 +28,8 @@ import {
   AdminDepositPaidNotificationEmail,
   SubscriptionCheckoutLinkEmail,
   SubscriptionAppointmentCreatedEmail,
+  AdminSubscriptionCheckoutLinkNotificationEmail,
+  AdminPaymentFailedNotificationEmail,
 } from "./emailTemplates";
 
 function shouldSkipEmails(): boolean {
@@ -80,19 +83,6 @@ export const sendTestEmail = internalAction({
     let subject: string;
 
     switch (args.template) {
-      case "welcome": {
-        html = await render(
-          WelcomeEmail({
-            userName: FAKE.customerName,
-            businessName,
-            dashboardUrl: `${site}/dashboard`,
-            logoUrl: logo,
-          }),
-        );
-        subject = `[TEST] Welcome to ${businessName}!`;
-        break;
-      }
-
       case "appointment_confirmation": {
         html = await render(
           AppointmentConfirmationEmail({
@@ -126,6 +116,24 @@ export const sendTestEmail = internalAction({
           }),
         );
         subject = `[TEST] Reminder: Your appointment is tomorrow - ${FAKE.appointmentDate}`;
+        break;
+      }
+
+      case "customer_booking_received": {
+        html = await render(
+          BookingReceivedEmail({
+            customerName: FAKE.customerName,
+            businessName,
+            appointmentDate: FAKE.appointmentDate,
+            appointmentTime: time12h,
+            services: [...FAKE.services],
+            location: FAKE.location,
+            totalPrice: FAKE.totalPrice,
+            dashboardUrl: `${site}/dashboard/appointments`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Booking Received - ${FAKE.appointmentDate}`;
         break;
       }
 
@@ -220,6 +228,22 @@ export const sendTestEmail = internalAction({
         break;
       }
 
+      case "abandoned_checkout_recovery": {
+        html = await render(
+          AbandonedCheckoutRecoveryEmail({
+            customerName: FAKE.customerName,
+            businessName,
+            appointmentDate: FAKE.appointmentDate,
+            appointmentTime: time12h,
+            services: [...FAKE.services],
+            resumeUrl: `${site}/booking/resume?token=test-token`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Finish your booking for ${FAKE.appointmentDate}`;
+        break;
+      }
+
       case "admin_new_customer": {
         html = await render(
           AdminNewCustomerNotificationEmail({
@@ -256,6 +280,29 @@ export const sendTestEmail = internalAction({
           }),
         );
         subject = `[TEST] Deposit Paid - ${FAKE.customerName} - ${FAKE.appointmentDate}`;
+        break;
+      }
+
+      case "admin_booking_received": {
+        html = await render(
+          AdminAppointmentNotificationEmailTemplate({
+            actionText: "Booking Received",
+            customerName: FAKE.customerName,
+            customerEmail: FAKE.customerEmail,
+            customerPhone: FAKE.customerPhone,
+            appointmentDate: FAKE.appointmentDate,
+            appointmentTime: time12h,
+            duration: FAKE.duration,
+            totalPrice: FAKE.totalPrice,
+            serviceNames: [...FAKE.services],
+            location: FAKE.location,
+            status: "pending",
+            businessName,
+            adminUrl: `${site}/admin/appointments`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Booking Received - ${FAKE.appointmentDate} ${time12h}`;
         break;
       }
 
@@ -350,6 +397,24 @@ export const sendTestEmail = internalAction({
         break;
       }
 
+      case "admin_subscription_checkout_link": {
+        html = await render(
+          AdminSubscriptionCheckoutLinkNotificationEmail({
+            customerName: FAKE.customerName,
+            customerEmail: FAKE.customerEmail,
+            businessName,
+            serviceNames: [...FAKE.services],
+            frequency: "monthly",
+            price: FAKE.totalPrice,
+            checkoutUrl: `${site}/dashboard/subscriptions?test=true`,
+            adminUrl: `${site}/admin/subscriptions`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Subscription Checkout Link Sent - ${FAKE.customerName}`;
+        break;
+      }
+
       case "subscription_appointment_created": {
         html = await render(
           SubscriptionAppointmentCreatedEmail({
@@ -364,6 +429,46 @@ export const sendTestEmail = internalAction({
           }),
         );
         subject = `[TEST] Your Upcoming Service is Scheduled — ${FAKE.appointmentDate}`;
+        break;
+      }
+
+      case "admin_subscription_appointment_created": {
+        html = await render(
+          AdminAppointmentNotificationEmailTemplate({
+            actionText: "Subscription Appointment Scheduled",
+            customerName: FAKE.customerName,
+            customerEmail: FAKE.customerEmail,
+            customerPhone: FAKE.customerPhone,
+            appointmentDate: FAKE.appointmentDate,
+            appointmentTime: time12h,
+            duration: FAKE.duration,
+            totalPrice: FAKE.totalPrice,
+            serviceNames: [...FAKE.services],
+            location: FAKE.location,
+            status: "pending",
+            businessName,
+            adminUrl: `${site}/admin/appointments`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Subscription Appointment Scheduled - ${FAKE.appointmentDate}`;
+        break;
+      }
+
+      case "admin_payment_failed": {
+        html = await render(
+          AdminPaymentFailedNotificationEmail({
+            businessName,
+            customerName: FAKE.customerName,
+            customerEmail: FAKE.customerEmail,
+            appointmentSummary: `${FAKE.appointmentDate} at ${time12h}`,
+            failureReason: "Card declined during test payment attempt.",
+            paymentContext: "Invoice payment (test)",
+            adminUrl: `${site}/admin/invoices`,
+            logoUrl: logo,
+          }),
+        );
+        subject = `[TEST] Payment Failed - ${FAKE.customerName}`;
         break;
       }
 
