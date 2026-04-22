@@ -12,7 +12,9 @@ import { ArrowRight, Sparkles, MapPin, Phone } from "lucide-react";
 export default function HeroSection() {
   const [bookingOpen, setBookingOpen] = useState(false);
   const searchParams = useSearchParams();
-  const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
+  const bookingReadiness = useQuery(
+    api.setupReadiness.getPublicBookingReadiness,
+  );
 
   useEffect(() => {
     if (searchParams.get("resumeBooking") !== "1") {
@@ -96,7 +98,7 @@ export default function HeroSection() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span>Available Mon-Sat</span>
+                  <span>Open 7 days a week</span>
                 </div>
               </div>
             </div>
