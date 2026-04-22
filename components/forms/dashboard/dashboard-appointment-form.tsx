@@ -506,9 +506,7 @@ export function DashboardAppointmentForm({
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium">Pet hair or pet travel</p>
-                    <p className="text-xs text-muted-foreground">
-                      Add the configured pet fee for this vehicle.
-                    </p>
+                    
                   </div>
                   <Switch checked={hasPetFee} onCheckedChange={setHasPetFee} />
                 </div>
