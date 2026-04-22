@@ -43,7 +43,8 @@ type Invoice = {
   userId: Id<"users">;
   invoiceNumber: string;
   items: Array<{
-    serviceId: Id<"services">;
+    itemType?: "service" | "pet_fee";
+    serviceId?: Id<"services">;
     serviceName: string;
     quantity: number;
     unitPrice: number;

@@ -144,6 +144,150 @@ describe("appointments", () => {
     });
   });
 
+  test("create and update appointment with pet fee vehicles", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Pet Owner",
+        email: "pet-owner@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-pet@example.com",
+        role: "admin",
+      });
+    });
+    const serviceId = await t.run(async (ctx) => {
+      await ctx.db.insert("petFeeSettings", {
+        basePriceSmall: 25,
+        basePriceMedium: 50,
+        basePriceLarge: 75,
+        isActive: true,
+      });
+      return await ctx.db.insert("services", {
+        name: "Pet Fee Test Detail",
+        description: "Detail with pet fee",
+        basePrice: 100,
+        basePriceSmall: 100,
+        basePriceMedium: 100,
+        basePriceLarge: 100,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+    const [smallVehicleId, largeVehicleId] = await t.run(async (ctx) => {
+      const small = await ctx.db.insert("vehicles", {
+        userId,
+        year: 2020,
+        make: "Toyota",
+        model: "Corolla",
+        size: "small",
+      });
+      const large = await ctx.db.insert("vehicles", {
+        userId,
+        year: 2022,
+        make: "Ford",
+        model: "F-150",
+        size: "large",
+      });
+      return [small, large];
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-pet@example.com",
+    });
+    const { appointmentId } = await asAdmin.mutation(api.appointments.create, {
+      userId,
+      vehicleIds: [smallVehicleId, largeVehicleId],
+      serviceIds: [serviceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Springfield",
+      state: "IL",
+      zip: "62701",
+      petFeeVehicleIds: [smallVehicleId, largeVehicleId],
+    });
+
+    const created = await t.run(async (ctx) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db
+        .query("invoices")
+        .withIndex("by_appointment", (q) => q.eq("appointmentId", appointmentId))
+        .unique();
+      return { appointment, invoice };
+    });
+
+    expect(created.appointment?.totalPrice).toBe(300);
+    expect(created.appointment?.petFeeVehicleIds).toEqual([
+      smallVehicleId,
+      largeVehicleId,
+    ]);
+    expect(created.invoice?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "pet_fee",
+          serviceName: "Pet fee - Small vehicle",
+          unitPrice: 25,
+          totalPrice: 25,
+        }),
+        expect.objectContaining({
+          itemType: "pet_fee",
+          serviceName: "Pet fee - Large vehicle",
+          unitPrice: 75,
+          totalPrice: 75,
+        }),
+      ]),
+    );
+
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [smallVehicleId, largeVehicleId],
+      serviceIds: [serviceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Springfield",
+      state: "IL",
+      zip: "62701",
+      petFeeVehicleIds: [largeVehicleId],
+    });
+
+    const updated = await t.run(async (ctx) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db
+        .query("invoices")
+        .withIndex("by_appointment", (q) => q.eq("appointmentId", appointmentId))
+        .unique();
+      return { appointment, invoice };
+    });
+
+    expect(updated.appointment?.totalPrice).toBe(275);
+    expect(updated.appointment?.petFeeVehicleIds).toEqual([largeVehicleId]);
+    expect(updated.invoice?.items.filter((item) => item.itemType === "pet_fee")).toEqual([
+      expect.objectContaining({
+        serviceName: "Pet fee - Large vehicle",
+        quantity: 1,
+        unitPrice: 75,
+        totalPrice: 75,
+      }),
+    ]);
+  });
+
   test("list appointments", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t);

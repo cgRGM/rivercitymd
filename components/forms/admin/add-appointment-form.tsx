@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -65,6 +65,7 @@ export function AddAppointmentForm({
 }: AddAppointmentFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
+  const [petFeeVehicleIds, setPetFeeVehicleIds] = useState<Id<"vehicles">[]>([]);
   const [newVehicle, setNewVehicle] = useState({
     year: "",
     make: "",
@@ -103,6 +104,12 @@ export function AddAppointmentForm({
     selectedUserId ? { userId: selectedUserId as Id<"users"> } : "skip",
   );
 
+  useEffect(() => {
+    if (!open) {
+      setPetFeeVehicleIds([]);
+    }
+  }, [open]);
+
   const resetVehicleForm = () => {
     setNewVehicle({
       year: "",
@@ -118,6 +125,7 @@ export function AddAppointmentForm({
   const handleCustomerChange = (userId: string) => {
     form.setValue("userId", userId, { shouldValidate: true });
     form.setValue("vehicleIds", [], { shouldValidate: true });
+    setPetFeeVehicleIds([]);
     resetVehicleForm();
 
     const selectedClient = clients?.find((client) => client._id === userId);
@@ -181,10 +189,12 @@ export function AddAppointmentForm({
         zip: data.zip,
         locationNotes: data.locationNotes,
         notes: data.notes,
+        petFeeVehicleIds,
       });
 
       toast.success("Appointment created successfully");
       form.reset();
+      setPetFeeVehicleIds([]);
       onOpenChange(false);
     } catch {
       toast.error("Failed to create appointment");
@@ -262,6 +272,9 @@ export function AddAppointmentForm({
                                               (id) => id !== vehicle._id,
                                             ),
                                           );
+                                          setPetFeeVehicleIds((ids) =>
+                                            ids.filter((id) => id !== vehicle._id),
+                                          );
                                         }
                                       }}
                                     />
@@ -269,6 +282,29 @@ export function AddAppointmentForm({
                                   <FormLabel className="text-sm font-normal">
                                     {vehicle.year} {vehicle.make} {vehicle.model}
                                   </FormLabel>
+                                  <div className="ml-auto flex items-center gap-2">
+                                    <Checkbox
+                                      checked={petFeeVehicleIds.includes(vehicle._id)}
+                                      onCheckedChange={(checked) => {
+                                        const selectedVehicleIds = field.value || [];
+                                        if (checked) {
+                                          if (!selectedVehicleIds.includes(vehicle._id)) {
+                                            field.onChange([...selectedVehicleIds, vehicle._id]);
+                                          }
+                                          setPetFeeVehicleIds((ids) =>
+                                            ids.includes(vehicle._id)
+                                              ? ids
+                                              : [...ids, vehicle._id],
+                                          );
+                                        } else {
+                                          setPetFeeVehicleIds((ids) =>
+                                            ids.filter((id) => id !== vehicle._id),
+                                          );
+                                        }
+                                      }}
+                                    />
+                                    <span className="text-xs text-muted-foreground">Pet fee</span>
+                                  </div>
                                 </FormItem>
                               )}
                             />

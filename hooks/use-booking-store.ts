@@ -11,6 +11,7 @@ interface Vehicle {
   licensePlate?: string
   size?: "small" | "medium" | "large"
   type?: string // Optional type on individual vehicle if needed, but step3Data has global vehicleType
+  hasPet?: boolean
 }
 
 interface Step1Data {

@@ -11,7 +11,12 @@ import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { BOOKING_BLOCK_MINUTES, normalizeDateKey } from "./lib/booking";
-import { getEffectiveServicePrice, normalizeServiceType, type VehicleSize } from "./lib/pricing";
+import {
+  getEffectivePetFeePrice,
+  getEffectiveServicePrice,
+  normalizeServiceType,
+  type VehicleSize,
+} from "./lib/pricing";
 
 interface StripeInvoiceVehicleInput {
   size?: "small" | "medium" | "large";
@@ -21,6 +26,38 @@ function getVehicleSize(
   vehicles: Array<StripeInvoiceVehicleInput>,
 ): "small" | "medium" | "large" {
   return vehicles[0]?.size || "medium";
+}
+
+function formatVehicleSizeLabel(size: VehicleSize) {
+  if (size === "small") return "Small";
+  if (size === "large") return "Large";
+  return "Medium";
+}
+
+async function buildPetFeeItems(
+  ctx: any,
+  vehicles: Array<{ _id: Id<"vehicles">; size?: VehicleSize }>,
+  petFeeVehicleIds: Id<"vehicles">[],
+) {
+  const petFeeSettings = await ctx.runQuery(internal.petFeeSettings.getInternal, {});
+  const petFeeVehicleIdSet = new Set(petFeeVehicleIds);
+  const petFeeSizes = vehicles
+    .filter((vehicle) => petFeeVehicleIdSet.has(vehicle._id))
+    .map((vehicle) => vehicle.size ?? "medium");
+
+  return (["small", "medium", "large"] as VehicleSize[])
+    .map((size) => {
+      const quantity = petFeeSizes.filter((petFeeSize) => petFeeSize === size).length;
+      const unitPrice = getEffectivePetFeePrice(petFeeSettings, size);
+      return {
+        itemType: "pet_fee" as const,
+        serviceName: `Pet fee - ${formatVehicleSizeLabel(size)} vehicle`,
+        quantity,
+        unitPrice,
+        totalPrice: unitPrice * quantity,
+      };
+    })
+    .filter((item) => item.quantity > 0 && item.totalPrice > 0);
 }
 
 function shouldScheduleNotificationJobs(): boolean {
@@ -461,6 +498,7 @@ export const create = mutation({
     zip: v.string(),
     locationNotes: v.optional(v.string()),
     notes: v.optional(v.string()),
+    petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
   },
   returns: v.object({
     appointmentId: v.id("appointments"),
@@ -505,6 +543,14 @@ export const create = mutation({
     if (validVehicles.some((vehicle) => vehicle.userId !== args.userId)) {
       throw new Error("Invalid vehicle selection");
     }
+    const petFeeVehicleIds = args.petFeeVehicleIds ?? [];
+    const selectedVehicleIdSet = new Set(args.vehicleIds);
+    if (petFeeVehicleIds.some((vehicleId) => !selectedVehicleIdSet.has(vehicleId))) {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: "Pet fee vehicles must be included in this appointment.",
+      });
+    }
     const vehicleSize = getVehicleSize(validVehicles);
 
     const services = await Promise.all(args.serviceIds.map((id) => ctx.db.get(id)));
@@ -525,15 +571,26 @@ export const create = mutation({
       });
     }
 
-    const totalPrice =
-      validServices.reduce(
-        (sum, service) => sum + getEffectiveServicePrice(service, vehicleSize),
-        0,
-      ) * args.vehicleIds.length;
     const duration = validServices.reduce(
       (sum, service) => sum + (service.duration || 0),
       0,
     );
+
+    const serviceItems = validServices.map((service) => {
+      const unitPrice = getEffectiveServicePrice(service, vehicleSize);
+
+      return {
+        itemType: "service" as const,
+        serviceId: service._id,
+        serviceName: service.name,
+        quantity: args.vehicleIds.length,
+        unitPrice,
+        totalPrice: unitPrice * args.vehicleIds.length,
+      };
+    });
+    const petFeeItems = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
+    const items = [...serviceItems, ...petFeeItems];
+    const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
 
     const appointmentId: Id<"appointments"> = await ctx.db.insert(
       "appointments",
@@ -555,6 +612,7 @@ export const create = mutation({
         totalPrice,
         notes: args.notes,
         createdBy: authUserId,
+        petFeeVehicleIds,
       },
     );
 
@@ -563,19 +621,6 @@ export const create = mutation({
 
     // Note: User stats (timesServiced, totalSpent) should be updated when appointment is completed,
     // not when appointment is created. This is handled in the appointment completion flow.
-
-    // Calculate invoice items
-    const items = validServices.map((service) => {
-      const unitPrice = getEffectiveServicePrice(service, vehicleSize);
-
-      return {
-        serviceId: service._id,
-        serviceName: service.name,
-        quantity: args.vehicleIds.length,
-        unitPrice,
-        totalPrice: unitPrice * args.vehicleIds.length,
-      };
-    });
 
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const tax = 0;
@@ -650,6 +695,7 @@ export const update = mutation({
     zip: v.string(),
     locationNotes: v.optional(v.string()),
     notes: v.optional(v.string()),
+    petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
   },
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
@@ -671,13 +717,36 @@ export const update = mutation({
     const vehicles = await Promise.all(
       updates.vehicleIds.map((id) => ctx.db.get(id)),
     );
-    const validVehicles = vehicles.filter((v) => v !== null);
+    const validVehicles = vehicles.filter(
+      (vehicle): vehicle is NonNullable<typeof vehicle> => vehicle !== null,
+    );
+    if (validVehicles.length !== updates.vehicleIds.length) {
+      throw new Error("One or more vehicles not found");
+    }
+    const petFeeVehicleIds = updates.petFeeVehicleIds ?? existingAppointment.petFeeVehicleIds ?? [];
+    const selectedVehicleIdSet = new Set(updates.vehicleIds);
+    if (petFeeVehicleIds.some((vehicleId) => !selectedVehicleIdSet.has(vehicleId))) {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: "Pet fee vehicles must be included in this appointment.",
+      });
+    }
     const vehicleSize = validVehicles[0]?.size || "medium";
 
-    const totalPrice =
-      validServices.reduce((sum, service) => {
-        return sum + getEffectiveServicePrice(service!, vehicleSize);
-      }, 0) * updates.vehicleIds.length;
+    const serviceItems = validServices.map((service) => {
+      const unitPrice = getEffectiveServicePrice(service!, vehicleSize);
+      return {
+        itemType: "service" as const,
+        serviceId: service!._id,
+        serviceName: service!.name,
+        quantity: updates.vehicleIds.length,
+        unitPrice,
+        totalPrice: unitPrice * updates.vehicleIds.length,
+      };
+    });
+    const petFeeItems = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
+    const items = [...serviceItems, ...petFeeItems];
+    const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const duration = validServices.reduce(
       (sum, service) => sum + (service!.duration || 0),
       0,
@@ -727,6 +796,7 @@ export const update = mutation({
       },
       totalPrice,
       notes: updates.notes,
+      petFeeVehicleIds,
     });
 
     const invoice = await ctx.db
@@ -735,17 +805,6 @@ export const update = mutation({
       .unique();
 
     if (invoice) {
-      const items = validServices.map((service) => {
-        const unitPrice = getEffectiveServicePrice(service!, vehicleSize);
-        return {
-          serviceId: service!._id,
-          serviceName: service!.name,
-          quantity: updates.vehicleIds.length,
-          unitPrice,
-          totalPrice: unitPrice * updates.vehicleIds.length,
-        };
-      });
-
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
       const total = subtotal + invoice.tax;
       const depositAmount = invoice.depositAmount || 0;

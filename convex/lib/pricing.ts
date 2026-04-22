@@ -1,5 +1,6 @@
 export type ServiceType = "standard" | "addon" | "subscription";
 export type VehicleSize = "small" | "medium" | "large";
+export const DEFAULT_PET_FEE_AMOUNT = 50;
 
 type ServicePricingShape = {
   basePrice?: number;
@@ -9,6 +10,13 @@ type ServicePricingShape = {
   isActive?: boolean;
   serviceType?: ServiceType;
 };
+
+type PetFeePricingShape = {
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+  isActive?: boolean;
+} | null;
 
 export function normalizeServiceType(serviceType?: ServiceType): ServiceType {
   return serviceType ?? "standard";
@@ -43,4 +51,22 @@ export function isBookableStandardService(service: ServicePricingShape): boolean
     normalizeServiceType(service.serviceType) === "standard" &&
     hasAnyPositiveServicePrice(service)
   );
+}
+
+export function getEffectivePetFeePrice(
+  settings: PetFeePricingShape,
+  vehicleSize: VehicleSize,
+): number {
+  if (settings?.isActive === false) {
+    return 0;
+  }
+
+  const fallback = DEFAULT_PET_FEE_AMOUNT;
+  if (vehicleSize === "small") {
+    return settings?.basePriceSmall ?? settings?.basePriceMedium ?? fallback;
+  }
+  if (vehicleSize === "large") {
+    return settings?.basePriceLarge ?? settings?.basePriceMedium ?? fallback;
+  }
+  return settings?.basePriceMedium ?? fallback;
 }

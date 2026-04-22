@@ -18,6 +18,7 @@ import {
   normalizeUserNotificationPreferences,
 } from "./lib/notificationSettings";
 import {
+  getEffectivePetFeePrice,
   getEffectiveServicePrice,
   type VehicleSize,
 } from "./lib/pricing";
@@ -42,6 +43,7 @@ const draftVehicleValidator = v.object({
   ),
   color: v.optional(v.string()),
   licensePlate: v.optional(v.string()),
+  hasPet: v.optional(v.boolean()),
 });
 
 const bookingPaymentOptionValidator = v.union(
@@ -87,6 +89,12 @@ function getVehicleSizeForDraft(args: {
     return "medium";
   }
   return "small";
+}
+
+function formatVehicleSizeLabel(size: VehicleSize) {
+  if (size === "small") return "Small";
+  if (size === "large") return "Large";
+  return "Medium";
 }
 
 function assertBookableServices(
@@ -199,6 +207,12 @@ async function buildDraftPricing(args: {
   serviceIds: Id<"services">[];
   vehicleCount: number;
   vehicleSize: VehicleSize;
+  existingVehicles: Array<Doc<"vehicles">>;
+  draftVehicles: Array<{
+    size?: VehicleSize;
+    hasPet?: boolean;
+  }>;
+  petFeeExistingVehicleIds: Id<"vehicles">[];
 }) {
   const services = await getServicesForDraft(args.ctx, args.serviceIds);
   assertBookableServices(services, args.serviceIds, args.vehicleSize);
@@ -207,6 +221,7 @@ async function buildDraftPricing(args: {
     const unitPrice = getEffectiveServicePrice(service, args.vehicleSize);
 
     return {
+      itemType: "service" as const,
       serviceId: service._id,
       serviceName: service.name,
       quantity: args.vehicleCount,
@@ -215,7 +230,36 @@ async function buildDraftPricing(args: {
     };
   });
 
-  const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const petFeeSettings = await args.ctx.runQuery(
+    internal.petFeeSettings.getInternal,
+    {},
+  );
+  const petFeeVehicleIdSet = new Set(args.petFeeExistingVehicleIds);
+  const petFeeSizes = [
+    ...args.existingVehicles
+      .filter((vehicle) => petFeeVehicleIdSet.has(vehicle._id))
+      .map((vehicle) => vehicle.size ?? "medium"),
+    ...args.draftVehicles
+      .filter((vehicle) => vehicle.hasPet)
+      .map((vehicle) => vehicle.size ?? "medium"),
+  ];
+  const petFeeItems = (["small", "medium", "large"] as VehicleSize[])
+    .map((size) => {
+      const quantity = petFeeSizes.filter((petFeeSize) => petFeeSize === size).length;
+      const unitPrice = getEffectivePetFeePrice(petFeeSettings, size);
+      return {
+        itemType: "pet_fee" as const,
+        serviceName: `Pet fee - ${formatVehicleSizeLabel(size)} vehicle`,
+        quantity,
+        unitPrice,
+        totalPrice: unitPrice * quantity,
+      };
+    })
+    .filter((item) => item.quantity > 0 && item.totalPrice > 0);
+
+  const priceItems = [...items, ...petFeeItems];
+
+  const totalPrice = priceItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const duration = services.reduce((sum, service) => sum + (service.duration || 0), 0);
   const depositSettings = await args.ctx.runQuery(
     internal.depositSettings.getInternal,
@@ -227,7 +271,7 @@ async function buildDraftPricing(args: {
 
   return {
     services,
-    items,
+    items: priceItems,
     totalPrice,
     duration,
     depositAmount,
@@ -251,6 +295,7 @@ export const createOrUpdate = mutation({
     address: addressValidator,
     existingVehicleIds: v.optional(v.array(v.id("vehicles"))),
     vehicles: v.optional(v.array(draftVehicleValidator)),
+    petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
     serviceIds: v.array(v.id("services")),
     scheduledDate: v.string(),
     scheduledTime: v.string(),
@@ -266,6 +311,7 @@ export const createOrUpdate = mutation({
     const scheduledDate = normalizeDateKey(args.scheduledDate);
     const existingVehicleIds = args.existingVehicleIds ?? [];
     const draftVehicles = args.vehicles ?? [];
+    const petFeeExistingVehicleIds = args.petFeeExistingVehicleIds ?? [];
 
     if (existingVehicleIds.length === 0 && draftVehicles.length === 0) {
       throw new ConvexError({
@@ -304,6 +350,14 @@ export const createOrUpdate = mutation({
       });
     }
 
+    const existingVehicleIdSet = new Set(existingVehicleIds);
+    if (petFeeExistingVehicleIds.some((vehicleId) => !existingVehicleIdSet.has(vehicleId))) {
+      throw new ConvexError({
+        code: "SERVICE_NOT_BOOKABLE",
+        message: "Pet fee vehicles must be included in this booking.",
+      });
+    }
+
     const vehicleCount = existingVehicleIds.length + draftVehicles.length;
     const vehicleSize = getVehicleSizeForDraft({
       existingVehicles: validExistingVehicles,
@@ -339,6 +393,9 @@ export const createOrUpdate = mutation({
       serviceIds: args.serviceIds,
       vehicleCount,
       vehicleSize,
+      existingVehicles: validExistingVehicles,
+      draftVehicles,
+      petFeeExistingVehicleIds,
     });
 
     if (existingDraft) {
@@ -352,6 +409,7 @@ export const createOrUpdate = mutation({
         address: args.address,
         existingVehicleIds,
         draftVehicles,
+        petFeeExistingVehicleIds,
         serviceIds: args.serviceIds,
         scheduledDate,
         scheduledTime: args.scheduledTime,
@@ -398,6 +456,7 @@ export const createOrUpdate = mutation({
       address: args.address,
       existingVehicleIds,
       draftVehicles,
+      petFeeExistingVehicleIds,
       serviceIds: args.serviceIds,
       scheduledDate,
       scheduledTime: args.scheduledTime,
@@ -678,6 +737,7 @@ export const convertSuccessfulCheckout = internalMutation({
     }
 
     const createdVehicleIds: Id<"vehicles">[] = [];
+    const createdPetFeeVehicleIds: Id<"vehicles">[] = [];
     for (const draftVehicle of draft.draftVehicles) {
       const vehicleId = await ctx.db.insert("vehicles", {
         userId: user._id,
@@ -689,6 +749,9 @@ export const convertSuccessfulCheckout = internalMutation({
         licensePlate: draftVehicle.licensePlate,
       });
       createdVehicleIds.push(vehicleId);
+      if (draftVehicle.hasPet) {
+        createdPetFeeVehicleIds.push(vehicleId);
+      }
     }
 
     const existingVehicles = await Promise.all(
@@ -711,6 +774,13 @@ export const convertSuccessfulCheckout = internalMutation({
     if (vehicleIds.length === 0) {
       throw new Error("Bookings require at least one vehicle.");
     }
+    const validExistingPetFeeVehicleIds = validExistingVehicleIds.filter((vehicleId) =>
+      (draft.petFeeExistingVehicleIds ?? []).includes(vehicleId),
+    );
+    const petFeeVehicleIds = [
+      ...validExistingPetFeeVehicleIds,
+      ...createdPetFeeVehicleIds,
+    ];
 
     const appointmentId = await ctx.db.insert("appointments", {
       userId: user._id,
@@ -731,6 +801,7 @@ export const convertSuccessfulCheckout = internalMutation({
       notes: "Created via checkout conversion",
       createdBy: user._id,
       paymentOption: draft.paymentOption,
+      petFeeVehicleIds,
     });
 
     const invoiceCountResult: { count: number } = await ctx.runQuery(
@@ -817,8 +888,10 @@ export const getPublicContext = query({
         color: vehicle.color,
         licensePlate: vehicle.licensePlate,
         size: vehicle.size,
+        hasPet: vehicle.hasPet ?? false,
       })),
       existingVehicleIds: draft.existingVehicleIds,
+      petFeeExistingVehicleIds: draft.petFeeExistingVehicleIds ?? [],
       paymentOption: draft.paymentOption,
       convertedAppointmentId: draft.convertedAppointmentId,
       convertedInvoiceId: draft.convertedInvoiceId,

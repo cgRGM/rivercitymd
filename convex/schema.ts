@@ -94,6 +94,14 @@ const schema = defineSchema({
     isActive: v.boolean(),
   }),
 
+  // Pet Fee Settings
+  petFeeSettings: defineTable({
+    basePriceSmall: v.number(),
+    basePriceMedium: v.number(),
+    basePriceLarge: v.number(),
+    isActive: v.boolean(),
+  }),
+
   // Services and Subscriptions
   services: defineTable({
     name: v.string(),
@@ -164,6 +172,7 @@ const schema = defineSchema({
       ),
     ),
     subscriptionId: v.optional(v.id("subscriptions")),
+    petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
   })
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])
@@ -193,8 +202,10 @@ const schema = defineSchema({
         ),
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
+        hasPet: v.optional(v.boolean()),
       }),
     ),
+    petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
     serviceIds: v.array(v.id("services")),
     scheduledDate: v.string(),
     scheduledTime: v.string(),
@@ -215,7 +226,8 @@ const schema = defineSchema({
     ),
     priceSnapshot: v.array(
       v.object({
-        serviceId: v.id("services"),
+        itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
+        serviceId: v.optional(v.id("services")),
         serviceName: v.string(),
         quantity: v.number(),
         unitPrice: v.number(),
@@ -272,7 +284,8 @@ const schema = defineSchema({
     invoiceNumber: v.string(),
     items: v.array(
       v.object({
-        serviceId: v.id("services"),
+        itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
+        serviceId: v.optional(v.id("services")),
         serviceName: v.string(),
         quantity: v.number(),
         unitPrice: v.number(),
