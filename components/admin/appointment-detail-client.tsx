@@ -590,9 +590,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                               togglePetFeeVehicle(v._id, value === true)
                             }
                           />
-                          <span className="text-sm text-muted-foreground">
-                            Apply pet fee to this vehicle
-                          </span>
+                          
                         </div>
                       </div>
                     );
