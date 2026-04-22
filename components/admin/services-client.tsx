@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +74,8 @@ export default function ServicesClient() {
   const updateService = useMutation(api.services.update);
   const depositSettings = useQuery(api.depositSettings.get);
   const updateDepositSettings = useMutation(api.depositSettings.upsert);
+  const petFeeSettings = useQuery(api.petFeeSettings.get);
+  const updatePetFeeSettings = useMutation(api.petFeeSettings.upsert);
 
   const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -84,12 +88,25 @@ export default function ServicesClient() {
 
   const [isEditingDeposit, setIsEditingDeposit] = useState(false);
   const [depositAmount, setDepositAmount] = useState(depositSettings?.amountPerVehicle ?? 50);
+  const [isEditingPetFee, setIsEditingPetFee] = useState(false);
+  const [petFeePrices, setPetFeePrices] = useState({
+    basePriceSmall: 50,
+    basePriceMedium: 50,
+    basePriceLarge: 50,
+    isActive: true,
+  });
 
   useEffect(() => {
     if (depositSettings) {
       setDepositAmount(depositSettings.amountPerVehicle);
     }
   }, [depositSettings]);
+
+  useEffect(() => {
+    if (petFeeSettings) {
+      setPetFeePrices(petFeeSettings);
+    }
+  }, [petFeeSettings]);
 
   if (servicesQuery === undefined) {
     return (
@@ -164,6 +181,12 @@ export default function ServicesClient() {
     if (medium !== undefined) parts.push(`M $${medium.toFixed(0)}`);
     if (large !== undefined) parts.push(`L $${large.toFixed(0)}`);
     return parts.join(" • ") || "N/A";
+  };
+
+  const formatPetFeePricing = () => {
+    const settings = petFeeSettings ?? petFeePrices;
+    if (!settings.isActive) return "Pet fee off";
+    return `Pet fee: S $${settings.basePriceSmall.toFixed(0)} • M $${settings.basePriceMedium.toFixed(0)} • L $${settings.basePriceLarge.toFixed(0)}`;
   };
 
   const popularityBadgeClass = (popularity?: string) => {
@@ -391,6 +414,74 @@ export default function ServicesClient() {
                 Deposit: ${depositSettings?.amountPerVehicle ?? 50} per vehicle
               </span>
               <Button size="sm" variant="ghost" onClick={() => setIsEditingDeposit(true)}>
+                <Edit className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          {isEditingPetFee ? (
+            <div className="flex flex-wrap items-end gap-2 rounded-md border p-2">
+              <div className="flex items-center gap-2 pb-2">
+                <Switch
+                  checked={petFeePrices.isActive}
+                  onCheckedChange={(checked) =>
+                    setPetFeePrices((current) => ({ ...current, isActive: checked }))
+                  }
+                />
+                <span className="text-sm text-muted-foreground">Pet fee</span>
+              </div>
+              {[
+                ["basePriceSmall", "Small"],
+                ["basePriceMedium", "Medium"],
+                ["basePriceLarge", "Large"],
+              ].map(([key, label]) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs">{label}</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={petFeePrices[key as keyof typeof petFeePrices] as number}
+                    onChange={(event) =>
+                      setPetFeePrices((current) => ({
+                        ...current,
+                        [key]: parseFloat(event.target.value) || 0,
+                      }))
+                    }
+                    className="w-20"
+                  />
+                </div>
+              ))}
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await updatePetFeeSettings(petFeePrices);
+                    setIsEditingPetFee(false);
+                    toast.success("Pet fee updated");
+                    router.refresh();
+                  } catch {
+                    toast.error("Failed to update pet fee");
+                  }
+                }}
+              >
+                <Save className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setIsEditingPetFee(false);
+                  if (petFeeSettings) setPetFeePrices(petFeeSettings);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {formatPetFeePricing()}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => setIsEditingPetFee(true)}>
                 <Edit className="h-4 w-4" />
               </Button>
             </div>

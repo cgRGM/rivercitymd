@@ -423,6 +423,165 @@ describe("payments", () => {
     );
   });
 
+  test("booking draft uses default pet fee when no setting exists", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: false,
+    });
+
+    const serviceId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("services", {
+        name: "Default Pet Fee Service",
+        description: "Service with default pet fee",
+        basePrice: 120,
+        basePriceMedium: 120,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const booking = await t.mutation(api.bookingDrafts.createOrUpdate, {
+      name: "Guest Booker",
+      email: "pet-default@example.com",
+      phone: "555-3030",
+      address: {
+        street: "123 Guest St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      vehicles: [
+        {
+          year: 2021,
+          make: "Honda",
+          model: "Civic",
+          size: "medium",
+          hasPet: true,
+        },
+      ],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-02",
+      scheduledTime: "10:00",
+    });
+
+    const draft = await t.run(async (ctx: any) => {
+      return await ctx.db.get(booking.draftId);
+    });
+
+    expect(draft).toMatchObject({
+      totalPrice: 170,
+      depositAmount: 50,
+      remainingBalance: 120,
+    });
+    expect(draft?.priceSnapshot).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "pet_fee",
+          serviceName: "Pet fee - Medium vehicle",
+          quantity: 1,
+          unitPrice: 50,
+          totalPrice: 50,
+        }),
+      ]),
+    );
+  });
+
+  test("checkout conversion preserves mixed-size pet fee invoice items", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const serviceId = await t.run(async (ctx: any) => {
+      await ctx.db.insert("petFeeSettings", {
+        basePriceSmall: 20,
+        basePriceMedium: 50,
+        basePriceLarge: 80,
+        isActive: true,
+      });
+      return await ctx.db.insert("services", {
+        name: "Mixed Pet Fee Service",
+        description: "Service with mixed pet fees",
+        basePrice: 100,
+        basePriceSmall: 100,
+        basePriceMedium: 100,
+        basePriceLarge: 100,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const booking = await t.mutation(api.bookingDrafts.createOrUpdate, {
+      name: "Mixed Pet Booker",
+      email: "mixed-pet@example.com",
+      phone: "555-4040",
+      address: {
+        street: "456 Guest St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      vehicles: [
+        {
+          year: 2020,
+          make: "Toyota",
+          model: "Corolla",
+          size: "small",
+          hasPet: true,
+        },
+        {
+          year: 2023,
+          make: "Ford",
+          model: "F-150",
+          size: "large",
+          hasPet: true,
+        },
+      ],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-02",
+      scheduledTime: "10:00",
+    });
+
+    const converted = await t.mutation(internal.bookingDrafts.convertSuccessfulCheckout, {
+      draftId: booking.draftId,
+      stripeCustomerId: "cus_pet_fee",
+      paymentIntentId: "pi_pet_fee",
+    });
+
+    const result = await t.run(async (ctx: any) => {
+      const appointment = converted
+        ? await ctx.db.get(converted.appointmentId)
+        : null;
+      const invoice = converted
+        ? await ctx.db.get(converted.invoiceId)
+        : null;
+      return { appointment, invoice };
+    });
+
+    expect(converted?.total).toBe(300);
+    expect(result.appointment?.petFeeVehicleIds).toHaveLength(2);
+    expect(result.invoice?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "pet_fee",
+          serviceName: "Pet fee - Small vehicle",
+          unitPrice: 20,
+          totalPrice: 20,
+        }),
+        expect.objectContaining({
+          itemType: "pet_fee",
+          serviceName: "Pet fee - Large vehicle",
+          unitPrice: 80,
+          totalPrice: 80,
+        }),
+      ]),
+    );
+  });
+
   test("handle webhook - checkout.session.completed for deposit", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t);

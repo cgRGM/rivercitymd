@@ -116,6 +116,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const [editServiceIds, setEditServiceIds] = useState<Id<"services">[]>([]);
   const [editVehicleIds, setEditVehicleIds] = useState<Id<"vehicles">[]>([]);
   const [editVehicleSizes, setEditVehicleSizes] = useState<Record<string, string>>({});
+  const [editPetFeeVehicleIds, setEditPetFeeVehicleIds] = useState<Id<"vehicles">[]>([]);
 
   useEffect(() => {
     if (!data?.invoice) return;
@@ -192,6 +193,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
             ? [customerVehiclesQuery[0]._id]
             : []),
     );
+    setEditPetFeeVehicleIds(data.petFeeVehicleIds ?? []);
     const sizes: Record<string, string> = {};
     for (const v of customerVehiclesQuery || data.vehicles) {
       sizes[v._id] = v.size || "medium";
@@ -237,6 +239,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
         zip: editZip,
         locationNotes: editLocationNotes || undefined,
         notes: editNotes || undefined,
+        petFeeVehicleIds: editPetFeeVehicleIds,
       });
 
       toast.success("Appointment updated — pricing recalculated");
@@ -261,6 +264,22 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     setEditVehicleIds((prev) =>
       checked ? [...prev, vehicleId] : prev.filter((id) => id !== vehicleId),
     );
+    if (!checked) {
+      setEditPetFeeVehicleIds((prev) => prev.filter((id) => id !== vehicleId));
+    }
+  };
+
+  const togglePetFeeVehicle = (vehicleId: Id<"vehicles">, checked: boolean) => {
+    if (checked) {
+      setEditVehicleIds((prev) =>
+        prev.includes(vehicleId) ? prev : [...prev, vehicleId],
+      );
+      setEditPetFeeVehicleIds((prev) =>
+        prev.includes(vehicleId) ? prev : [...prev, vehicleId],
+      );
+      return;
+    }
+    setEditPetFeeVehicleIds((prev) => prev.filter((id) => id !== vehicleId));
   };
 
   const handleBillingSave = async (reissue: boolean) => {
@@ -522,6 +541,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                 <div className="space-y-3">
                   {customerVehicles.map((v) => {
                     const checked = editVehicleIds.includes(v._id);
+                    const hasPetFee = editPetFeeVehicleIds.includes(v._id);
                     return (
                       <div
                         key={v._id}
@@ -563,6 +583,17 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                             </SelectContent>
                           </Select>
                         </div>
+                        <div className="mt-3 flex items-center gap-2 border-t pt-3">
+                          <Checkbox
+                            checked={hasPetFee}
+                            onCheckedChange={(value) =>
+                              togglePetFeeVehicle(v._id, value === true)
+                            }
+                          />
+                          <span className="text-sm text-muted-foreground">
+                            Apply pet fee to this vehicle
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
@@ -587,6 +618,9 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                     <Badge variant="secondary" className="capitalize">
                       {v.size || "medium"}
                     </Badge>
+                    {(data.petFeeVehicleIds ?? []).includes(v._id) && (
+                      <Badge variant="outline">Pet fee</Badge>
+                    )}
                   </div>
                 ))}
               </div>

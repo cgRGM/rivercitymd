@@ -99,6 +99,7 @@ const step3Schema = z.object({
         color: z.string().optional(),
         licensePlate: z.string().optional(),
         size: z.enum(["small", "medium", "large"]).optional(),
+        hasPet: z.boolean().optional(),
         type: z.enum(["car", "truck", "suv"]),
       }),
     )
@@ -172,6 +173,7 @@ export default function AppointmentModal({
   */
 
   const services = useQuery(api.services.list);
+  const petFeeSettings = useQuery(api.petFeeSettings.get);
   const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
   const nextBookableDate = useQuery(
     api.availability.getNextBookableDate,
@@ -202,7 +204,16 @@ export default function AppointmentModal({
     resolver: zodResolver(step3Schema),
     defaultValues: {
       vehicles: (step3Data?.vehicles || [
-        { year: "", make: "", model: "", color: "", licensePlate: "", type: "car", size: "small" },
+        {
+          year: "",
+          make: "",
+          model: "",
+          color: "",
+          licensePlate: "",
+          type: "car",
+          size: "small",
+          hasPet: false,
+        },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ]) as any,
     },
@@ -325,7 +336,16 @@ export default function AppointmentModal({
     const currentVehicles = step3Form.getValues("vehicles") || [];
     step3Form.setValue("vehicles", [
       ...currentVehicles,
-      { year: "", make: "", model: "", color: "", licensePlate: "", type: "car", size: "small" },
+      {
+        year: "",
+        make: "",
+        model: "",
+        color: "",
+        licensePlate: "",
+        type: "car",
+        size: "small",
+        hasPet: false,
+      },
     ]);
   };
 
@@ -460,6 +480,7 @@ export default function AppointmentModal({
           size: vehicle.size,
           color: vehicle.color,
           licensePlate: vehicle.licensePlate,
+          hasPet: vehicle.hasPet ?? false,
         })),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serviceIds: (step4Data?.serviceIds || []) as any,
@@ -1020,6 +1041,33 @@ export default function AppointmentModal({
                           </FormItem>
                         )}
                       />
+                      <FormField
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        control={step3Form.control as any}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        name={`vehicles.${index}.hasPet` as any}
+                        render={({ field }) => (
+                          <FormItem className="rounded-lg border p-4">
+                            <div className="flex items-center justify-between gap-4">
+                              <div className="space-y-1">
+                                <FormLabel className="mb-0">
+                                  Pet hair or pet travel
+                                </FormLabel>
+                                <p className="text-sm text-muted-foreground">
+                                  Adds the configured pet fee for this vehicle.
+                                </p>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value === true}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </div>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </CardContent>
                   </Card>
                 ))}
@@ -1191,6 +1239,16 @@ export default function AppointmentModal({
           const vehicleCount = step3Data?.vehicles?.length ?? 1;
           const depositPerVehicle = 50;
           const depositTotal = depositPerVehicle * vehicleCount;
+          const petFeeForSize = (size: "small" | "medium" | "large") => {
+            if (petFeeSettings?.isActive === false) return 0;
+            if (size === "small") {
+              return petFeeSettings?.basePriceSmall ?? petFeeSettings?.basePriceMedium ?? 50;
+            }
+            if (size === "large") {
+              return petFeeSettings?.basePriceLarge ?? petFeeSettings?.basePriceMedium ?? 50;
+            }
+            return petFeeSettings?.basePriceMedium ?? 50;
+          };
 
           const selectedServices = services?.filter((s) =>
             step4Data?.serviceIds?.includes(s._id),
@@ -1204,8 +1262,13 @@ export default function AppointmentModal({
                   : service.basePriceLarge;
             return sum + (price ?? 0);
           }, 0) * vehicleCount;
+          const petFeeTotal = (step3Data?.vehicles ?? []).reduce((sum, vehicle) => {
+            if (!vehicle.hasPet) return sum;
+            return sum + petFeeForSize(vehicle.size ?? "medium");
+          }, 0);
+          const orderTotal = serviceTotal + petFeeTotal;
 
-          const dueNow = paymentOption === "full" ? serviceTotal : depositTotal;
+          const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
 
           return (
           <div className="space-y-6">
@@ -1241,6 +1304,16 @@ export default function AppointmentModal({
                    <span>Service Total</span>
                    <span>${serviceTotal.toFixed(2)}</span>
                  </div>
+                 {petFeeTotal > 0 && (
+                   <div className="flex justify-between text-sm font-medium mt-1">
+                     <span>Pet Fee</span>
+                     <span>${petFeeTotal.toFixed(2)}</span>
+                   </div>
+                 )}
+                 <div className="flex justify-between border-t pt-2 text-sm font-semibold mt-2">
+                   <span>Total</span>
+                   <span>${orderTotal.toFixed(2)}</span>
+                 </div>
              </div>
 
              {/* Payment Option Selector */}
@@ -1265,7 +1338,7 @@ export default function AppointmentModal({
                    <div>
                      <span className="font-medium text-sm">Pay Deposit Now</span>
                      <span className="text-xs text-muted-foreground block">
-                       ${depositTotal.toFixed(2)} deposit now, remaining balance invoiced after service
+                       ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, remaining balance invoiced after service
                      </span>
                    </div>
                  </label>
@@ -1287,7 +1360,7 @@ export default function AppointmentModal({
                    <div>
                      <span className="font-medium text-sm">Pay Full Price Now</span>
                      <span className="text-xs text-muted-foreground block">
-                       ${serviceTotal.toFixed(2)} — pay entire amount upfront
+                       ${orderTotal.toFixed(2)} — pay entire amount upfront
                      </span>
                    </div>
                  </label>
@@ -1309,7 +1382,7 @@ export default function AppointmentModal({
                    <div>
                      <span className="font-medium text-sm">Pay Remaining in Person</span>
                      <span className="text-xs text-muted-foreground block">
-                       ${depositTotal.toFixed(2)} deposit now, pay balance in cash/card at service
+                       ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, pay balance in cash/card at service
                      </span>
                    </div>
                  </label>
@@ -1334,7 +1407,7 @@ export default function AppointmentModal({
                  )}
                  {paymentOption === "in_person" && (
                    <p className="text-xs text-muted-foreground mt-1">
-                     Remaining balance of ${(serviceTotal - depositTotal).toFixed(2)} will be collected in person.
+                     Remaining balance of ${Math.max(0, orderTotal - depositTotal).toFixed(2)} will be collected in person.
                    </p>
                  )}
              </div>

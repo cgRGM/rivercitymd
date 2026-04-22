@@ -70,6 +70,7 @@ export function DashboardAppointmentForm({
   const [selectedStandardId, setSelectedStandardId] = useState<string | null>(
     null,
   );
+  const [hasPetFee, setHasPetFee] = useState(false);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
   const [street, setStreet] = useState("");
@@ -86,6 +87,7 @@ export function DashboardAppointmentForm({
   const currentUser = useQuery(api.users.getCurrentUser);
   const userVehicles = useQuery(api.vehicles.getMyVehicles);
   const services = useQuery(api.services.list);
+  const petFeeSettings = useQuery(api.petFeeSettings.get);
   const nextBookableDate = useQuery(api.availability.getNextBookableDate, {});
 
   // Mutations/Actions
@@ -130,6 +132,7 @@ export function DashboardAppointmentForm({
       setSelectedVehicleId(null);
       setSelectedServiceIds([]);
       setSelectedStandardId(null);
+      setHasPetFee(false);
       setScheduledDate("");
       setScheduledTime("");
       setLocationNotes("");
@@ -195,8 +198,21 @@ export function DashboardAppointmentForm({
     [selectedServicesData, vehicleSize],
   );
 
+  const petFeeTotal = useMemo(() => {
+    if (!hasPetFee) return 0;
+    if (petFeeSettings?.isActive === false) return 0;
+    if (vehicleSize === "small") {
+      return petFeeSettings?.basePriceSmall ?? petFeeSettings?.basePriceMedium ?? 50;
+    }
+    if (vehicleSize === "large") {
+      return petFeeSettings?.basePriceLarge ?? petFeeSettings?.basePriceMedium ?? 50;
+    }
+    return petFeeSettings?.basePriceMedium ?? 50;
+  }, [hasPetFee, petFeeSettings, vehicleSize]);
+
   const depositTotal = 50; // $50 deposit per vehicle
-  const dueNow = paymentOption === "full" ? serviceTotal : depositTotal;
+  const orderTotal = serviceTotal + petFeeTotal;
+  const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
 
   // Step validation
   const canAdvance = (step: number): boolean => {
@@ -251,6 +267,9 @@ export function DashboardAppointmentForm({
           notes: locationNotes || undefined,
         },
         existingVehicleIds: [selectedVehicleId] as Id<"vehicles">[],
+        petFeeExistingVehicleIds: hasPetFee
+          ? ([selectedVehicleId] as Id<"vehicles">[])
+          : [],
         serviceIds: allSelectedServiceIds as Id<"services">[],
         scheduledDate,
         scheduledTime,
@@ -483,11 +502,20 @@ export function DashboardAppointmentForm({
 
             {/* Running total */}
             {allSelectedServiceIds.length > 0 && (
-              <div className="bg-muted/50 p-3 rounded-lg border border-border/50 mt-4">
+              <div className="space-y-3 bg-muted/50 p-3 rounded-lg border border-border/50 mt-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">Pet hair or pet travel</p>
+                    <p className="text-xs text-muted-foreground">
+                      Add the configured pet fee for this vehicle.
+                    </p>
+                  </div>
+                  <Switch checked={hasPetFee} onCheckedChange={setHasPetFee} />
+                </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium">Running Total</span>
                   <span className="font-bold text-lg text-primary">
-                    ${serviceTotal.toFixed(2)}
+                    ${orderTotal.toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -622,6 +650,16 @@ export function DashboardAppointmentForm({
                 <span>Service Total</span>
                 <span>${serviceTotal.toFixed(2)}</span>
               </div>
+              {petFeeTotal > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Pet fee</span>
+                  <span className="font-medium">${petFeeTotal.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="border-t pt-2 flex justify-between text-sm font-semibold">
+                <span>Total</span>
+                <span>${orderTotal.toFixed(2)}</span>
+              </div>
 
               {/* Date/Time */}
               <div className="border-t pt-2 flex justify-between text-sm">
@@ -665,7 +703,7 @@ export function DashboardAppointmentForm({
                       Pay Deposit Now
                     </span>
                     <span className="text-xs text-muted-foreground block">
-                      ${depositTotal.toFixed(2)} deposit now, remaining balance
+                      ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, remaining balance
                       invoiced after service
                     </span>
                   </div>
@@ -691,7 +729,7 @@ export function DashboardAppointmentForm({
                       Pay Full Price Now
                     </span>
                     <span className="text-xs text-muted-foreground block">
-                      ${serviceTotal.toFixed(2)} — pay entire amount upfront
+                      ${orderTotal.toFixed(2)} — pay entire amount upfront
                     </span>
                   </div>
                 </label>
@@ -716,7 +754,7 @@ export function DashboardAppointmentForm({
                       Pay Remaining in Person
                     </span>
                     <span className="text-xs text-muted-foreground block">
-                      ${depositTotal.toFixed(2)} deposit now, pay balance in
+                      ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, pay balance in
                       cash/card at service
                     </span>
                   </div>
@@ -750,7 +788,7 @@ export function DashboardAppointmentForm({
               {paymentOption === "in_person" && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Remaining balance of $
-                  {(serviceTotal - depositTotal).toFixed(2)} will be collected
+                  {Math.max(0, orderTotal - depositTotal).toFixed(2)} will be collected
                   in person.
                 </p>
               )}

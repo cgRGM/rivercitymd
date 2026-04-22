@@ -29,6 +29,7 @@ import type * as lib_pricing from "../lib/pricing.js";
 import type * as lib_time from "../lib/time.js";
 import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
+import type * as petFeeSettings from "../petFeeSettings.js";
 import type * as r2 from "../r2.js";
 import type * as reviews from "../reviews.js";
 import type * as services from "../services.js";
@@ -72,6 +73,7 @@ declare const fullApi: ApiFromModules<{
   "lib/time": typeof lib_time;
   notifications: typeof notifications;
   payments: typeof payments;
+  petFeeSettings: typeof petFeeSettings;
   r2: typeof r2;
   reviews: typeof reviews;
   services: typeof services;

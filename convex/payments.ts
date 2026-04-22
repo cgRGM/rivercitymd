@@ -2322,14 +2322,21 @@ async function createCheckoutSessionForDraft(
   };
 
   let depositPriceId: string | undefined;
+  let depositPerVehicle = 50;
   try {
     const depositSettings = await ctx.runQuery(api.depositSettings.get, {});
     depositPriceId = depositSettings?.stripePriceId;
+    depositPerVehicle = depositSettings?.amountPerVehicle ?? depositPerVehicle;
   } catch (error) {
     console.warn("Could not fetch deposit settings:", error);
   }
 
   const vehicleCount = draft.vehicleCount;
+  const expectedDepositFromPrice = depositPerVehicle * vehicleCount;
+  const canUseDepositPriceId =
+    depositPriceId &&
+    Math.round(draft.depositAmount * 100) ===
+      Math.round(expectedDepositFromPrice * 100);
   let sessionId = "";
   let url = "";
 
@@ -2368,9 +2375,9 @@ async function createCheckoutSessionForDraft(
     });
     sessionId = session.id;
     url = session.url;
-  } else if (depositPriceId) {
+  } else if (canUseDepositPriceId) {
     const session = await stripeClient.createCheckoutSession(ctx, {
-      priceId: depositPriceId,
+      priceId: depositPriceId!,
       customerId: stripeCustomerId,
       mode: "payment",
       successUrl,
