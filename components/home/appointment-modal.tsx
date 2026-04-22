@@ -1053,9 +1053,7 @@ export default function AppointmentModal({
                                 <FormLabel className="mb-0">
                                   Pet hair or pet travel
                                 </FormLabel>
-                                <p className="text-sm text-muted-foreground">
-                                  Adds the configured pet fee for this vehicle.
-                                </p>
+                                
                               </div>
                               <FormControl>
                                 <Switch
