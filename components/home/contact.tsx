@@ -111,9 +111,7 @@ export default function ContactSection() {
                       <div>
                         <div className="font-semibold mb-1">Hours</div>
                         <div className="text-muted-foreground space-y-1">
-                          <div>Monday - Friday: 7am - 8pm</div>
-                          <div>Saturday: 7am - 8pm</div>
-                          <div>Sunday: Closed</div>
+                          <div>Open 7 days a week</div>
                         </div>
                       </div>
                     </CardContent>

@@ -18,7 +18,7 @@ export function Footer() {
     "Interior Detail",
   ];
 
-  const contactInfo = ["(501) 454-7140", "Little Rock, AR", "Mon-Sat: 7am-8pm"];
+  const contactInfo = ["(501) 454-7140", "Little Rock, AR", "Mon-Sun: 6am-8pm"];
 
   const socialLinks = [
     {
