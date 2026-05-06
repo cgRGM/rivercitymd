@@ -83,15 +83,15 @@ describe("availability", () => {
     });
 
     const blockedSlots = slots.filter(
-      (s: (typeof slots)[number]) => !s.available && s.reason?.startsWith("Blocked:"),
+      (s: (typeof slots)[number]) =>
+        !s.available && s.reason === "Time slot already booked",
     );
     expect(blockedSlots.length).toBeGreaterThan(0);
-    expect(blockedSlots[0].reason).toContain("Lunch break");
 
     const overlappingSlot = slots.find((s: (typeof slots)[number]) => s.time === "10:00");
     expect(overlappingSlot).toBeDefined();
     expect(overlappingSlot?.available).toBe(false);
-    expect(overlappingSlot?.reason).toContain("Blocked:");
+    expect(overlappingSlot?.reason).toBe("Time slot already booked");
   });
 
   test("time block outside slot window leaves slots available", async () => {

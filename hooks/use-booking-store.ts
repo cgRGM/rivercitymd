@@ -10,7 +10,7 @@ interface Vehicle {
   color?: string
   licensePlate?: string
   size?: "small" | "medium" | "large"
-  type?: string // Optional type on individual vehicle if needed, but step3Data has global vehicleType
+  type?: "car" | "truck" | "suv" | "motorcycle"
   hasPet?: boolean
 }
 
@@ -32,7 +32,7 @@ interface Step2Data {
 }
 
 interface Step3Data {
-  vehicleType?: "car" | "truck" | "suv"
+  vehicleType?: "car" | "truck" | "suv" | "motorcycle"
   vehicles: Vehicle[]
 }
 

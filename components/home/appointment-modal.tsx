@@ -100,7 +100,7 @@ const step3Schema = z.object({
         licensePlate: z.string().optional(),
         size: z.enum(["small", "medium", "large"]).optional(),
         hasPet: z.boolean().optional(),
-        type: z.enum(["car", "truck", "suv"]),
+        type: z.enum(["car", "truck", "suv", "motorcycle"]),
       }),
     )
     .min(1, "Please add at least one vehicle"),
@@ -350,10 +350,11 @@ export default function AppointmentModal({
   };
 
   const getVehicleSize = (
-    vehicleType: "car" | "truck" | "suv" | undefined,
+    vehicleType: "car" | "truck" | "suv" | "motorcycle" | undefined,
   ): "small" | "medium" | "large" => {
     switch (vehicleType) {
       case "car":
+      case "motorcycle":
         return "small";
       case "truck":
         return "large";
@@ -932,7 +933,9 @@ export default function AppointmentModal({
                               <Select
                               onValueChange={(value) => {
                                 field.onChange(value);
-                                const size = getVehicleSize(value as "car" | "truck" | "suv");
+                                const size = getVehicleSize(
+                                  value as "car" | "truck" | "suv" | "motorcycle",
+                                );
                                 step3Form.setValue(`vehicles.${index}.size`, size);
                               }}
                               value={field.value}
@@ -946,6 +949,7 @@ export default function AppointmentModal({
                                 <SelectItem value="car">Car</SelectItem>
                                 <SelectItem value="truck">Truck</SelectItem>
                                 <SelectItem value="suv">SUV</SelectItem>
+                                <SelectItem value="motorcycle">Motorcycle</SelectItem>
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -1088,128 +1092,120 @@ export default function AppointmentModal({
                     <FormItem>
                       <FormControl>
                         <div className="space-y-8">
+                          {(() => {
+                            const primaryVehicle = step3Data?.vehicles?.[0];
+                            const selectedVehicleSize =
+                              primaryVehicle?.size ??
+                              getVehicleSize(primaryVehicle?.type);
+
+                            return (
+                              <>
                           
-                          {/* Packages Section (Single Select) */}
-                          <div className="space-y-3">
-                            <h4 className="font-medium flex items-center gap-2">
-                              <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs">ONE REQUIRED</span>
-                              Packages
-                            </h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {services
-                                ?.filter(s => s.isActive && (s.serviceType === "standard" || !s.serviceType))
-                                .map(service => {
-                                  // Fix: Access vehicleType from the first vehicle in the array
-                                  const vehicle = step3Data?.vehicles?.[0];
-                                  const vehicleType = vehicle?.type;
-                                  const vehicleSize = vehicleType === "car" ? "small" : vehicleType === "suv" ? "medium" : "large";
-                                  const isSelected = field.value?.includes(service._id) || false;
+                                {/* Packages Section (Single Select) */}
+                                <div className="space-y-3">
+                                  <h4 className="font-medium flex items-center gap-2">
+                                    <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs">ONE REQUIRED</span>
+                                    Packages
+                                  </h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {services
+                                      ?.filter(s => s.isActive && (s.serviceType === "standard" || !s.serviceType))
+                                      .map(service => {
+                                        const isSelected = field.value?.includes(service._id) || false;
 
-                                  return (
-                                    <ServiceCard
-                                      key={service._id}
-                                      service={service}
-                                      vehicleSize={vehicleSize}
-                                      isSelected={isSelected}
-                                      onSelect={() => {
-                                        const current = field.value || [];
-                                        // Remove other standard services, keep addons/subs
-                                        const otherServices = current.filter(id => {
-                                          const s = services.find(s => s._id === id);
-                                          return s && s.serviceType !== "standard" && s.serviceType; // Keep non-standards
-                                        });
-                                        // If clicking same, keep it (enforce at least one? logic handles in schema) 
-                                        // actually user said "select one", so radio behavior usually means you can't deselect the only one by clicking it, but let's allow switching.
-                                        // Simply set the value to [...others, newId]
-                                        field.onChange([...otherServices, service._id]);
-                                      }}
-                                    />
-                                  );
-                                })}
-                            </div>
-                          </div>
+                                        return (
+                                          <ServiceCard
+                                            key={service._id}
+                                            service={service}
+                                            vehicleSize={selectedVehicleSize}
+                                            isSelected={isSelected}
+                                            onSelect={() => {
+                                              const current = field.value || [];
+                                              // Remove other standard services, keep addons/subs
+                                              const otherServices = current.filter(id => {
+                                                const s = services.find(s => s._id === id);
+                                                return s && s.serviceType !== "standard" && s.serviceType;
+                                              });
+                                              field.onChange([...otherServices, service._id]);
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                  </div>
+                                </div>
 
-                          {/* Add-ons Section (Multi Select) */}
-                          <div className="space-y-3">
-                            <h4 className="font-medium text-muted-foreground">Add-ons (Optional)</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {services
-                                ?.filter(s => s.isActive && s.serviceType === "addon")
-                                .map(service => {
-                                  // Fix: Access vehicleType from the first vehicle in the array
-                                  const vehicle = step3Data?.vehicles?.[0];
-                                  const vehicleType = vehicle?.type;
-                                  const vehicleSize = vehicleType === "car" ? "small" : vehicleType === "suv" ? "medium" : "large";
+                                {/* Add-ons Section (Multi Select) */}
+                                <div className="space-y-3">
+                                  <h4 className="font-medium text-muted-foreground">Add-ons (Optional)</h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {services
+                                      ?.filter(s => s.isActive && s.serviceType === "addon")
+                                      .map(service => {
+                                        const isSelected = field.value?.includes(service._id) || false;
 
+                                        return (
+                                          <ServiceCard
+                                            key={service._id}
+                                            service={service}
+                                            vehicleSize={selectedVehicleSize}
+                                            isSelected={isSelected}
+                                            onSelect={() => {
+                                              const currentIds = field.value || [];
+                                              const nextIds = currentIds.includes(service._id)
+                                                ? currentIds.filter((id) => id !== service._id)
+                                                : [...currentIds, service._id];
+                                              field.onChange(nextIds);
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                      {services?.filter(s => s.isActive && s.serviceType === "addon").length === 0 && (
+                                        <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
+                                      )}
+                                  </div>
+                                </div>
 
-                                  return (
-                                    <ServiceCard
-                                      key={service._id}
-                                      service={service}
-                                      vehicleSize={vehicleSize}
-                                      isSelected={step4Data?.serviceIds.includes(service._id) || false}
-                                      onSelect={() => {
-                                        const currentIds = step4Data?.serviceIds || [];
-                                        const isSelected = currentIds.includes(service._id);
-                                        let newIds;
-                                        if (isSelected) {
-                                          newIds = currentIds.filter((id) => id !== service._id);
-                                        } else {
-                                          newIds = [...currentIds, service._id];
-                                        }
-                                        setStep4Data({ serviceIds: newIds });
-                                      }}
-                                    />
-                                  );
-                                })}
-                                {services?.filter(s => s.isActive && s.serviceType === "addon").length === 0 && (
-                                  <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
-                                )}
-                            </div>
-                          </div>
+                                {/* Subscriptions Section (Single Select) */}
+                                <div className="space-y-3">
+                                  <h4 className="font-medium text-muted-foreground">Subscriptions (Optional)</h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {services
+                                      ?.filter(s => s.isActive && s.serviceType === "subscription")
+                                      .map(service => {
+                                        const isSelected = field.value?.includes(service._id) || false;
 
-                          {/* Subscriptions Section (Single Select) */}
-                          <div className="space-y-3">
-                            <h4 className="font-medium text-muted-foreground">Subscriptions (Optional)</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {services
-                                ?.filter(s => s.isActive && s.serviceType === "subscription")
-                                .map(service => {
-                                  // Fix: Access vehicleType from the first vehicle in the array
-                                  const vehicle = step3Data?.vehicles?.[0];
-                                  const vehicleType = vehicle?.type;
-                                  const vehicleSize = vehicleType === "car" ? "small" : vehicleType === "suv" ? "medium" : "large";
-                                  const isSelected = field.value?.includes(service._id) || false;
-
-                                  return (
-                                    <ServiceCard
-                                      key={service._id}
-                                      service={service}
-                                      vehicleSize={vehicleSize}
-                                      isSelected={isSelected}
-                                      onSelect={(selected) => {
-                                        const current = field.value || [];
-                                        const otherServices = current.filter(id => {
-                                          const s = services.find(s => s._id === id);
-                                          return s && s.serviceType !== "subscription";
-                                        });
-                                        
-                                        if (selected) {
-                                           // Select this one, remove other subscriptions
-                                           field.onChange([...otherServices, service._id]);
-                                        } else {
-                                           // Deselect allowed for subscriptions
-                                           field.onChange(otherServices);
-                                        }
-                                      }}
-                                    />
-                                  );
-                                })}
-                                {services?.filter(s => s.isActive && s.serviceType === "subscription").length === 0 && (
-                                  <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
-                                )}
-                            </div>
-                          </div>
+                                        return (
+                                          <ServiceCard
+                                            key={service._id}
+                                            service={service}
+                                            vehicleSize={selectedVehicleSize}
+                                            isSelected={isSelected}
+                                            onSelect={(selected) => {
+                                              const current = field.value || [];
+                                              const otherServices = current.filter(id => {
+                                                const s = services.find(s => s._id === id);
+                                                return s && s.serviceType !== "subscription";
+                                              });
+                                              
+                                              if (selected) {
+                                                 // Select this one, remove other subscriptions
+                                                 field.onChange([...otherServices, service._id]);
+                                              } else {
+                                                 // Deselect allowed for subscriptions
+                                                 field.onChange(otherServices);
+                                              }
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                      {services?.filter(s => s.isActive && s.serviceType === "subscription").length === 0 && (
+                                        <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
+                                      )}
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          })()}
 
                         </div>
                       </FormControl>
@@ -1227,13 +1223,9 @@ export default function AppointmentModal({
 
         {currentStep === 5 && (() => {
           // Compute service total and deposit for display
-          const vehicleType = step3Data?.vehicleType;
+          const primaryVehicle = step3Data?.vehicles?.[0];
           const vehicleSize =
-            vehicleType === "car"
-              ? "small"
-              : vehicleType === "suv"
-                ? "medium"
-                : "large";
+            primaryVehicle?.size ?? getVehicleSize(primaryVehicle?.type);
           const vehicleCount = step3Data?.vehicles?.length ?? 1;
           const depositPerVehicle = 50;
           const depositTotal = depositPerVehicle * vehicleCount;
