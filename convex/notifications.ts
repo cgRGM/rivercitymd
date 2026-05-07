@@ -336,7 +336,21 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
       internal.notifications.deliverQueuedNotification,
       {
         dispatchId,
-        ...args,
+        event: args.event,
+        channel: args.channel,
+        recipientType: args.recipientType,
+        recipient: args.recipient,
+        userId: args.userId,
+        appointmentId: args.appointmentId,
+        invoiceId: args.invoiceId,
+        reviewId: args.reviewId,
+        subscriptionId: args.subscriptionId,
+        tripLogId: args.tripLogId,
+        transition: args.transition,
+        dedupeContext: args.dedupeContext,
+        scheduleFingerprint: args.scheduleFingerprint,
+        checkoutUrl: args.checkoutUrl,
+        failureReason: args.failureReason,
       },
       {
         name: dedupeKey,
@@ -369,7 +383,21 @@ async function queueDispatch(ctx: any, args: QueueDispatchArgs): Promise<void> {
 
     await ctx.scheduler.runAfter(0, internal.notifications.deliverQueuedNotification, {
       dispatchId,
-      ...args,
+      event: args.event,
+      channel: args.channel,
+      recipientType: args.recipientType,
+      recipient: args.recipient,
+      userId: args.userId,
+      appointmentId: args.appointmentId,
+      invoiceId: args.invoiceId,
+      reviewId: args.reviewId,
+      subscriptionId: args.subscriptionId,
+      tripLogId: args.tripLogId,
+      transition: args.transition,
+      dedupeContext: args.dedupeContext,
+      scheduleFingerprint: args.scheduleFingerprint,
+      checkoutUrl: args.checkoutUrl,
+      failureReason: args.failureReason,
     });
 
     await ctx.db.patch(dispatchId, {
