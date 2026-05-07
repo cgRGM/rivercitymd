@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -27,6 +27,11 @@ export default function BookingSuccessPage() {
   const { isLoaded, isSignedIn } = useUser();
   const token = searchParams.get("token");
   const draftContext = useQuery(api.bookingDrafts.getPublicContext, token ? { token } : "skip");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!token || !isLoaded || !isSignedIn || !draftContext?.convertedUserId) {
@@ -62,7 +67,7 @@ export default function BookingSuccessPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          {token && isLoaded && isSignedIn ? (
+          {mounted && token && isLoaded && isSignedIn ? (
             <div className="flex items-center justify-center rounded-xl border bg-muted/40 px-4 py-6 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               You&apos;re already signed in. Finishing your booking...
@@ -95,7 +100,7 @@ export default function BookingSuccessPage() {
             </div>
           )}
 
-          {!isLoaded || !isSignedIn ? (
+          {mounted && (!isLoaded || !isSignedIn) ? (
             <div className="flex flex-col gap-3 sm:flex-row">
               <Button asChild className="flex-1" disabled={!token || !draftContext?.convertedUserId}>
                 <Link href={signUpHref}>Create account</Link>
