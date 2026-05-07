@@ -255,7 +255,10 @@ async function expireStripeCheckoutSessionIfPossible(
       message.includes("already expired") ||
       message.includes("already completed") ||
       message.includes("cannot expire") ||
-      message.includes("no such checkout.session")
+      message.includes("no such checkout.session") ||
+      message.includes("status of `complete`") ||
+      message.includes("status of complete") ||
+      message.includes("status in [\"open\"]")
     ) {
       return;
     }
