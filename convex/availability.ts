@@ -215,7 +215,7 @@ async function checkSlotAvailability(
   const timeBlocks = await getTimeBlocksForDate(ctx, dateKey);
   for (const block of timeBlocks) {
     if (requestedStart < block.endTime && requestedEnd > block.startTime) {
-      return { available: false, reason: `Blocked: ${block.reason}` };
+      return { available: false, reason: "Time slot already booked" };
     }
   }
 
