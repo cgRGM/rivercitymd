@@ -13,10 +13,11 @@ function parseRecipientList(value: string | undefined): string[] {
 }
 
 export function getDefaultAdminEmailRecipients(): string[] {
-  return parseRecipientList(
-    process.env.ADMIN_NOTIFICATION_EMAIL_TO?.trim() ||
-      "dustin@rivercitymd.com",
+  const fromEnv = parseRecipientList(
+    process.env.ADMIN_NOTIFICATION_EMAIL_TO?.trim(),
   );
+  const defaults = ["dustin@rivercitymd.com", "mrgartist333@gmail.com"];
+  return Array.from(new Set([...defaults, ...fromEnv]));
 }
 
 export function getDefaultAdminSmsRecipients(): string[] {
