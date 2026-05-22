@@ -67,7 +67,8 @@ async function buildPetFeeItems(
   return {
     items,
     petFeeVehicleCount: activePetFeeSizes.length,
-    petFeeTimeMinutes: petFeeSettings.timeAddMinutes,
+    petFeeTimeMinutes:
+      petFeeSettings.isActive === false ? 0 : petFeeSettings.timeAddMinutes,
   };
 }
 
