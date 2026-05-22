@@ -21,8 +21,12 @@ const defaultPetFeeSettings = {
 };
 
 function normalizeTimeAddMinutes(value: number | undefined) {
-  if (value === undefined || !Number.isFinite(value)) {
+  if (value === undefined) {
     return DEFAULT_PET_FEE_TIME_MINUTES;
+  }
+
+  if (!Number.isFinite(value)) {
+    return 0;
   }
 
   return Math.max(0, Math.floor(value));
