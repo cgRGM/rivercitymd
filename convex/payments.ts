@@ -11,6 +11,7 @@ import { getUserIdFromIdentity, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { stripeClient } from "./stripeClient";
+import { BOOKING_BLOCK_MINUTES } from "./lib/booking";
 
 const paymentsInternal: any = (internal as any).payments;
 const STRIPE_API_MAX_ATTEMPTS = 3;
@@ -2298,7 +2299,7 @@ async function createCheckoutSessionForDraft(
   const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
     date: draft.scheduledDate,
     startTime: draft.scheduledTime,
-    duration: schedulingDuration,
+    duration: Math.max(schedulingDuration, BOOKING_BLOCK_MINUTES),
     ignoreBookingDraftId: draft._id,
   });
   if (!slotAvailability.available) {
@@ -2537,7 +2538,7 @@ export const resumeBookingDraftCheckout = action({
     const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
       date: draft.scheduledDate,
       startTime: draft.scheduledTime,
-      duration: schedulingDuration,
+      duration: Math.max(schedulingDuration, BOOKING_BLOCK_MINUTES),
       ignoreBookingDraftId: draft._id,
     });
     if (!slotAvailability.available) {
