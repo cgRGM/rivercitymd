@@ -12,7 +12,7 @@ import {
   getUserIdFromIdentity,
   requireAdmin,
 } from "./auth";
-import { BOOKING_BLOCK_MINUTES, normalizeDateKey } from "./lib/booking";
+import { calculateSchedulingDuration, normalizeDateKey } from "./lib/booking";
 import {
   DEFAULT_USER_NOTIFICATION_PREFERENCES,
   normalizeUserNotificationPreferences,
@@ -213,7 +213,21 @@ async function buildDraftPricing(args: {
     hasPet?: boolean;
   }>;
   petFeeExistingVehicleIds: Id<"vehicles">[];
-}) {
+}): Promise<{
+  services: Doc<"services">[];
+  items: Array<{
+    itemType: "service" | "pet_fee";
+    serviceId?: Id<"services">;
+    serviceName: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+  }>;
+  totalPrice: number;
+  duration: number;
+  depositAmount: number;
+  remainingBalance: number;
+}> {
   const services = await getServicesForDraft(args.ctx, args.serviceIds);
   assertBookableServices(services, args.serviceIds, args.vehicleSize);
 
@@ -230,7 +244,13 @@ async function buildDraftPricing(args: {
     };
   });
 
-  const petFeeSettings = await args.ctx.runQuery(
+  const petFeeSettings: {
+    basePriceSmall: number;
+    basePriceMedium: number;
+    basePriceLarge: number;
+    timeAddMinutes?: number;
+    isActive: boolean;
+  } = await args.ctx.runQuery(
     internal.petFeeSettings.getInternal,
     {},
   );
@@ -243,9 +263,11 @@ async function buildDraftPricing(args: {
       .filter((vehicle) => vehicle.hasPet)
       .map((vehicle) => vehicle.size ?? "medium"),
   ];
+  const activePetFeeSizes: VehicleSize[] =
+    petFeeSettings.isActive === false ? [] : petFeeSizes;
   const petFeeItems = (["small", "medium", "large"] as VehicleSize[])
     .map((size) => {
-      const quantity = petFeeSizes.filter((petFeeSize) => petFeeSize === size).length;
+      const quantity = activePetFeeSizes.filter((petFeeSize) => petFeeSize === size).length;
       const unitPrice = getEffectivePetFeePrice(petFeeSettings, size);
       return {
         itemType: "pet_fee" as const,
@@ -259,8 +281,15 @@ async function buildDraftPricing(args: {
 
   const priceItems = [...items, ...petFeeItems];
 
-  const totalPrice = priceItems.reduce((sum, item) => sum + item.totalPrice, 0);
-  const duration = services.reduce((sum, service) => sum + (service.duration || 0), 0);
+  const totalPrice = priceItems.reduce(
+    (sum: number, item) => sum + item.totalPrice,
+    0,
+  );
+  const duration = calculateSchedulingDuration({
+    serviceDurations: services.map((service) => service.duration || 0),
+    petFeeVehicleCount: activePetFeeSizes.length,
+    petFeeTimeMinutes: petFeeSettings.timeAddMinutes,
+  });
   const depositSettings = await args.ctx.runQuery(
     internal.depositSettings.getInternal,
     {},
@@ -375,19 +404,6 @@ export const createOrUpdate = mutation({
       }
     }
 
-    const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
-      date: scheduledDate,
-      startTime: args.scheduledTime,
-      duration: BOOKING_BLOCK_MINUTES,
-      ignoreBookingDraftId: existingDraft?._id,
-    });
-    if (!slotAvailability.available) {
-      throw new ConvexError({
-        code: "TIME_SLOT_UNAVAILABLE",
-        message: slotAvailability.reason || "Selected time is no longer available.",
-      });
-    }
-
     const pricing = await buildDraftPricing({
       ctx,
       serviceIds: args.serviceIds,
@@ -397,6 +413,19 @@ export const createOrUpdate = mutation({
       draftVehicles,
       petFeeExistingVehicleIds,
     });
+
+    const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
+      date: scheduledDate,
+      startTime: args.scheduledTime,
+      duration: pricing.duration,
+      ignoreBookingDraftId: existingDraft?._id,
+    });
+    if (!slotAvailability.available) {
+      throw new ConvexError({
+        code: "TIME_SLOT_UNAVAILABLE",
+        message: slotAvailability.reason || "Selected time is no longer available.",
+      });
+    }
 
     if (existingDraft) {
       await cancelScheduledDraftJobs(ctx, existingDraft);
@@ -498,6 +527,40 @@ export const getByTokenInternal = internalQuery({
   },
   handler: async (ctx, args) => {
     return await getDraftByToken(ctx, args.resumeToken);
+  },
+});
+
+export const getSchedulingDurationInternal = internalQuery({
+  args: {
+    draftId: v.id("bookingDrafts"),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const draft = await ctx.db.get(args.draftId);
+    if (!draft) {
+      throw new Error("Booking draft not found");
+    }
+
+    const services = await getServicesForDraft(ctx, draft.serviceIds);
+    const petFeeSettings = await ctx.db.query("petFeeSettings").first();
+    const petFeeExistingVehicleIdSet = new Set(draft.petFeeExistingVehicleIds ?? []);
+    const existingVehicles = (
+      await Promise.all(
+        draft.existingVehicleIds.map((vehicleId) => ctx.db.get(vehicleId)),
+      )
+    ).filter((vehicle): vehicle is Doc<"vehicles"> => vehicle !== null);
+    const petFeeVehicleCount =
+      petFeeSettings?.isActive === false
+        ? 0
+        : existingVehicles.filter((vehicle) =>
+            petFeeExistingVehicleIdSet.has(vehicle._id),
+          ).length + draft.draftVehicles.filter((vehicle) => vehicle.hasPet).length;
+
+    return calculateSchedulingDuration({
+      serviceDurations: services.map((service) => service.duration || 0),
+      petFeeVehicleCount,
+      petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+    });
   },
 });
 

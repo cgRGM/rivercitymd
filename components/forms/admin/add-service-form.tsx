@@ -201,7 +201,7 @@ export function AddServiceForm({
                 name="duration"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Duration (minutes)</FormLabel>
+                    <FormLabel>Calendar time blocked (minutes)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"

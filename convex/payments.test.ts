@@ -5,6 +5,19 @@ import schema from "./schema";
 import { modules, stripeFetchMock } from "./test.setup";
 import { seedBookingSetup } from "./testUtils/bookingSetup";
 
+async function expectConvexErrorCode(
+  promise: Promise<unknown>,
+  expectedCode: string,
+) {
+  try {
+    await promise;
+    throw new Error("Expected mutation to throw");
+  } catch (error: any) {
+    const errorCode = error?.data?.code ?? String(error?.message ?? "");
+    expect(String(errorCode)).toContain(expectedCode);
+  }
+}
+
 describe("payments", () => {
   beforeAll(() => {
     // Mock Stripe environment variables before any imports that check them
@@ -436,7 +449,7 @@ describe("payments", () => {
         description: "Service with default pet fee",
         basePrice: 120,
         basePriceMedium: 120,
-        duration: 60,
+        duration: 120,
         serviceType: "standard",
         isActive: true,
       });
@@ -472,6 +485,7 @@ describe("payments", () => {
 
     expect(draft).toMatchObject({
       totalPrice: 170,
+      duration: 150,
       depositAmount: 50,
       remainingBalance: 120,
     });
@@ -486,6 +500,298 @@ describe("payments", () => {
         }),
       ]),
     );
+  });
+
+  test("booking draft rejects pet-fee slots when added time overlaps a later appointment", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: false,
+    });
+
+    const { adminId, occupantId, serviceId, occupantVehicleId } = await t.run(
+      async (ctx: any) => {
+        const adminId = await ctx.db.insert("users", {
+          name: "Admin",
+          email: "admin-pet-overlap@example.com",
+          role: "admin",
+        });
+        const occupantId = await ctx.db.insert("users", {
+          name: "Existing Customer",
+          email: "occupant-pet-overlap@example.com",
+          role: "client",
+          timesServiced: 0,
+          totalSpent: 0,
+          status: "active",
+        });
+        const serviceId = await ctx.db.insert("services", {
+          name: "Interior Detail",
+          description: "Interior detail with pet fee overlap test",
+          basePrice: 120,
+          basePriceMedium: 120,
+          duration: 120,
+          serviceType: "standard",
+          isActive: true,
+        });
+        const occupantVehicleId = await ctx.db.insert("vehicles", {
+          userId: occupantId,
+          year: 2020,
+          make: "Toyota",
+          model: "Camry",
+          size: "medium",
+        });
+
+        return { adminId, occupantId, serviceId, occupantVehicleId };
+      },
+    );
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.insert("appointments", {
+        userId: occupantId,
+        vehicleIds: [occupantVehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: "2024-12-02",
+        scheduledTime: "11:45",
+        duration: 120,
+        location: {
+          street: "123 Main St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        status: "confirmed",
+        totalPrice: 120,
+        createdBy: adminId,
+      });
+    });
+
+    await expectConvexErrorCode(
+      t.mutation(api.bookingDrafts.createOrUpdate, {
+        name: "Guest Booker",
+        email: "pet-overlap@example.com",
+        phone: "555-4040",
+        address: {
+          street: "123 Guest St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        vehicles: [
+          {
+            year: 2021,
+            make: "Honda",
+            model: "Civic",
+            size: "medium",
+            hasPet: true,
+          },
+        ],
+        serviceIds: [serviceId],
+        scheduledDate: "2024-12-02",
+        scheduledTime: "09:30",
+      }),
+      "TIME_SLOT_UNAVAILABLE",
+    );
+  });
+
+  test("resume checkout recomputes stale draft duration before validating availability", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: false,
+    });
+
+    const resumeToken = "stale-duration-token";
+    await t.run(async (ctx: any) => {
+      const adminId = await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-stale-draft@example.com",
+        role: "admin",
+      });
+      const occupantId = await ctx.db.insert("users", {
+        name: "Existing Customer",
+        email: "occupant-stale-draft@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+      const serviceId = await ctx.db.insert("services", {
+        name: "Interior Detail",
+        description: "Interior detail with stale draft duration",
+        basePrice: 120,
+        basePriceMedium: 120,
+        duration: 120,
+        serviceType: "standard",
+        isActive: true,
+      });
+      const occupantVehicleId = await ctx.db.insert("vehicles", {
+        userId: occupantId,
+        year: 2020,
+        make: "Toyota",
+        model: "Camry",
+        size: "medium",
+      });
+
+      await ctx.db.insert("appointments", {
+        userId: occupantId,
+        vehicleIds: [occupantVehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: "2024-12-02",
+        scheduledTime: "11:45",
+        duration: 120,
+        location: {
+          street: "123 Main St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        status: "confirmed",
+        totalPrice: 120,
+        createdBy: adminId,
+      });
+
+      await ctx.db.insert("bookingDrafts", {
+        customerName: "Guest Booker",
+        customerEmail: "stale-draft@example.com",
+        customerPhone: "555-5050",
+        address: {
+          street: "123 Guest St",
+          city: "Springfield",
+          state: "IL",
+          zip: "62701",
+        },
+        existingVehicleIds: [],
+        draftVehicles: [
+          {
+            year: 2021,
+            make: "Honda",
+            model: "Civic",
+            size: "medium",
+            hasPet: true,
+          },
+        ],
+        serviceIds: [serviceId],
+        scheduledDate: "2024-12-02",
+        scheduledTime: "09:30",
+        duration: 120,
+        vehicleCount: 1,
+        vehicleSize: "medium",
+        totalPrice: 170,
+        depositAmount: 50,
+        remainingBalance: 120,
+        paymentOption: "deposit",
+        priceSnapshot: [
+          {
+            itemType: "service",
+            serviceId,
+            serviceName: "Interior Detail",
+            quantity: 1,
+            unitPrice: 120,
+            totalPrice: 120,
+          },
+        ],
+        status: "draft",
+        resumeToken,
+        lastActivityAt: Date.now(),
+      });
+    });
+
+    const result = await t.action(api.payments.resumeBookingDraftCheckout, {
+      token: resumeToken,
+      origin: "https://example.com",
+    });
+
+    expect(result.status).toBe("requires_new_time");
+  });
+
+  test("inactive pet fee does not add booking draft scheduling time", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: false,
+    });
+
+    const serviceId = await t.run(async (ctx: any) => {
+      await ctx.db.insert("petFeeSettings", {
+        basePriceSmall: 25,
+        basePriceMedium: 50,
+        basePriceLarge: 75,
+        timeAddMinutes: 30,
+        isActive: false,
+      });
+      return await ctx.db.insert("services", {
+        name: "Inactive Pet Fee Service",
+        description: "Service with inactive pet fee",
+        basePrice: 120,
+        basePriceMedium: 120,
+        duration: 120,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const booking = await t.mutation(api.bookingDrafts.createOrUpdate, {
+      name: "Guest Booker",
+      email: "inactive-pet@example.com",
+      phone: "555-6060",
+      address: {
+        street: "123 Guest St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      vehicles: [
+        {
+          year: 2021,
+          make: "Honda",
+          model: "Civic",
+          size: "medium",
+          hasPet: true,
+        },
+      ],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-02",
+      scheduledTime: "09:30",
+    });
+
+    const draft = await t.run(async (ctx: any) => {
+      return await ctx.db.get(booking.draftId);
+    });
+
+    expect(draft).toMatchObject({
+      totalPrice: 120,
+      duration: 120,
+    });
+    expect(draft?.priceSnapshot.some((item: any) => item.itemType === "pet_fee")).toBe(
+      false,
+    );
+  });
+
+  test("pet fee settings clamp extra scheduling minutes to a non-negative integer", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-pet-settings@example.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-pet-settings@example.com",
+    });
+
+    await asAdmin.mutation(api.petFeeSettings.upsert, {
+      basePriceSmall: 25,
+      basePriceMedium: 50,
+      basePriceLarge: 75,
+      timeAddMinutes: -10.8,
+      isActive: true,
+    });
+
+    const settings = await t.query(api.petFeeSettings.get, {});
+    expect(settings.timeAddMinutes).toBe(0);
   });
 
   test("checkout conversion preserves mixed-size pet fee invoice items", async () => {

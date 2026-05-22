@@ -10,7 +10,7 @@ import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
-import { BOOKING_BLOCK_MINUTES, normalizeDateKey } from "./lib/booking";
+import { calculateSchedulingDuration, normalizeDateKey } from "./lib/booking";
 import {
   getEffectiveServicePrice,
   normalizeServiceType,
@@ -1451,10 +1451,14 @@ export const createUserWithAppointment = mutation({
     );
     assertBookableServices(validServices, args.serviceIds, vehicleSize);
 
+    const duration = calculateSchedulingDuration({
+      serviceDurations: validServices.map((service) => service.duration || 0),
+    });
+
     const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
       date: scheduledDateKey,
       startTime: args.scheduledTime,
-      duration: BOOKING_BLOCK_MINUTES,
+      duration,
     });
     if (!slotAvailability.available) {
       throw new ConvexError({
@@ -1535,11 +1539,6 @@ export const createUserWithAppointment = mutation({
         const price = getEffectiveServicePrice(service, vehicleSize);
         return sum + price;
       }, 0) * vehicleIds.length;
-
-    const duration = validServices.reduce(
-      (sum, service) => sum + (service.duration || 0),
-      0,
-    );
 
     // Create appointment
     const appointmentId = await ctx.db.insert("appointments", {

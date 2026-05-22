@@ -99,6 +99,7 @@ const schema = defineSchema({
     basePriceSmall: v.number(),
     basePriceMedium: v.number(),
     basePriceLarge: v.number(),
+    timeAddMinutes: v.optional(v.number()),
     isActive: v.boolean(),
   }),
 

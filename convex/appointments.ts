@@ -10,7 +10,11 @@ import { ConvexError, v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { BOOKING_BLOCK_MINUTES, normalizeDateKey } from "./lib/booking";
+import {
+  BOOKING_BLOCK_MINUTES,
+  calculateSchedulingDuration,
+  normalizeDateKey,
+} from "./lib/booking";
 import {
   getEffectivePetFeePrice,
   getEffectiveServicePrice,
@@ -44,10 +48,11 @@ async function buildPetFeeItems(
   const petFeeSizes = vehicles
     .filter((vehicle) => petFeeVehicleIdSet.has(vehicle._id))
     .map((vehicle) => vehicle.size ?? "medium");
+  const activePetFeeSizes = petFeeSettings.isActive === false ? [] : petFeeSizes;
 
-  return (["small", "medium", "large"] as VehicleSize[])
+  const items = (["small", "medium", "large"] as VehicleSize[])
     .map((size) => {
-      const quantity = petFeeSizes.filter((petFeeSize) => petFeeSize === size).length;
+      const quantity = activePetFeeSizes.filter((petFeeSize) => petFeeSize === size).length;
       const unitPrice = getEffectivePetFeePrice(petFeeSettings, size);
       return {
         itemType: "pet_fee" as const,
@@ -58,6 +63,12 @@ async function buildPetFeeItems(
       };
     })
     .filter((item) => item.quantity > 0 && item.totalPrice > 0);
+
+  return {
+    items,
+    petFeeVehicleCount: activePetFeeSizes.length,
+    petFeeTimeMinutes: petFeeSettings.timeAddMinutes,
+  };
 }
 
 function shouldScheduleNotificationJobs(): boolean {
@@ -559,23 +570,6 @@ export const create = mutation({
     );
     assertBookableServices(validServices, args.serviceIds, vehicleSize);
 
-    const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
-      date: scheduledDateKey,
-      startTime: args.scheduledTime,
-      duration: BOOKING_BLOCK_MINUTES,
-    });
-    if (!slotAvailability.available) {
-      throw new ConvexError({
-        code: "TIME_SLOT_UNAVAILABLE",
-        message: slotAvailability.reason || "Selected time is no longer available.",
-      });
-    }
-
-    const duration = validServices.reduce(
-      (sum, service) => sum + (service.duration || 0),
-      0,
-    );
-
     const serviceItems = validServices.map((service) => {
       const unitPrice = getEffectiveServicePrice(service, vehicleSize);
 
@@ -588,7 +582,26 @@ export const create = mutation({
         totalPrice: unitPrice * args.vehicleIds.length,
       };
     });
-    const petFeeItems = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
+    const petFee = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
+    const petFeeItems = petFee.items;
+    const duration = calculateSchedulingDuration({
+      serviceDurations: validServices.map((service) => service.duration || 0),
+      petFeeVehicleCount: petFee.petFeeVehicleCount,
+      petFeeTimeMinutes: petFee.petFeeTimeMinutes,
+    });
+
+    const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
+      date: scheduledDateKey,
+      startTime: args.scheduledTime,
+      duration,
+    });
+    if (!slotAvailability.available) {
+      throw new ConvexError({
+        code: "TIME_SLOT_UNAVAILABLE",
+        message: slotAvailability.reason || "Selected time is no longer available.",
+      });
+    }
+
     const items = [...serviceItems, ...petFeeItems];
     const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
 
@@ -744,13 +757,15 @@ export const update = mutation({
         totalPrice: unitPrice * updates.vehicleIds.length,
       };
     });
-    const petFeeItems = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
+    const petFee = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
+    const petFeeItems = petFee.items;
     const items = [...serviceItems, ...petFeeItems];
     const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
-    const duration = validServices.reduce(
-      (sum, service) => sum + (service!.duration || 0),
-      0,
-    );
+    const duration = calculateSchedulingDuration({
+      serviceDurations: validServices.map((service) => service!.duration || 0),
+      petFeeVehicleCount: petFee.petFeeVehicleCount,
+      petFeeTimeMinutes: petFee.petFeeTimeMinutes,
+    });
 
     const scheduleChanged =
       existingAppointment.scheduledDate !== updates.scheduledDate ||
@@ -780,11 +795,26 @@ export const update = mutation({
     const materialChanged =
       materialChangeFingerprint !== previousMaterialFingerprint;
 
+    if (scheduleChanged || duration !== existingAppointment.duration) {
+      const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
+        date: normalizeDateKey(updates.scheduledDate),
+        startTime: updates.scheduledTime,
+        duration,
+        ignoreAppointmentId: appointmentId,
+      });
+      if (!slotAvailability.available) {
+        throw new ConvexError({
+          code: "TIME_SLOT_UNAVAILABLE",
+          message: slotAvailability.reason || "Selected time is no longer available.",
+        });
+      }
+    }
+
     await ctx.db.patch(appointmentId, {
       userId: updates.userId,
       vehicleIds: updates.vehicleIds,
       serviceIds: updates.serviceIds,
-      scheduledDate: updates.scheduledDate,
+      scheduledDate: normalizeDateKey(updates.scheduledDate),
       scheduledTime: updates.scheduledTime,
       duration,
       location: {
