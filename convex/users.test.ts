@@ -1081,4 +1081,81 @@ describe("users", () => {
       "TIME_SLOT_UNAVAILABLE",
     );
   });
+
+  test("createUserWithAppointment correctly calculates duration and price with pet fees", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const serviceId = await t.run(async (ctx) => {
+      await ctx.db.insert("petFeeSettings", {
+        basePriceSmall: 25,
+        basePriceMedium: 50,
+        basePriceLarge: 75,
+        timeAddMinutes: 30,
+        isActive: true,
+      });
+      return await ctx.db.insert("services", {
+        name: "Marketing Pet Detail",
+        description: "Detail with pet fee",
+        basePrice: 100,
+        basePriceSmall: 100,
+        basePriceMedium: 100,
+        basePriceLarge: 100,
+        duration: 120,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const result = await t.mutation(api.users.createUserWithAppointment, {
+      name: "Pet Owner",
+      email: "pet@example.com",
+      phone: "555-0000",
+      address: {
+        street: "123 Pet Lane",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      vehicles: [
+        {
+          year: 2022,
+          make: "Honda",
+          model: "CR-V",
+          size: "medium",
+          hasPet: true,
+        },
+      ],
+      serviceIds: [serviceId],
+      scheduledDate: BOOKING_TEST_DATE,
+      scheduledTime: "14:00",
+    });
+
+    const appointment = await t.run(async (ctx) => ctx.db.get(result.appointmentId));
+    const invoice = await t.run(async (ctx) => ctx.db.get(result.invoiceId));
+
+    // Duration: 120 (service) + 30 (pet) = 150
+    expect(appointment?.duration).toBe(150);
+    // Price: 100 (service) + 50 (medium pet fee) = 150
+    expect(appointment?.totalPrice).toBe(150);
+    expect(appointment?.petFeeVehicleIds).toHaveLength(1);
+
+    expect(invoice?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "service",
+          serviceName: "Marketing Pet Detail",
+          totalPrice: 100,
+        }),
+        expect.objectContaining({
+          itemType: "pet_fee",
+          serviceName: "Pet fee - Medium vehicle",
+          totalPrice: 50,
+        }),
+      ]),
+    );
+  });
 });

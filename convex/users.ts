@@ -12,6 +12,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { calculateSchedulingDuration, normalizeDateKey } from "./lib/booking";
 import {
+  getEffectivePetFeePrice,
   getEffectiveServicePrice,
   normalizeServiceType,
   type VehicleSize,
@@ -1413,6 +1414,7 @@ export const createUserWithAppointment = mutation({
         ),
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
+        hasPet: v.optional(v.boolean()),
       }),
     ),
     serviceIds: v.array(v.id("services")),
@@ -1451,8 +1453,16 @@ export const createUserWithAppointment = mutation({
     );
     assertBookableServices(validServices, args.serviceIds, vehicleSize);
 
+    const petFeeSettings = await ctx.db.query("petFeeSettings").first();
+    const petFeeVehicleCount =
+      petFeeSettings?.isActive === false
+        ? 0
+        : args.vehicles.filter((vehicle) => vehicle.hasPet).length;
+
     const duration = calculateSchedulingDuration({
       serviceDurations: validServices.map((service) => service.duration || 0),
+      petFeeVehicleCount,
+      petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
     });
 
     const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
@@ -1519,7 +1529,8 @@ export const createUserWithAppointment = mutation({
     }
 
     // Create vehicles
-    const vehicleIds: string[] = [];
+    const vehicleIds: Id<"vehicles">[] = [];
+    const petFeeVehicleIds: Id<"vehicles">[] = [];
     for (const vehicle of args.vehicles) {
       const vehicleId = await ctx.db.insert("vehicles", {
         userId,
@@ -1531,14 +1542,42 @@ export const createUserWithAppointment = mutation({
         licensePlate: vehicle.licensePlate,
       });
       vehicleIds.push(vehicleId);
+      if (vehicle.hasPet) {
+        petFeeVehicleIds.push(vehicleId);
+      }
     }
 
     // Calculate total price using size-based pricing
-    const totalPrice =
+    const serviceTotalPrice =
       validServices.reduce((sum, service) => {
         const price = getEffectiveServicePrice(service, vehicleSize);
         return sum + price;
       }, 0) * vehicleIds.length;
+
+    const petFeeItems = (["small", "medium", "large"] as VehicleSize[])
+      .map((size) => {
+        const count =
+          petFeeSettings?.isActive === false
+            ? 0
+            : args.vehicles.filter(
+                (v) => (v.size ?? "medium") === size && v.hasPet,
+              ).length;
+        const unitPrice = getEffectivePetFeePrice(petFeeSettings, size);
+        return {
+          itemType: "pet_fee" as const,
+          serviceName: `Pet fee - ${size.charAt(0).toUpperCase() + size.slice(1)} vehicle`,
+          quantity: count,
+          unitPrice,
+          totalPrice: unitPrice * count,
+        };
+      })
+      .filter((item) => item.quantity > 0);
+
+    const petFeeTotalPrice = petFeeItems.reduce(
+      (sum, item) => sum + item.totalPrice,
+      0,
+    );
+    const totalPrice = serviceTotalPrice + petFeeTotalPrice;
 
     // Create appointment
     const appointmentId = await ctx.db.insert("appointments", {
@@ -1560,13 +1599,15 @@ export const createUserWithAppointment = mutation({
       notes: "Created via marketing site booking",
       createdBy: userId,
       paymentOption: args.paymentOption,
+      petFeeVehicleIds,
     });
 
     // Calculate invoice items
-    const items = validServices.map((service) => {
+    const serviceItems = validServices.map((service) => {
       const unitPrice = getEffectiveServicePrice(service, vehicleSize);
 
       return {
+        itemType: "service" as const,
         serviceId: service._id,
         serviceName: service.name,
         quantity: vehicleIds.length,
@@ -1575,6 +1616,7 @@ export const createUserWithAppointment = mutation({
       };
     });
 
+    const items = [...serviceItems, ...petFeeItems];
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const tax = 0;
     const total = subtotal + tax;
