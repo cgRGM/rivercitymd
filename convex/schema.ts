@@ -68,6 +68,26 @@ const schema = defineSchema({
     year: v.number(),
     make: v.string(),
     model: v.string(),
+    vehicleTypeId: v.optional(v.id("vehicleTypes")),
+    vehicleTypeOverrideBy: v.optional(v.id("users")),
+    vehicleTypeOverrideAt: v.optional(v.number()),
+    classification: v.optional(
+      v.object({
+        source: v.union(
+          v.literal("fuelEconomy"),
+          v.literal("vpic"),
+          v.literal("manual"),
+          v.literal("fallback"),
+        ),
+        confidence: v.union(
+          v.literal("high"),
+          v.literal("medium"),
+          v.literal("low"),
+        ),
+        rawCategory: v.optional(v.string()),
+        needsAdminReview: v.boolean(),
+      }),
+    ),
     size: v.optional(
       v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
     ),
@@ -75,6 +95,23 @@ const schema = defineSchema({
     licensePlate: v.optional(v.string()),
     notes: v.optional(v.string()),
   }).index("by_user", ["userId"]),
+
+  vehicleTypes: defineTable({
+    name: v.string(),
+    slug: v.string(),
+    legacySize: v.union(
+      v.literal("small"),
+      v.literal("medium"),
+      v.literal("large"),
+    ),
+    isActive: v.boolean(),
+    displayOrder: v.number(),
+    apiAliases: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_active", ["isActive"]),
 
   // Service Categories
   serviceCategories: defineTable({
@@ -134,6 +171,26 @@ const schema = defineSchema({
   })
     .index("by_service_type", ["serviceType"])
     .index("by_category", ["categoryId"]),
+
+  serviceVehiclePrices: defineTable({
+    serviceId: v.id("services"),
+    vehicleTypeId: v.id("vehicleTypes"),
+    price: v.number(),
+    duration: v.number(),
+    isAvailable: v.boolean(),
+    stripePriceId: v.optional(v.string()),
+    stripeRecurringPriceIds: v.optional(
+      v.object({
+        monthly: v.optional(v.string()),
+        biweekly: v.optional(v.string()),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_service", ["serviceId"])
+    .index("by_vehicle_type", ["vehicleTypeId"])
+    .index("by_service_and_vehicle_type", ["serviceId", "vehicleTypeId"]),
 
   // Appointments/Bookings
   appointments: defineTable({
@@ -200,6 +257,24 @@ const schema = defineSchema({
         size: v.optional(
           v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
         ),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
+        classification: v.optional(
+          v.object({
+            source: v.union(
+              v.literal("fuelEconomy"),
+              v.literal("vpic"),
+              v.literal("manual"),
+              v.literal("fallback"),
+            ),
+            confidence: v.union(
+              v.literal("high"),
+              v.literal("medium"),
+              v.literal("low"),
+            ),
+            rawCategory: v.optional(v.string()),
+            needsAdminReview: v.boolean(),
+          }),
+        ),
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
         hasPet: v.optional(v.boolean()),
@@ -228,6 +303,9 @@ const schema = defineSchema({
       v.object({
         itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
         serviceId: v.optional(v.id("services")),
+        vehicleId: v.optional(v.id("vehicles")),
+        vehicleLabel: v.optional(v.string()),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
         serviceName: v.string(),
         quantity: v.number(),
         unitPrice: v.number(),
@@ -286,6 +364,9 @@ const schema = defineSchema({
       v.object({
         itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
         serviceId: v.optional(v.id("services")),
+        vehicleId: v.optional(v.id("vehicles")),
+        vehicleLabel: v.optional(v.string()),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
         serviceName: v.string(),
         quantity: v.number(),
         unitPrice: v.number(),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -38,6 +38,13 @@ type Vehicle = {
   color?: string;
   licensePlate?: string;
   notes?: string;
+  vehicleTypeId?: Id<"vehicleTypes">;
+  classification?: {
+    needsAdminReview: boolean;
+  };
+  vehicleType?: {
+    name: string;
+  } | null;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -67,9 +74,11 @@ export default function VehiclesClient({}: VehiclesClientProps) {
     licensePlate: "",
     notes: "",
   });
+  const [detectedVehicleType, setDetectedVehicleType] = useState<string | null>(null);
 
   const createVehicle = useMutation(api.vehicles.create);
   const deleteVehicle = useMutation(api.vehicles.deleteVehicle);
+  const classifyVehicle = useAction(api.vehicleTypes.classify);
 
   // Handle unauthenticated state
   if (!isAuthenticated) {
@@ -205,18 +214,31 @@ export default function VehiclesClient({}: VehiclesClientProps) {
     if (!currentUser?._id) return;
 
     try {
+      const classification = await classifyVehicle({
+        year: parseInt(formData.year),
+        make: formData.make,
+        model: formData.model,
+      });
       await createVehicle({
         userId: currentUser._id,
         year: parseInt(formData.year),
         make: formData.make,
         model: formData.model,
-        size: formData.size,
+        vehicleTypeId: classification.vehicleTypeId,
+        classification: {
+          source: classification.source,
+          confidence: classification.confidence,
+          rawCategory: classification.rawCategory,
+          needsAdminReview: classification.needsAdminReview,
+        },
+        size: classification.legacySize,
         color: formData.color || undefined,
         licensePlate: formData.licensePlate || undefined,
         notes: formData.notes || undefined,
       });
 
       toast.success("Vehicle added successfully");
+      setDetectedVehicleType(null);
       setIsAddOpen(false);
       setFormData({
         year: "",
@@ -227,8 +249,26 @@ export default function VehiclesClient({}: VehiclesClientProps) {
         licensePlate: "",
         notes: "",
       });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to add vehicle");
+    }
+  };
+
+  const previewVehicleType = async () => {
+    if (!formData.year || !formData.make || !formData.model) return;
+    try {
+      const classification = await classifyVehicle({
+        year: parseInt(formData.year),
+        make: formData.make,
+        model: formData.model,
+      });
+      setDetectedVehicleType(
+        classification.vehicleTypeName
+          ? `${classification.vehicleTypeName}${classification.needsAdminReview ? " (admin review)" : ""}`
+          : "Needs admin review",
+      );
     } catch {
-      toast.error("Failed to add vehicle");
+      setDetectedVehicleType("Needs admin review");
     }
   };
 
@@ -302,23 +342,18 @@ export default function VehiclesClient({}: VehiclesClientProps) {
                   }
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="size">Vehicle Size</Label>
-                <select
-                  id="size"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  value={formData.size}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      size: e.target.value as "small" | "medium" | "large",
-                    }))
-                  }
-                >
-                  <option value="small">Small / Compact</option>
-                  <option value="medium">Mid-Size SUV</option>
-                  <option value="large">Truck / Large</option>
-                </select>
+              <div className="rounded-md border bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Detected vehicle type</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {detectedVehicleType ?? "Enter year, make, and model to classify."}
+                    </p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={previewVehicleType}>
+                    Detect
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="color">Color</Label>
@@ -387,6 +422,8 @@ export default function VehiclesClient({}: VehiclesClientProps) {
                     <CardDescription className="mt-1">
                       {vehicle.color && `${vehicle.color} • `}
                       {vehicle.licensePlate && `Plate: ${vehicle.licensePlate}`}
+                      {vehicle.vehicleType?.name && ` • ${vehicle.vehicleType.name}`}
+                      {vehicle.classification?.needsAdminReview && " • Review needed"}
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">

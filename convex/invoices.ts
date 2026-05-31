@@ -30,6 +30,9 @@ const invoiceCreateArgs = {
     v.object({
       itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
       serviceId: v.optional(v.id("services")),
+      vehicleId: v.optional(v.id("vehicles")),
+      vehicleLabel: v.optional(v.string()),
+      vehicleTypeId: v.optional(v.id("vehicleTypes")),
       serviceName: v.string(),
       quantity: v.number(),
       unitPrice: v.number(),

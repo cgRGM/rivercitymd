@@ -2,6 +2,16 @@ export type ServiceType = "standard" | "addon" | "subscription";
 export type VehicleSize = "small" | "medium" | "large";
 export const DEFAULT_PET_FEE_AMOUNT = 50;
 
+export type ServiceVehiclePriceShape = {
+  vehicleTypeId?: string;
+  price: number;
+  duration?: number;
+  isAvailable: boolean;
+  vehicleType?: {
+    legacySize?: VehicleSize;
+  } | null;
+};
+
 type ServicePricingShape = {
   basePrice?: number;
   basePriceSmall?: number;
@@ -42,6 +52,16 @@ export function hasAnyPositiveServicePrice(service: ServicePricingShape): boolea
     (service.basePriceMedium ?? 0) > 0 ||
     (service.basePriceLarge ?? 0) > 0 ||
     (service.basePrice ?? 0) > 0
+  );
+}
+
+export function hasAnyAvailableVehicleTypePrice(
+  vehiclePrices?: ServiceVehiclePriceShape[],
+): boolean {
+  return (
+    vehiclePrices?.some(
+      (price) => price.isAvailable && Number.isFinite(price.price) && price.price > 0,
+    ) ?? false
   );
 }
 

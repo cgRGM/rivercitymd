@@ -29,25 +29,34 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus } from "lucide-react";
+import {
+  VehiclePricingEditor,
+  type VehiclePriceFormRow,
+} from "@/components/forms/admin/vehicle-pricing-editor";
 
 const formSchema = z.object({
   name: z.string().min(1, "Service name is required"),
   description: z.string().min(1, "Description is required"),
   duration: z.number().min(1, "Duration must be at least 1 minute"),
-  basePriceSmall: z.number().min(0, "Price must be non-negative"),
-  basePriceMedium: z.number().min(0, "Price must be non-negative"),
-  basePriceLarge: z.number().min(0, "Price must be non-negative"),
+  basePriceSmall: z.number().min(0, "Price must be non-negative").optional(),
+  basePriceMedium: z.number().min(0, "Price must be non-negative").optional(),
+  basePriceLarge: z.number().min(0, "Price must be non-negative").optional(),
+  vehiclePrices: z.array(z.object({
+    vehicleTypeId: z.string().optional(),
+    vehicleTypeName: z.string().optional(),
+    price: z.number().min(0, "Price must be non-negative"),
+    duration: z.number().min(0, "Duration must be non-negative"),
+    isAvailable: z.boolean(),
+  })),
   features: z.array(z.string()).optional(),
   icon: z.string().optional(),
   includedServiceIds: z.array(z.string()).optional(),
 }).refine(
   (data) =>
-    data.basePriceSmall > 0 ||
-    data.basePriceMedium > 0 ||
-    data.basePriceLarge > 0,
+    data.vehiclePrices.some((row) => row.isAvailable && row.price > 0),
   {
     message: "At least one vehicle size price must be greater than $0.",
-    path: ["basePriceMedium"],
+    path: ["vehiclePrices"],
   },
 );
 
@@ -81,6 +90,7 @@ export function AddServiceForm({
       basePriceSmall: 0,
       basePriceMedium: 0,
       basePriceLarge: 0,
+      vehiclePrices: [] as VehiclePriceFormRow[],
       features: [],
       icon: "",
       includedServiceIds: [],
@@ -118,6 +128,13 @@ export function AddServiceForm({
         basePriceSmall: data.basePriceSmall,
         basePriceMedium: data.basePriceMedium,
         basePriceLarge: data.basePriceLarge,
+        vehiclePrices: data.vehiclePrices.map((row) => ({
+          vehicleTypeId: row.vehicleTypeId as Id<"vehicleTypes"> | undefined,
+          vehicleTypeName: row.vehicleTypeName,
+          price: row.price,
+          duration: row.duration,
+          isAvailable: row.isAvailable,
+        })),
         duration: data.duration,
         serviceType,
         includedServiceIds: data.includedServiceIds as Id<"services">[],
@@ -232,77 +249,7 @@ export function AddServiceForm({
               />
             </div>
 
-            {/* Size-Based Pricing */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium">Pricing by Vehicle Size</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <FormField
-                  control={form.control}
-                  name="basePriceSmall"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Small Vehicles</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...field}
-                          onChange={(e) =>
-                            field.onChange(parseFloat(e.target.value) || 0)
-                          }
-                          value={field.value || ""}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="basePriceMedium"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Medium Vehicles</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...field}
-                          onChange={(e) =>
-                            field.onChange(parseFloat(e.target.value) || 0)
-                          }
-                          value={field.value || ""}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="basePriceLarge"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Large Vehicles</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...field}
-                          onChange={(e) =>
-                            field.onChange(parseFloat(e.target.value) || 0)
-                          }
-                          value={field.value || ""}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
+            <VehiclePricingEditor form={form} defaultDuration={form.watch("duration")} />
 
             {/* Features */}
             <div className="space-y-4">

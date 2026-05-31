@@ -38,6 +38,20 @@ const draftVehicleValidator = v.object({
   year: v.number(),
   make: v.string(),
   model: v.string(),
+  vehicleTypeId: v.optional(v.id("vehicleTypes")),
+  classification: v.optional(
+    v.object({
+      source: v.union(
+        v.literal("fuelEconomy"),
+        v.literal("vpic"),
+        v.literal("manual"),
+        v.literal("fallback"),
+      ),
+      confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+      rawCategory: v.optional(v.string()),
+      needsAdminReview: v.boolean(),
+    }),
+  ),
   size: v.optional(
     v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
   ),
@@ -209,6 +223,10 @@ async function buildDraftPricing(args: {
   vehicleSize: VehicleSize;
   existingVehicles: Array<Doc<"vehicles">>;
   draftVehicles: Array<{
+    year?: number;
+    make?: string;
+    model?: string;
+    vehicleTypeId?: Id<"vehicleTypes">;
     size?: VehicleSize;
     hasPet?: boolean;
   }>;
@@ -217,18 +235,60 @@ async function buildDraftPricing(args: {
   const services = await getServicesForDraft(args.ctx, args.serviceIds);
   assertBookableServices(services, args.serviceIds, args.vehicleSize);
 
-  const items = services.map((service) => {
-    const unitPrice = getEffectiveServicePrice(service, args.vehicleSize);
+  const bookingVehicles = [
+    ...args.existingVehicles.map((vehicle) => ({
+      vehicleId: vehicle._id,
+      vehicle,
+      vehicleLabel: [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" "),
+    })),
+    ...args.draftVehicles.map((vehicle, index) => ({
+      vehicleId: undefined,
+      vehicle,
+      vehicleLabel:
+        [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") ||
+        `Vehicle ${index + 1}`,
+    })),
+  ];
 
-    return {
-      itemType: "service" as const,
-      serviceId: service._id,
-      serviceName: service.name,
-      quantity: args.vehicleCount,
-      unitPrice,
-      totalPrice: unitPrice * args.vehicleCount,
-    };
-  });
+  const items = [];
+  let duration = 0;
+  for (const { vehicle, vehicleId, vehicleLabel } of bookingVehicles) {
+    for (const service of services) {
+      let unitPrice = getEffectiveServicePrice(service, vehicle.size ?? args.vehicleSize);
+      let serviceDuration = service.duration || 0;
+      if (vehicle.vehicleTypeId) {
+        const matrixPrice = await args.ctx.db
+          .query("serviceVehiclePrices")
+          .withIndex("by_service_and_vehicle_type", (q: any) =>
+            q.eq("serviceId", service._id).eq("vehicleTypeId", vehicle.vehicleTypeId),
+          )
+          .first();
+        if (matrixPrice) {
+          if (!matrixPrice.isAvailable || matrixPrice.price <= 0) {
+            const vehicleType = await args.ctx.db.get(vehicle.vehicleTypeId);
+            throw new ConvexError({
+              code: "SERVICE_NOT_BOOKABLE",
+              message: `${service.name} is not available for ${vehicleType?.name ?? "this vehicle type"}.`,
+            });
+          }
+          unitPrice = matrixPrice.price;
+          serviceDuration = matrixPrice.duration || serviceDuration;
+        }
+      }
+      duration += serviceDuration;
+      items.push({
+        itemType: "service" as const,
+        serviceId: service._id,
+        vehicleId,
+        vehicleLabel,
+        vehicleTypeId: vehicle.vehicleTypeId,
+        serviceName: `${service.name} - ${vehicleLabel}`,
+        quantity: 1,
+        unitPrice,
+        totalPrice: unitPrice,
+      });
+    }
+  }
 
   const petFeeSettings = await args.ctx.runQuery(
     internal.petFeeSettings.getInternal,
@@ -260,7 +320,6 @@ async function buildDraftPricing(args: {
   const priceItems = [...items, ...petFeeItems];
 
   const totalPrice = priceItems.reduce((sum, item) => sum + item.totalPrice, 0);
-  const duration = services.reduce((sum, service) => sum + (service.duration || 0), 0);
   const depositSettings = await args.ctx.runQuery(
     internal.depositSettings.getInternal,
     {},
@@ -744,6 +803,8 @@ export const convertSuccessfulCheckout = internalMutation({
         year: draftVehicle.year,
         make: draftVehicle.make,
         model: draftVehicle.model,
+        vehicleTypeId: draftVehicle.vehicleTypeId,
+        classification: draftVehicle.classification,
         size: draftVehicle.size,
         color: draftVehicle.color,
         licensePlate: draftVehicle.licensePlate,
@@ -887,6 +948,8 @@ export const getPublicContext = query({
         model: vehicle.model,
         color: vehicle.color,
         licensePlate: vehicle.licensePlate,
+        vehicleTypeId: vehicle.vehicleTypeId,
+        classification: vehicle.classification,
         size: vehicle.size,
         hasPet: vehicle.hasPet ?? false,
       })),

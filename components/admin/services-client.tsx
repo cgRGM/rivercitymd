@@ -62,6 +62,15 @@ type ServiceRecord = {
   categoryId?: Id<"serviceCategories">;
   includedServiceIds?: Id<"services">[];
   features?: string[];
+  vehiclePrices?: Array<{
+    vehicleTypeId: Id<"vehicleTypes">;
+    price: number;
+    duration: number;
+    isAvailable: boolean;
+    vehicleType?: {
+      name: string;
+    } | null;
+  }>;
 };
 
 export default function ServicesClient() {
@@ -172,6 +181,16 @@ export default function ServicesClient() {
   };
 
   const formatPricing = (service: ServiceRecord) => {
+    if (service.vehiclePrices?.length) {
+      const parts = service.vehiclePrices
+        .filter((price) => price.isAvailable && price.price > 0)
+        .map(
+          (price) =>
+            `${price.vehicleType?.name ?? "Vehicle"} $${price.price.toFixed(0)}`,
+        );
+      if (parts.length > 0) return parts.join(" • ");
+    }
+
     const small = service.basePriceSmall ?? service.basePrice;
     const medium = service.basePriceMedium ?? service.basePrice;
     const large = service.basePriceLarge ?? service.basePrice;
@@ -228,6 +247,12 @@ export default function ServicesClient() {
         basePriceSmall: service.basePriceSmall ?? service.basePrice ?? 0,
         basePriceMedium: service.basePriceMedium ?? service.basePrice ?? 0,
         basePriceLarge: service.basePriceLarge ?? service.basePrice ?? 0,
+        vehiclePrices: service.vehiclePrices?.map((price) => ({
+          vehicleTypeId: price.vehicleTypeId,
+          price: price.price,
+          duration: price.duration,
+          isAvailable: price.isAvailable,
+        })),
         duration: service.duration,
         serviceType: service.serviceType ?? "standard",
         categoryId: service.categoryId,

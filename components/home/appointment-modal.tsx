@@ -5,6 +5,7 @@ import { useMutation, useQuery, useAction } from "convex/react";
 import { useUser } from "@clerk/nextjs";
 import { useBookingStore } from "@/hooks/use-booking-store";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -25,13 +26,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -99,8 +93,15 @@ const step3Schema = z.object({
         color: z.string().optional(),
         licensePlate: z.string().optional(),
         size: z.enum(["small", "medium", "large"]).optional(),
+        vehicleTypeId: z.string().optional(),
+        vehicleTypeName: z.string().optional(),
+        classification: z.object({
+          source: z.enum(["fuelEconomy", "vpic", "manual", "fallback"]),
+          confidence: z.enum(["high", "medium", "low"]),
+          rawCategory: z.string().optional(),
+          needsAdminReview: z.boolean(),
+        }).optional(),
         hasPet: z.boolean().optional(),
-        type: z.enum(["car", "truck", "suv", "motorcycle"]),
       }),
     )
     .min(1, "Please add at least one vehicle"),
@@ -181,6 +182,7 @@ export default function AppointmentModal({
   );
   const upsertBookingDraft = useMutation(api.bookingDrafts.createOrUpdate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+  const classifyVehicle = useAction(api.vehicleTypes.classify);
   const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
 
 
@@ -210,7 +212,6 @@ export default function AppointmentModal({
           model: "",
           color: "",
           licensePlate: "",
-          type: "car",
           size: "small",
           hasPet: false,
         },
@@ -342,27 +343,10 @@ export default function AppointmentModal({
         model: "",
         color: "",
         licensePlate: "",
-        type: "car",
         size: "small",
         hasPet: false,
       },
     ]);
-  };
-
-  const getVehicleSize = (
-    vehicleType: "car" | "truck" | "suv" | "motorcycle" | undefined,
-  ): "small" | "medium" | "large" => {
-    switch (vehicleType) {
-      case "car":
-      case "motorcycle":
-        return "small";
-      case "truck":
-        return "large";
-      case "suv":
-        return "medium";
-      default:
-        return "medium"; // default fallback
-    }
   };
 
   const removeVehicle = (index: number) => {
@@ -404,7 +388,35 @@ export default function AppointmentModal({
       case 3:
         isValid = await step3Form.trigger();
         if (isValid) {
-          setStep3Data(step3Form.getValues());
+          const values = step3Form.getValues();
+          const classifiedVehicles = await Promise.all(
+            values.vehicles.map(async (vehicle) => {
+              try {
+                const classification = await classifyVehicle({
+                  year: parseInt(vehicle.year, 10),
+                  make: vehicle.make,
+                  model: vehicle.model,
+                });
+                return {
+                  ...vehicle,
+                  size: classification.legacySize,
+                  vehicleTypeId: classification.vehicleTypeId,
+                  vehicleTypeName: classification.vehicleTypeName,
+                  classification: {
+                    source: classification.source,
+                    confidence: classification.confidence,
+                    rawCategory: classification.rawCategory,
+                    needsAdminReview: classification.needsAdminReview,
+                  },
+                };
+              } catch {
+                return vehicle;
+              }
+            }),
+          );
+          const nextValues = { vehicles: classifiedVehicles };
+          step3Form.setValue("vehicles", classifiedVehicles);
+          setStep3Data(nextValues);
           setCurrentStep(4);
         }
         break;
@@ -478,6 +490,8 @@ export default function AppointmentModal({
           year: parseInt(vehicle.year), // Ensure year is number
           make: vehicle.make,
           model: vehicle.model,
+          vehicleTypeId: vehicle.vehicleTypeId as Id<"vehicleTypes"> | undefined,
+          classification: vehicle.classification,
           size: vehicle.size,
           color: vehicle.color,
           licensePlate: vehicle.licensePlate,
@@ -922,41 +936,6 @@ export default function AppointmentModal({
                         )}
                      </div>
                       <CardContent className="pt-6 space-y-4">
-                        <FormField
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          control={step3Form.control as any}
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          name={`vehicles.${index}.type` as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Vehicle Type</FormLabel>
-                              <Select
-                              onValueChange={(value) => {
-                                field.onChange(value);
-                                const size = getVehicleSize(
-                                  value as "car" | "truck" | "suv" | "motorcycle",
-                                );
-                                step3Form.setValue(`vehicles.${index}.size`, size);
-                              }}
-                              value={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select vehicle type" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="car">Car</SelectItem>
-                                <SelectItem value="truck">Truck</SelectItem>
-                                <SelectItem value="suv">SUV</SelectItem>
-                                <SelectItem value="motorcycle">Motorcycle</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
                       <div className="grid grid-cols-2 gap-4">
                         <FormField
                           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1094,9 +1073,7 @@ export default function AppointmentModal({
                         <div className="space-y-8">
                           {(() => {
                             const primaryVehicle = step3Data?.vehicles?.[0];
-                            const selectedVehicleSize =
-                              primaryVehicle?.size ??
-                              getVehicleSize(primaryVehicle?.type);
+                            const selectedVehicleSize = primaryVehicle?.size ?? "medium";
 
                             return (
                               <>
@@ -1224,8 +1201,7 @@ export default function AppointmentModal({
         {currentStep === 5 && (() => {
           // Compute service total and deposit for display
           const primaryVehicle = step3Data?.vehicles?.[0];
-          const vehicleSize =
-            primaryVehicle?.size ?? getVehicleSize(primaryVehicle?.type);
+          const vehicleSize = primaryVehicle?.size ?? "medium";
           const vehicleCount = step3Data?.vehicles?.length ?? 1;
           const depositPerVehicle = 50;
           const depositTotal = depositPerVehicle * vehicleCount;

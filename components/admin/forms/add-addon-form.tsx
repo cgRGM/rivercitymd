@@ -28,36 +28,34 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus } from "lucide-react";
+import type { Id } from "@/convex/_generated/dataModel";
+import {
+  VehiclePricingEditor,
+  type VehiclePriceFormRow,
+} from "@/components/forms/admin/vehicle-pricing-editor";
 
 const formSchema = z
   .object({
     name: z.string().min(1, "Add-on name is required"),
     description: z.string().min(1, "Description is required"),
-    pricingType: z.enum(["single", "range"]),
-    singlePrice: z.number().min(0, "Price must be non-negative").optional(),
-    priceMin: z.number().min(0, "Price must be non-negative").optional(),
-    priceMax: z.number().min(0, "Price must be non-negative").optional(),
+    duration: z.number().min(0, "Duration must be non-negative"),
+    vehiclePrices: z.array(z.object({
+      vehicleTypeId: z.string().optional(),
+      vehicleTypeName: z.string().optional(),
+      price: z.number().min(0, "Price must be non-negative"),
+      duration: z.number().min(0, "Duration must be non-negative"),
+      isAvailable: z.boolean(),
+    })),
     features: z.array(z.string()).optional(),
     icon: z.string().optional(),
   })
   .refine(
     (data) => {
-      if (data.pricingType === "single") {
-        return data.singlePrice !== undefined && data.singlePrice >= 0;
-      } else if (data.pricingType === "range") {
-        return (
-          data.priceMin !== undefined &&
-          data.priceMax !== undefined &&
-          data.priceMin >= 0 &&
-          data.priceMax >= 0 &&
-          data.priceMin <= data.priceMax
-        );
-      }
-      return false;
+      return data.vehiclePrices.some((row) => row.isAvailable && row.price > 0);
     },
     {
-      message: "Please provide valid pricing information",
-      path: ["pricingType"],
+      message: "At least one vehicle type price must be available and greater than $0.",
+      path: ["vehiclePrices"],
     },
   );
 
@@ -79,10 +77,8 @@ export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
     defaultValues: {
       name: "",
       description: "",
-      pricingType: "single",
-      singlePrice: 0,
-      priceMin: undefined,
-      priceMax: undefined,
+      duration: 0,
+      vehiclePrices: [] as VehiclePriceFormRow[],
       features: [],
       icon: "",
     },
@@ -107,23 +103,19 @@ export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
     try {
-      let basePriceSmall, basePriceMedium, basePriceLarge;
-
-      if (data.pricingType === "single") {
-        basePriceSmall = data.singlePrice;
-      } else if (data.pricingType === "range") {
-        basePriceSmall = data.priceMin;
-        basePriceMedium = data.priceMax;
-      }
-
       await createService({
         name: data.name,
         description: data.description,
-        basePriceSmall,
-        basePriceMedium,
-        basePriceLarge,
-        duration: 0, // Add-ons don't have duration
+        basePriceSmall: data.vehiclePrices[0]?.price ?? 0,
+        duration: data.duration,
         serviceType: "addon",
+        vehiclePrices: data.vehiclePrices.map((row) => ({
+          vehicleTypeId: row.vehicleTypeId as Id<"vehicleTypes"> | undefined,
+          vehicleTypeName: row.vehicleTypeName,
+          price: row.price,
+          duration: row.duration,
+          isAvailable: row.isAvailable,
+        })),
         includedServiceIds: [],
         features: data.features,
         icon: data.icon,
@@ -202,112 +194,29 @@ export function AddAddonForm({ open, onOpenChange }: AddAddonFormProps) {
               />
             </div>
 
-            {/* Pricing Type Selection */}
             <FormField
               control={form.control}
-              name="pricingType"
+              name="duration"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Pricing Type</FormLabel>
+                  <FormLabel>Extra calendar time (minutes)</FormLabel>
                   <FormControl>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          value="single"
-                          checked={field.value === "single"}
-                          onChange={() => field.onChange("single")}
-                        />
-                        Single Price
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          value="range"
-                          checked={field.value === "range"}
-                          onChange={() => field.onChange("range")}
-                        />
-                        Price Range
-                      </label>
-                    </div>
+                    <Input
+                      type="number"
+                      step="5"
+                      {...field}
+                      onChange={(e) =>
+                        field.onChange(parseInt(e.target.value, 10) || 0)
+                      }
+                      value={field.value || ""}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            {/* Pricing Fields */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium">Pricing</h3>
-              {form.watch("pricingType") === "single" ? (
-                <FormField
-                  control={form.control}
-                  name="singlePrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Price</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...field}
-                          onChange={(e) =>
-                            field.onChange(parseFloat(e.target.value) || 0)
-                          }
-                          value={field.value || ""}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              ) : (
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="priceMin"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Minimum Price</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            {...field}
-                            onChange={(e) =>
-                              field.onChange(parseFloat(e.target.value) || 0)
-                            }
-                            value={field.value || ""}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="priceMax"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Maximum Price</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            {...field}
-                            onChange={(e) =>
-                              field.onChange(parseFloat(e.target.value) || 0)
-                            }
-                            value={field.value || ""}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
-            </div>
+            <VehiclePricingEditor form={form} defaultDuration={form.watch("duration")} />
 
             {/* Features */}
             <div className="space-y-4">

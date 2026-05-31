@@ -10,7 +10,14 @@ interface Vehicle {
   color?: string
   licensePlate?: string
   size?: "small" | "medium" | "large"
-  type?: "car" | "truck" | "suv" | "motorcycle"
+  vehicleTypeId?: string
+  vehicleTypeName?: string
+  classification?: {
+    source: "fuelEconomy" | "vpic" | "manual" | "fallback"
+    confidence: "high" | "medium" | "low"
+    rawCategory?: string
+    needsAdminReview: boolean
+  }
   hasPet?: boolean
 }
 
@@ -32,7 +39,6 @@ interface Step2Data {
 }
 
 interface Step3Data {
-  vehicleType?: "car" | "truck" | "suv" | "motorcycle"
   vehicles: Vehicle[]
 }
 

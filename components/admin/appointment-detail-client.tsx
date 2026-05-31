@@ -90,6 +90,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     api.vehicles.getByUser,
     data?.userId ? { userId: data.userId } : "skip",
   );
+  const vehicleTypes = useQuery(api.vehicleTypes.list, {});
   const allServices = useQuery(api.services.list);
   const updateStatus = useMutation(api.appointments.updateStatus);
   const updateAppointment = useMutation(api.appointments.update);
@@ -116,6 +117,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const [editServiceIds, setEditServiceIds] = useState<Id<"services">[]>([]);
   const [editVehicleIds, setEditVehicleIds] = useState<Id<"vehicles">[]>([]);
   const [editVehicleSizes, setEditVehicleSizes] = useState<Record<string, string>>({});
+  const [editVehicleTypeIds, setEditVehicleTypeIds] = useState<Record<string, string>>({});
   const [editPetFeeVehicleIds, setEditPetFeeVehicleIds] = useState<Id<"vehicles">[]>([]);
 
   useEffect(() => {
@@ -195,10 +197,13 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     );
     setEditPetFeeVehicleIds(data.petFeeVehicleIds ?? []);
     const sizes: Record<string, string> = {};
+    const vehicleTypeIds: Record<string, string> = {};
     for (const v of customerVehiclesQuery || data.vehicles) {
       sizes[v._id] = v.size || "medium";
+      vehicleTypeIds[v._id] = v.vehicleTypeId || "";
     }
     setEditVehicleSizes(sizes);
+    setEditVehicleTypeIds(vehicleTypeIds);
     setEditing(true);
   };
 
@@ -220,7 +225,10 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
           continue;
         }
         const newSize = editVehicleSizes[v._id] as "small" | "medium" | "large" | undefined;
-        if (newSize && newSize !== (v.size || "medium")) {
+        const newVehicleTypeId = editVehicleTypeIds[v._id] as Id<"vehicleTypes"> | undefined;
+        if (newVehicleTypeId && newVehicleTypeId !== v.vehicleTypeId) {
+          await updateVehicle({ id: v._id, vehicleTypeId: newVehicleTypeId });
+        } else if (newSize && newSize !== (v.size || "medium")) {
           await updateVehicle({ id: v._id, size: newSize });
         }
       }
@@ -567,19 +575,27 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                             </div>
                           </div>
                           <Select
-                            value={editVehicleSizes[v._id] || "medium"}
+                            value={editVehicleTypeIds[v._id] || "__legacy__"}
                             onValueChange={(val) =>
-                              setEditVehicleSizes((prev) => ({ ...prev, [v._id]: val }))
+                              setEditVehicleTypeIds((prev) => ({
+                                ...prev,
+                                [v._id]: val === "__legacy__" ? "" : val,
+                              }))
                             }
-                            disabled={!checked}
+                            disabled={!checked || !vehicleTypes?.length}
                           >
-                            <SelectTrigger className="w-28">
+                            <SelectTrigger className="w-36">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="small">Small</SelectItem>
-                              <SelectItem value="medium">Medium</SelectItem>
-                              <SelectItem value="large">Large</SelectItem>
+                              <SelectItem value="__legacy__">
+                                {v.size || "medium"}
+                              </SelectItem>
+                              {(vehicleTypes || []).map((vehicleType) => (
+                                <SelectItem key={vehicleType._id} value={vehicleType._id}>
+                                  {vehicleType.name}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -614,7 +630,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                       </div>
                     </div>
                     <Badge variant="secondary" className="capitalize">
-                      {v.size || "medium"}
+                      {v.vehicleType?.name ?? v.size ?? "medium"}
                     </Badge>
                     {(data.petFeeVehicleIds ?? []).includes(v._id) && (
                       <Badge variant="outline">Pet fee</Badge>

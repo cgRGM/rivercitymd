@@ -6,11 +6,16 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin } from "./auth";
 import { internal } from "./_generated/api";
-import { hasAnyPositiveServicePrice, normalizeServiceType } from "./lib/pricing";
+import {
+  hasAnyAvailableVehicleTypePrice,
+  hasAnyPositiveServicePrice,
+  normalizeServiceType,
+  type VehicleSize,
+} from "./lib/pricing";
 
 const SERVICE_TYPE_LABELS = {
   standard: "Standard Services",
@@ -23,13 +28,189 @@ function assertHasPositivePrice(args: {
   basePriceMedium?: number;
   basePriceLarge?: number;
   basePrice?: number;
+  vehiclePrices?: Array<{
+    price: number;
+    isAvailable: boolean;
+  }>;
 }) {
-  if (!hasAnyPositiveServicePrice(args)) {
+  if (!hasAnyPositiveServicePrice(args) && !hasAnyAvailableVehicleTypePrice(args.vehiclePrices)) {
     throw new ConvexError({
       code: "INVALID_SERVICE_PRICING",
-      message: "At least one vehicle size price must be greater than $0.",
+      message: "At least one vehicle type price must be available and greater than $0.",
     });
   }
+}
+
+const vehiclePriceInputValidator = v.object({
+  vehicleTypeId: v.optional(v.id("vehicleTypes")),
+  vehicleTypeName: v.optional(v.string()),
+  price: v.number(),
+  duration: v.number(),
+  isAvailable: v.boolean(),
+});
+
+type VehiclePriceInput = {
+  vehicleTypeId?: Id<"vehicleTypes">;
+  vehicleTypeName?: string;
+  price: number;
+  duration: number;
+  isAvailable: boolean;
+};
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function inferLegacySize(name: string): VehicleSize {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("motorcycle") || normalized.includes("bike")) {
+    return "small";
+  }
+  if (
+    normalized.includes("truck") ||
+    normalized.includes("van") ||
+    normalized.includes("suv")
+  ) {
+    return "large";
+  }
+  return "medium";
+}
+
+async function ensureVehicleTypeForPrice(ctx: any, price: VehiclePriceInput) {
+  if (price.vehicleTypeId) {
+    const existing = await ctx.db.get(price.vehicleTypeId);
+    if (!existing) throw new Error("Vehicle type not found");
+    return existing as Doc<"vehicleTypes">;
+  }
+
+  const name = price.vehicleTypeName?.trim();
+  if (!name) {
+    throw new ConvexError({
+      code: "INVALID_SERVICE_PRICING",
+      message: "Each pricing row needs a vehicle type.",
+    });
+  }
+
+  const slug = slugify(name);
+  const existing = await ctx.db
+    .query("vehicleTypes")
+    .withIndex("by_slug", (q: any) => q.eq("slug", slug))
+    .first();
+  if (existing) return existing;
+
+  const now = Date.now();
+  const vehicleTypes = await ctx.db.query("vehicleTypes").collect();
+  const vehicleTypeId = await ctx.db.insert("vehicleTypes", {
+    name,
+    slug,
+    legacySize: inferLegacySize(name),
+    isActive: true,
+    displayOrder:
+      vehicleTypes.reduce(
+        (max: number, vehicleType: Doc<"vehicleTypes">) =>
+          Math.max(max, vehicleType.displayOrder),
+        0,
+      ) + 10,
+    apiAliases: [name.toLowerCase()],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return await ctx.db.get(vehicleTypeId);
+}
+
+async function getServiceVehiclePrices(ctx: any, serviceId: Id<"services">) {
+  const prices = await ctx.db
+    .query("serviceVehiclePrices")
+    .withIndex("by_service", (q: any) => q.eq("serviceId", serviceId))
+    .collect();
+
+  const rows = await Promise.all(
+    prices.map(async (price: Doc<"serviceVehiclePrices">) => {
+      const vehicleType = await ctx.db.get(price.vehicleTypeId);
+      return {
+        ...price,
+        vehicleType,
+      };
+    }),
+  );
+
+  return rows.sort((a, b) => {
+    const orderA = a.vehicleType?.displayOrder ?? 999;
+    const orderB = b.vehicleType?.displayOrder ?? 999;
+    return orderA - orderB || (a.vehicleType?.name ?? "").localeCompare(b.vehicleType?.name ?? "");
+  });
+}
+
+function calculateLegacyPrices(
+  rows: Array<{
+    price: number;
+    isAvailable: boolean;
+    vehicleType?: Doc<"vehicleTypes"> | null;
+  }>,
+  fallback: {
+    basePriceSmall?: number;
+    basePriceMedium?: number;
+    basePriceLarge?: number;
+  },
+) {
+  const result = { ...fallback };
+  for (const size of ["small", "medium", "large"] as VehicleSize[]) {
+    const matching = rows.find(
+      (row) =>
+        row.isAvailable &&
+        row.price > 0 &&
+        row.vehicleType?.legacySize === size,
+    );
+    if (matching) {
+      if (size === "small") result.basePriceSmall = matching.price;
+      if (size === "medium") result.basePriceMedium = matching.price;
+      if (size === "large") result.basePriceLarge = matching.price;
+    }
+  }
+  return result;
+}
+
+async function replaceServiceVehiclePrices(
+  ctx: any,
+  serviceId: Id<"services">,
+  vehiclePrices: VehiclePriceInput[] | undefined,
+) {
+  if (!vehiclePrices) return null;
+
+  await ctx.runMutation(internal.vehicleTypes.ensureDefaultsInternal, {});
+  const existing = await ctx.db
+    .query("serviceVehiclePrices")
+    .withIndex("by_service", (q: any) => q.eq("serviceId", serviceId))
+    .collect();
+  await Promise.all(existing.map((row: Doc<"serviceVehiclePrices">) => ctx.db.delete(row._id)));
+
+  const now = Date.now();
+  const seen = new Set<string>();
+  const rows = [];
+  for (const input of vehiclePrices) {
+    const vehicleType = await ensureVehicleTypeForPrice(ctx, input);
+    if (!vehicleType || seen.has(vehicleType._id)) continue;
+    seen.add(vehicleType._id);
+
+    const rowId = await ctx.db.insert("serviceVehiclePrices", {
+      serviceId,
+      vehicleTypeId: vehicleType._id,
+      price: Math.max(0, input.price || 0),
+      duration: Math.max(0, Math.floor(input.duration || 0)),
+      isAvailable: input.isAvailable,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const row = await ctx.db.get(rowId);
+    rows.push({ ...row, vehicleType });
+  }
+
+  return rows;
 }
 
 async function createStripeProductForService(ctx: any, serviceId: Id<"services">) {
@@ -37,6 +218,10 @@ async function createStripeProductForService(ctx: any, serviceId: Id<"services">
   const service = await ctx.runQuery(internal.services.getServiceById, {
     serviceId,
   });
+  const vehiclePrices = await ctx.runQuery(
+    internal.services.getVehiclePricesByServiceId,
+    { serviceId },
+  );
 
   if (!service) throw new Error("Service not found");
   if (service.stripeProductId) {
@@ -84,10 +269,48 @@ async function createStripeProductForService(ctx: any, serviceId: Id<"services">
 
   const product = await productResponse.json();
 
-  // Create prices for each vehicle size
+  // Create prices for each vehicle type when the matrix exists; otherwise keep
+  // the legacy size prices for backwards compatibility.
   const prices = [];
+  const availableVehiclePrices = vehiclePrices.filter(
+    (row: Doc<"serviceVehiclePrices">) => row.isAvailable && row.price > 0,
+  );
 
-  if (service.basePriceSmall && service.basePriceSmall > 0) {
+  if (availableVehiclePrices.length > 0) {
+    for (const row of availableVehiclePrices) {
+      const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          product: product.id,
+          unit_amount: Math.round(row.price * 100).toString(),
+          currency: "usd",
+          "metadata[serviceId]": serviceId,
+          "metadata[serviceVehiclePriceId]": row._id,
+          "metadata[vehicleTypeId]": row.vehicleTypeId,
+        }),
+      });
+
+      if (!priceResponse.ok) {
+        const errorText = await priceResponse.text();
+        throw new Error(
+          `Stripe vehicle type price creation failed: ${priceResponse.status} ${errorText}`,
+        );
+      }
+
+      const price = await priceResponse.json();
+      prices.push(price);
+      await ctx.runMutation(internal.services.updateServiceVehicleStripePriceId, {
+        serviceVehiclePriceId: row._id,
+        stripePriceId: price.id,
+      });
+    }
+  }
+
+  if (availableVehiclePrices.length === 0 && service.basePriceSmall && service.basePriceSmall > 0) {
     const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
       method: "POST",
       headers: {
@@ -114,7 +337,7 @@ async function createStripeProductForService(ctx: any, serviceId: Id<"services">
     prices.push(price);
   }
 
-  if (service.basePriceMedium && service.basePriceMedium > 0) {
+  if (availableVehiclePrices.length === 0 && service.basePriceMedium && service.basePriceMedium > 0) {
     const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
       method: "POST",
       headers: {
@@ -141,7 +364,7 @@ async function createStripeProductForService(ctx: any, serviceId: Id<"services">
     prices.push(price);
   }
 
-  if (service.basePriceLarge && service.basePriceLarge > 0) {
+  if (availableVehiclePrices.length === 0 && service.basePriceLarge && service.basePriceLarge > 0) {
     const priceResponse = await fetch("https://api.stripe.com/v1/prices", {
       method: "POST",
       headers: {
@@ -279,12 +502,15 @@ export const listWithCategories = query({
   handler: async (ctx) => {
     const services = await ctx.db.query("services").collect();
 
-    return services.map((service) => ({
-      ...service,
-      serviceType: normalizeServiceType(service.serviceType),
-      categoryName:
-        SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
-    }));
+    return await Promise.all(
+      services.map(async (service) => ({
+        ...service,
+        serviceType: normalizeServiceType(service.serviceType),
+        categoryName:
+          SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
+        vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
+      })),
+    );
   },
 });
 
@@ -292,7 +518,13 @@ export const listWithCategories = query({
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("services").collect();
+    const services = await ctx.db.query("services").collect();
+    return await Promise.all(
+      services.map(async (service) => ({
+        ...service,
+        vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
+      })),
+    );
   },
 });
 
@@ -304,6 +536,7 @@ export const create = mutation({
     basePriceSmall: v.optional(v.number()),
     basePriceMedium: v.optional(v.number()),
     basePriceLarge: v.optional(v.number()),
+    vehiclePrices: v.optional(v.array(vehiclePriceInputValidator)),
     duration: v.number(),
     serviceType: v.optional(
       v.union(
@@ -343,6 +576,31 @@ export const create = mutation({
       isActive: true,
     });
 
+    const rows = await replaceServiceVehiclePrices(
+      ctx,
+      serviceId,
+      args.vehiclePrices,
+    );
+    if (rows) {
+      const legacyPrices = calculateLegacyPrices(rows, {
+        basePriceSmall: args.basePriceSmall,
+        basePriceMedium: args.basePriceMedium,
+        basePriceLarge: args.basePriceLarge,
+      });
+      const legacyDuration =
+        rows.find((row) => row.isAvailable && row.duration > 0)?.duration ??
+        args.duration;
+      await ctx.db.patch(serviceId, {
+        ...legacyPrices,
+        basePrice:
+          legacyPrices.basePriceMedium ??
+          legacyPrices.basePriceSmall ??
+          legacyPrices.basePriceLarge ??
+          0,
+        duration: legacyDuration,
+      });
+    }
+
     // Schedule Stripe product creation (async, external API)
     await ctx.scheduler.runAfter(
       0,
@@ -365,6 +623,7 @@ export const update = mutation({
     basePriceSmall: v.optional(v.number()),
     basePriceMedium: v.optional(v.number()),
     basePriceLarge: v.optional(v.number()),
+    vehiclePrices: v.optional(v.array(vehiclePriceInputValidator)),
     duration: v.number(),
     serviceType: v.optional(
       v.union(
@@ -393,21 +652,45 @@ export const update = mutation({
       updates.basePriceSmall ||
       updates.basePriceLarge ||
       0;
+    const rows = await replaceServiceVehiclePrices(
+      ctx,
+      serviceId,
+      updates.vehiclePrices,
+    );
+    const legacyPrices = rows
+      ? calculateLegacyPrices(rows, {
+          basePriceSmall: updates.basePriceSmall,
+          basePriceMedium: updates.basePriceMedium,
+          basePriceLarge: updates.basePriceLarge,
+        })
+      : {
+          basePriceSmall: updates.basePriceSmall,
+          basePriceMedium: updates.basePriceMedium,
+          basePriceLarge: updates.basePriceLarge,
+        };
+    const legacyDuration =
+      rows?.find((row) => row.isAvailable && row.duration > 0)?.duration ??
+      updates.duration;
 
     await ctx.db.patch(serviceId, {
       name: updates.name,
       description: updates.description,
-      basePriceSmall: updates.basePriceSmall,
-      basePriceMedium: updates.basePriceMedium,
-      basePriceLarge: updates.basePriceLarge,
-      duration: updates.duration,
+      basePriceSmall: legacyPrices.basePriceSmall,
+      basePriceMedium: legacyPrices.basePriceMedium,
+      basePriceLarge: legacyPrices.basePriceLarge,
+      duration: legacyDuration,
       serviceType: normalizeServiceType(updates.serviceType),
       categoryId: updates.categoryId,
       includedServiceIds: updates.includedServiceIds,
       features: updates.features,
       icon: updates.icon,
       isActive: updates.isActive,
-      basePrice, // For backwards compatibility
+      basePrice: rows
+        ? legacyPrices.basePriceMedium ??
+          legacyPrices.basePriceSmall ??
+          legacyPrices.basePriceLarge ??
+          0
+        : basePrice, // For backwards compatibility
     });
 
     if (existingService.stripeProductId) {
@@ -458,7 +741,7 @@ export const listWithBookingStats = query({
       (a) => new Date(a.scheduledDate) >= firstDayOfMonth,
     );
 
-    return services.map((service) => {
+    return await Promise.all(services.map(async (service) => {
       const bookingCount = thisMonth.filter((a) =>
         a.serviceIds.includes(service._id),
       ).length;
@@ -473,10 +756,11 @@ export const listWithBookingStats = query({
         serviceType: normalizeServiceType(service.serviceType),
         serviceTypeLabel:
           SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
+        vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
         bookings: bookingCount,
         popularity,
       };
-    });
+    }));
   },
 });
 
@@ -512,7 +796,12 @@ export const getById = query({
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    return await ctx.db.get(args.serviceId);
+    const service = await ctx.db.get(args.serviceId);
+    if (!service) return null;
+    return {
+      ...service,
+      vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
+    };
   },
 });
 
@@ -523,6 +812,18 @@ export const getServiceById = internalQuery({
   },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.serviceId);
+  },
+});
+
+export const getVehiclePricesByServiceId = internalQuery({
+  args: {
+    serviceId: v.id("services"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("serviceVehiclePrices")
+      .withIndex("by_service", (q) => q.eq("serviceId", args.serviceId))
+      .collect();
   },
 });
 
@@ -537,6 +838,19 @@ export const updateStripeIds = internalMutation({
     await ctx.db.patch(args.serviceId, {
       stripeProductId: args.stripeProductId,
       stripePriceIds: args.stripePriceIds,
+    });
+  },
+});
+
+export const updateServiceVehicleStripePriceId = internalMutation({
+  args: {
+    serviceVehiclePriceId: v.id("serviceVehiclePrices"),
+    stripePriceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.serviceVehiclePriceId, {
+      stripePriceId: args.stripePriceId,
+      updatedAt: Date.now(),
     });
   },
 });

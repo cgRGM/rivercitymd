@@ -42,6 +42,7 @@ import type * as testFlows from "../testFlows.js";
 import type * as testUtils_bookingSetup from "../testUtils/bookingSetup.js";
 import type * as tripLogs from "../tripLogs.js";
 import type * as users from "../users.js";
+import type * as vehicleTypes from "../vehicleTypes.js";
 import type * as vehicles from "../vehicles.js";
 import type * as webhookDiagnostics from "../webhookDiagnostics.js";
 
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   "testUtils/bookingSetup": typeof testUtils_bookingSetup;
   tripLogs: typeof tripLogs;
   users: typeof users;
+  vehicleTypes: typeof vehicleTypes;
   vehicles: typeof vehicles;
   webhookDiagnostics: typeof webhookDiagnostics;
 }>;
