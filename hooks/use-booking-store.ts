@@ -19,6 +19,13 @@ interface Vehicle {
     needsAdminReview: boolean
   }
   hasPet?: boolean
+  beforePhotos?: Array<{
+    key: string
+    fileName: string
+    contentType: string
+    sizeBytes: number
+    uploadedAt: number
+  }>
 }
 
 interface Step1Data {

@@ -16,25 +16,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { completeOnboarding } from "./_actions";
+import {
+  VehicleLookupCard,
+  type VehicleClassification,
+  type VehicleLookupValue,
+} from "@/components/forms/vehicle-lookup-card";
 
 type Vehicle = {
-  year: number;
+  year: string;
   make: string;
   model: string;
   color: string;
-  size: "small" | "medium" | "large";
+  size?: "small" | "medium" | "large";
+  vehicleTypeId?: string;
+  vehicleTypeName?: string;
+  classification?: VehicleClassification;
 };
 
 export default function OnboardingPage() {
@@ -95,11 +97,11 @@ export default function OnboardingPage() {
 
   // Step 3: Vehicles
   const [vehicles, setVehicles] = useState<Vehicle[]>([
-    { year: 0, make: "", model: "", color: "", size: "medium" },
+    { year: "", make: "", model: "", color: "" },
   ]);
 
   const addVehicle = () => {
-    setVehicles([...vehicles, { year: 0, make: "", model: "", color: "", size: "medium" }]);
+    setVehicles([...vehicles, { year: "", make: "", model: "", color: "" }]);
   };
 
   const removeVehicle = (index: number) => {
@@ -108,20 +110,24 @@ export default function OnboardingPage() {
     }
   };
 
-  const updateVehicle = (
-    index: number,
-    field: keyof Vehicle,
-    value: string | number,
-  ) => {
-    const updated = [...vehicles];
-    if (field === "year") {
-      updated[index][field] = value as number;
-    } else if (field === "size") {
-      updated[index][field] = value as Vehicle["size"];
-    } else {
-      updated[index][field] = value as string;
-    }
-    setVehicles(updated);
+  const updateVehicle = (index: number, nextVehicle: VehicleLookupValue) => {
+    setVehicles(
+      vehicles.map((vehicle, vehicleIndex) =>
+        vehicleIndex === index
+          ? {
+              ...vehicle,
+              year: nextVehicle.year,
+              make: nextVehicle.make,
+              model: nextVehicle.model,
+              color: nextVehicle.color ?? "",
+              size: nextVehicle.size,
+              vehicleTypeId: nextVehicle.vehicleTypeId,
+              vehicleTypeName: nextVehicle.vehicleTypeName,
+              classification: nextVehicle.classification,
+            }
+          : vehicle,
+      ),
+    );
   };
 
   const handleNext = () => {
@@ -166,7 +172,7 @@ export default function OnboardingPage() {
 
     // Validate vehicles
     const validVehicles = vehicles.filter(
-      (v) => v.year > 0 && v.make && v.model && v.color,
+      (v) => /^\d{4}$/.test(v.year) && v.make && v.model && v.color,
     );
 
     if (validVehicles.length === 0) {
@@ -208,7 +214,15 @@ export default function OnboardingPage() {
           state,
           zip: zipCode,
         },
-        vehicles: validVehicles,
+        vehicles: validVehicles.map((vehicle) => ({
+          year: Number(vehicle.year),
+          make: vehicle.make,
+          model: vehicle.model,
+          color: vehicle.color,
+          size: vehicle.size ?? "medium",
+          vehicleTypeId: vehicle.vehicleTypeId as Id<"vehicleTypes"> | undefined,
+          classification: vehicle.classification,
+        })),
       });
 
       // Then, update Clerk's publicMetadata to mark onboarding as complete
@@ -413,101 +427,14 @@ export default function OnboardingPage() {
               {step === 3 && (
                 <div className="space-y-4">
                   {vehicles.map((vehicle, index) => (
-                    <div
+                    <VehicleLookupCard
                       key={index}
-                      className="p-4 border rounded-lg space-y-4 relative"
-                    >
-                      {vehicles.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute top-2 right-2 h-8 w-8"
-                          onClick={() => removeVehicle(index)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <h4 className="font-medium text-sm text-muted-foreground">
-                        Vehicle {index + 1}
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`year-${index}`}>Year</Label>
-                          <Input
-                            id={`year-${index}`}
-                            type="number"
-                            placeholder="2020"
-                            value={vehicle.year || ""}
-                            onChange={(e) =>
-                              updateVehicle(
-                                index,
-                                "year",
-                                parseInt(e.target.value) || 0,
-                              )
-                            }
-                            min={1900}
-                            max={new Date().getFullYear() + 1}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`make-${index}`}>Make</Label>
-                          <Input
-                            id={`make-${index}`}
-                            type="text"
-                            placeholder="Toyota"
-                            value={vehicle.make}
-                            onChange={(e) =>
-                              updateVehicle(index, "make", e.target.value)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`model-${index}`}>Model</Label>
-                          <Input
-                            id={`model-${index}`}
-                            type="text"
-                            placeholder="Camry"
-                            value={vehicle.model}
-                            onChange={(e) =>
-                              updateVehicle(index, "model", e.target.value)
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`color-${index}`}>Color</Label>
-                          <Input
-                            id={`color-${index}`}
-                            type="text"
-                            placeholder="Silver"
-                            value={vehicle.color}
-                            onChange={(e) =>
-                              updateVehicle(index, "color", e.target.value)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`size-${index}`}>Vehicle Size</Label>
-                        <Select
-                          value={vehicle.size}
-                          onValueChange={(val) =>
-                            updateVehicle(index, "size", val)
-                          }
-                        >
-                          <SelectTrigger id={`size-${index}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="small">Small / Compact</SelectItem>
-                            <SelectItem value="medium">Mid-Size / SUV</SelectItem>
-                            <SelectItem value="large">Truck / Large</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
+                      title={`Vehicle ${index + 1}`}
+                      value={vehicle}
+                      onChange={(nextVehicle) => updateVehicle(index, nextVehicle)}
+                      colorRequired
+                      onRemove={vehicles.length > 1 ? () => removeVehicle(index) : undefined}
+                    />
                   ))}
                   <Button
                     type="button"

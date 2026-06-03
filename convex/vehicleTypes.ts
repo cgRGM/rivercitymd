@@ -253,6 +253,134 @@ async function fetchJson(url: string) {
   return await response.json();
 }
 
+function toMenuItems(value: any): Array<{ text: string; value: string }> {
+  const menuItem = value?.menuItem;
+  const items = Array.isArray(menuItem) ? menuItem : menuItem ? [menuItem] : [];
+  return items
+    .map((item) => ({
+      text: String(item?.text ?? item?.value ?? "").trim(),
+      value: String(item?.value ?? item?.text ?? "").trim(),
+    }))
+    .filter((item) => item.text && item.value);
+}
+
+function dedupeVehicleSuggestions(
+  suggestions: Array<{
+    make: string;
+    model: string;
+    source: "fuelEconomy" | "vpic";
+  }>,
+) {
+  const seen = new Set<string>();
+  return suggestions
+    .filter((suggestion) => {
+      const key = `${suggestion.make}|${suggestion.model}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((suggestion) => ({
+      ...suggestion,
+      label: `${suggestion.make} ${suggestion.model}`,
+    }))
+    .slice(0, 8);
+}
+
+export const searchModels = action({
+  args: {
+    year: v.number(),
+    query: v.string(),
+  },
+  handler: async (
+    _ctx,
+    args,
+  ): Promise<
+    Array<{
+      make: string;
+      model: string;
+      label: string;
+      source: "fuelEconomy" | "vpic";
+    }>
+  > => {
+    const year = Math.trunc(args.year);
+    const normalizedQuery = args.query.trim().replace(/\s+/g, " ");
+    if (
+      !normalizedQuery ||
+      normalizedQuery.length < 2 ||
+      year < 1900 ||
+      year > new Date().getFullYear() + 1
+    ) {
+      return [];
+    }
+
+    const [makeQuery = "", ...modelParts] = normalizedQuery.toLowerCase().split(" ");
+    const modelQuery = modelParts.join(" ");
+    const suggestions: Array<{
+      make: string;
+      model: string;
+      source: "fuelEconomy" | "vpic";
+    }> = [];
+
+    try {
+      const makes = toMenuItems(
+        await fetchJson(
+          `https://www.fueleconomy.gov/ws/rest/vehicle/menu/make?year=${year}`,
+        ),
+      );
+      const matchingMakes = makes
+        .filter((make) => make.text.toLowerCase().includes(makeQuery))
+        .slice(0, 4);
+
+      for (const make of matchingMakes) {
+        const models = toMenuItems(
+          await fetchJson(
+            `https://www.fueleconomy.gov/ws/rest/vehicle/menu/model?year=${year}&make=${encodeURIComponent(make.value)}`,
+          ),
+        );
+        const matchingModels = models
+          .filter((model) => {
+            if (!modelQuery) return true;
+            return model.text.toLowerCase().includes(modelQuery);
+          })
+          .slice(0, modelQuery ? 6 : 3);
+
+        for (const model of matchingModels) {
+          suggestions.push({
+            make: make.text,
+            model: model.text,
+            source: "fuelEconomy",
+          });
+        }
+      }
+    } catch {
+      // vPIC is used as a fallback below.
+    }
+
+    if (suggestions.length < 3 && makeQuery.length >= 2) {
+      try {
+        const vpic = await fetchJson(
+          `https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMakeYear/make/${encodeURIComponent(makeQuery)}/modelyear/${year}?format=json`,
+        );
+        for (const result of vpic?.Results ?? []) {
+          const make = String(result.Make_Name ?? makeQuery).trim();
+          const model = String(result.Model_Name ?? "").trim();
+          if (!make || !model) continue;
+          if (modelQuery && !model.toLowerCase().includes(modelQuery)) continue;
+          suggestions.push({
+            make,
+            model,
+            source: "vpic",
+          });
+        }
+      } catch {
+        // Empty results are fine for a suggestion endpoint.
+      }
+    }
+
+    return dedupeVehicleSuggestions(suggestions);
+  },
+});
+
 export const classify = action({
   args: {
     year: v.number(),

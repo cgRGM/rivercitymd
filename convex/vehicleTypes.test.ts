@@ -66,6 +66,48 @@ describe("vehicleTypes", () => {
     expect(result.needsAdminReview).toBe(false);
   });
 
+  test("searches FuelEconomy vehicle models by year and typed make/model", async () => {
+    const t = convexTest(schema, modules);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const urlString = String(url);
+        if (urlString.includes("/menu/make")) {
+          return Response.json({
+            menuItem: [
+              { text: "Kia", value: "Kia" },
+              { text: "Toyota", value: "Toyota" },
+            ],
+          });
+        }
+        if (urlString.includes("/menu/model")) {
+          return Response.json({
+            menuItem: [
+              { text: "Sorento", value: "Sorento" },
+              { text: "Sportage", value: "Sportage" },
+            ],
+          });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    const results = await t.action(api.vehicleTypes.searchModels, {
+      year: 2024,
+      query: "kia sor",
+    });
+
+    expect(results).toEqual([
+      {
+        make: "Kia",
+        model: "Sorento",
+        label: "Kia Sorento",
+        source: "fuelEconomy",
+      },
+    ]);
+  });
+
   test("falls back to vPIC when FuelEconomy lookup fails", async () => {
     const t = convexTest(schema, modules);
 

@@ -555,6 +555,20 @@ export const createUserProfile = mutation({
         model: v.string(),
         color: v.string(),
         size: v.optional(v.union(v.literal("small"), v.literal("medium"), v.literal("large"))),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
+        classification: v.optional(
+          v.object({
+            source: v.union(
+              v.literal("fuelEconomy"),
+              v.literal("vpic"),
+              v.literal("manual"),
+              v.literal("fallback"),
+            ),
+            confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+            rawCategory: v.optional(v.string()),
+            needsAdminReview: v.boolean(),
+          }),
+        ),
       }),
     ),
   },
@@ -696,6 +710,8 @@ export const createUserProfile = mutation({
         year: vehicle.year,
         make: vehicle.make,
         model: vehicle.model,
+        vehicleTypeId: vehicle.vehicleTypeId,
+        classification: vehicle.classification,
         color: vehicle.color,
         size: vehicle.size || "medium",
       });

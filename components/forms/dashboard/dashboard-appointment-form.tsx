@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { useMutation, useQuery, useAction } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
@@ -82,6 +82,10 @@ export function DashboardAppointmentForm({
     "deposit" | "full" | "in_person"
   >("deposit");
   const [smsOptIn, setSmsOptIn] = useState(false);
+  const [travelQuote, setTravelQuote] = useState<{
+    distanceMiles: number;
+    fee: number;
+  } | null>(null);
 
   // Queries
   const currentUser = useQuery(api.users.getCurrentUser);
@@ -91,8 +95,24 @@ export function DashboardAppointmentForm({
   const nextBookableDate = useQuery(api.availability.getNextBookableDate, {});
 
   // Mutations/Actions
-  const upsertBookingDraft = useMutation(api.bookingDrafts.createOrUpdate);
+  const upsertBookingDraft = useAction(api.bookingDrafts.createOrUpdate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+  const calculateTravelFee = useAction(api.travelFees.calculate);
+
+  React.useEffect(() => {
+    if (!street.trim() || !city.trim() || !state.trim() || !zip.trim()) {
+      setTravelQuote(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      void calculateTravelFee({
+        address: { street, city, state, zip, notes: locationNotes || undefined },
+      })
+        .then(setTravelQuote)
+        .catch(() => setTravelQuote(null));
+    }, 400);
+    return () => window.clearTimeout(timeout);
+  }, [calculateTravelFee, city, locationNotes, state, street, zip]);
 
   // Pre-fill address when user data loads
   React.useEffect(() => {
@@ -211,7 +231,8 @@ export function DashboardAppointmentForm({
   }, [hasPetFee, petFeeSettings, vehicleSize]);
 
   const depositTotal = 50; // $50 deposit per vehicle
-  const orderTotal = serviceTotal + petFeeTotal;
+  const travelFeeTotal = travelQuote?.fee ?? 0;
+  const orderTotal = serviceTotal + petFeeTotal + travelFeeTotal;
   const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
 
   // Step validation
@@ -652,6 +673,15 @@ export function DashboardAppointmentForm({
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Pet fee</span>
                   <span className="font-medium">${petFeeTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {travelFeeTotal > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    Travel fee
+                    {travelQuote && ` (${travelQuote.distanceMiles.toFixed(1)} miles)`}
+                  </span>
+                  <span className="font-medium">${travelFeeTotal.toFixed(2)}</span>
                 </div>
               )}
               <div className="border-t pt-2 flex justify-between text-sm font-semibold">

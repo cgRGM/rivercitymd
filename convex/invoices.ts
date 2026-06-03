@@ -28,7 +28,13 @@ const invoiceCreateArgs = {
   invoiceNumber: v.string(),
   items: v.array(
     v.object({
-      itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
+      itemType: v.optional(
+        v.union(
+          v.literal("service"),
+          v.literal("pet_fee"),
+          v.literal("travel_fee"),
+        ),
+      ),
       serviceId: v.optional(v.id("services")),
       vehicleId: v.optional(v.id("vehicles")),
       vehicleLabel: v.optional(v.string()),

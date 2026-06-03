@@ -162,7 +162,7 @@ describe("payments", () => {
       email: "test@example.com",
     });
 
-    return await asUser.mutation(api.bookingDrafts.createOrUpdate, {
+    return await asUser.action(api.bookingDrafts.createOrUpdate, {
       name: "Test User",
       email: "test@example.com",
       phone: "555-1234",
@@ -359,7 +359,7 @@ describe("payments", () => {
       });
     });
 
-    const booking = await t.mutation(api.bookingDrafts.createOrUpdate, {
+    const booking = await t.action(api.bookingDrafts.createOrUpdate, {
       name: "Guest Booker",
       email: "guest-booker@example.com",
       phone: "555-3030",
@@ -423,6 +423,74 @@ describe("payments", () => {
     );
   });
 
+  test("booking draft includes the scalable Radar travel fee", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: false,
+    });
+    const serviceId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("services", {
+        name: "Long Distance Service",
+        description: "Service with travel fee",
+        basePrice: 120,
+        basePriceMedium: 120,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        if (String(url).includes("/geocode/forward")) {
+          return Response.json({
+            addresses: [{ latitude: 34.75, longitude: -92.3 }],
+          });
+        }
+        if (String(url).includes("/route/distance")) {
+          return Response.json({
+            routes: { car: { distance: { text: "100 mi", value: 100 } } },
+          });
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const booking = await t.action(api.bookingDrafts.createOrUpdate, {
+      name: "Far Away Booker",
+      email: "far-away@example.com",
+      phone: "555-3030",
+      address: {
+        street: "100 Far Away Rd",
+        city: "Somewhere",
+        state: "AR",
+        zip: "72000",
+      },
+      vehicles: [{ year: 2021, make: "Honda", model: "Civic", size: "medium" }],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-02",
+      scheduledTime: "10:00",
+    });
+    const draft = await t.run(async (ctx: any) => await ctx.db.get(booking.draftId));
+
+    expect(booking).toMatchObject({ travelDistanceMiles: 100, travelFee: 120 });
+    expect(draft).toMatchObject({
+      totalPrice: 240,
+      travelDistanceMiles: 100,
+      travelFee: 120,
+    });
+    expect(draft?.priceSnapshot).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "travel_fee",
+          unitPrice: 120,
+          totalPrice: 120,
+        }),
+      ]),
+    );
+  });
+
   test("booking draft uses default pet fee when no setting exists", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t, {
@@ -442,7 +510,7 @@ describe("payments", () => {
       });
     });
 
-    const booking = await t.mutation(api.bookingDrafts.createOrUpdate, {
+    const booking = await t.action(api.bookingDrafts.createOrUpdate, {
       name: "Guest Booker",
       email: "pet-default@example.com",
       phone: "555-3030",
@@ -515,7 +583,7 @@ describe("payments", () => {
       });
     });
 
-    const booking = await t.mutation(api.bookingDrafts.createOrUpdate, {
+    const booking = await t.action(api.bookingDrafts.createOrUpdate, {
       name: "Mixed Pet Booker",
       email: "mixed-pet@example.com",
       phone: "555-4040",

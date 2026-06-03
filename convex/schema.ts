@@ -16,6 +16,14 @@ const tripLogLocationValidator = v.object({
   longitude: v.optional(v.number()),
 });
 
+const bookingBeforePhotoValidator = v.object({
+  key: v.string(),
+  fileName: v.string(),
+  contentType: v.string(),
+  sizeBytes: v.number(),
+  uploadedAt: v.number(),
+});
+
 // Customize users table to include role and basic info
 const schema = defineSchema({
   users: defineTable({
@@ -230,6 +238,21 @@ const schema = defineSchema({
     ),
     subscriptionId: v.optional(v.id("subscriptions")),
     petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    travelDistanceMiles: v.optional(v.number()),
+    travelFee: v.optional(v.number()),
+    beforePhotos: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.optional(v.id("vehicles")),
+          vehicleLabel: v.optional(v.string()),
+          key: v.string(),
+          fileName: v.string(),
+          contentType: v.string(),
+          sizeBytes: v.number(),
+          uploadedAt: v.number(),
+        }),
+      ),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])
@@ -278,6 +301,7 @@ const schema = defineSchema({
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
         hasPet: v.optional(v.boolean()),
+        beforePhotos: v.optional(v.array(bookingBeforePhotoValidator)),
       }),
     ),
     petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
@@ -294,6 +318,8 @@ const schema = defineSchema({
     totalPrice: v.number(),
     depositAmount: v.number(),
     remainingBalance: v.number(),
+    travelDistanceMiles: v.optional(v.number()),
+    travelFee: v.optional(v.number()),
     paymentOption: v.union(
       v.literal("deposit"),
       v.literal("full"),
@@ -301,7 +327,13 @@ const schema = defineSchema({
     ),
     priceSnapshot: v.array(
       v.object({
-        itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
+        itemType: v.optional(
+          v.union(
+            v.literal("service"),
+            v.literal("pet_fee"),
+            v.literal("travel_fee"),
+          ),
+        ),
         serviceId: v.optional(v.id("services")),
         vehicleId: v.optional(v.id("vehicles")),
         vehicleLabel: v.optional(v.string()),
@@ -362,7 +394,13 @@ const schema = defineSchema({
     invoiceNumber: v.string(),
     items: v.array(
       v.object({
-        itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
+        itemType: v.optional(
+          v.union(
+            v.literal("service"),
+            v.literal("pet_fee"),
+            v.literal("travel_fee"),
+          ),
+        ),
         serviceId: v.optional(v.id("services")),
         vehicleId: v.optional(v.id("vehicles")),
         vehicleLabel: v.optional(v.string()),

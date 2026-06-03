@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import {
+  action,
   internalMutation,
   internalQuery,
   mutation,
@@ -17,6 +18,8 @@ import {
   DEFAULT_USER_NOTIFICATION_PREFERENCES,
   normalizeUserNotificationPreferences,
 } from "./lib/notificationSettings";
+import { r2 } from "./r2";
+import { calculateTravelFeeForMiles } from "./lib/travelFees";
 import {
   getEffectivePetFeePrice,
   getEffectiveServicePrice,
@@ -32,6 +35,14 @@ const addressValidator = v.object({
   state: v.string(),
   zip: v.string(),
   notes: v.optional(v.string()),
+});
+
+const beforePhotoValidator = v.object({
+  key: v.string(),
+  fileName: v.string(),
+  contentType: v.string(),
+  sizeBytes: v.number(),
+  uploadedAt: v.number(),
 });
 
 const draftVehicleValidator = v.object({
@@ -58,6 +69,7 @@ const draftVehicleValidator = v.object({
   color: v.optional(v.string()),
   licensePlate: v.optional(v.string()),
   hasPet: v.optional(v.boolean()),
+  beforePhotos: v.optional(v.array(beforePhotoValidator)),
 });
 
 const bookingPaymentOptionValidator = v.union(
@@ -109,6 +121,36 @@ function formatVehicleSizeLabel(size: VehicleSize) {
   if (size === "small") return "Small";
   if (size === "large") return "Large";
   return "Medium";
+}
+
+function normalizeContentType(contentType: string): string {
+  return contentType.toLowerCase().split(";")[0]?.trim() || "";
+}
+
+function getFileExtension(fileName: string): string {
+  const normalized = fileName.toLowerCase().trim();
+  const lastDotIndex = normalized.lastIndexOf(".");
+  if (lastDotIndex === -1) return "";
+  return normalized.slice(lastDotIndex);
+}
+
+function validateBeforePhotoFile(fileName: string, contentType: string) {
+  const allowedContentTypes = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+  ]);
+  const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+  if (
+    !allowedContentTypes.has(normalizeContentType(contentType)) ||
+    !allowedExtensions.has(getFileExtension(fileName))
+  ) {
+    throw new ConvexError({
+      code: "INVALID_BEFORE_PHOTO_FILE_TYPE",
+      message: "Only JPG, PNG, WEBP, and GIF vehicle photos are allowed.",
+    });
+  }
 }
 
 function assertBookableServices(
@@ -231,6 +273,7 @@ async function buildDraftPricing(args: {
     hasPet?: boolean;
   }>;
   petFeeExistingVehicleIds: Id<"vehicles">[];
+  travelDistanceMiles?: number;
 }) {
   const services = await getServicesForDraft(args.ctx, args.serviceIds);
   assertBookableServices(services, args.serviceIds, args.vehicleSize);
@@ -317,7 +360,23 @@ async function buildDraftPricing(args: {
     })
     .filter((item) => item.quantity > 0 && item.totalPrice > 0);
 
-  const priceItems = [...items, ...petFeeItems];
+  const travelFee =
+    args.travelDistanceMiles !== undefined
+      ? calculateTravelFeeForMiles(args.travelDistanceMiles)
+      : 0;
+  const travelFeeItems =
+    travelFee > 0 && args.travelDistanceMiles !== undefined
+      ? [
+          {
+            itemType: "travel_fee" as const,
+            serviceName: `Travel fee (${args.travelDistanceMiles.toFixed(1)} miles)`,
+            quantity: 1,
+            unitPrice: travelFee,
+            totalPrice: travelFee,
+          },
+        ]
+      : [];
+  const priceItems = [...items, ...petFeeItems, ...travelFeeItems];
 
   const totalPrice = priceItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const depositSettings = await args.ctx.runQuery(
@@ -335,6 +394,7 @@ async function buildDraftPricing(args: {
     duration,
     depositAmount,
     remainingBalance,
+    travelFee,
   };
 }
 
@@ -344,7 +404,7 @@ function buildClaimRedirectPath(onboardingComplete: boolean) {
     : "/onboarding?payment=success";
 }
 
-export const createOrUpdate = mutation({
+export const createOrUpdateInternal = internalMutation({
   args: {
     resumeToken: v.optional(v.string()),
     name: v.string(),
@@ -359,6 +419,7 @@ export const createOrUpdate = mutation({
     scheduledDate: v.string(),
     scheduledTime: v.string(),
     paymentOption: v.optional(bookingPaymentOptionValidator),
+    travelDistanceMiles: v.number(),
   },
   returns: v.object({
     draftId: v.id("bookingDrafts"),
@@ -455,6 +516,7 @@ export const createOrUpdate = mutation({
       existingVehicles: validExistingVehicles,
       draftVehicles,
       petFeeExistingVehicleIds,
+      travelDistanceMiles: args.travelDistanceMiles,
     });
 
     if (existingDraft) {
@@ -486,6 +548,8 @@ export const createOrUpdate = mutation({
             : pricing.remainingBalance,
         paymentOption: args.paymentOption ?? "deposit",
         priceSnapshot: pricing.items,
+        travelDistanceMiles: args.travelDistanceMiles,
+        travelFee: pricing.travelFee,
         status: "draft",
         stripeCheckoutSessionId: undefined,
         stripeCheckoutUrl: undefined,
@@ -533,12 +597,74 @@ export const createOrUpdate = mutation({
           : pricing.remainingBalance,
       paymentOption: args.paymentOption ?? "deposit",
       priceSnapshot: pricing.items,
+      travelDistanceMiles: args.travelDistanceMiles,
+      travelFee: pricing.travelFee,
       status: "draft",
       resumeToken,
       lastActivityAt: now,
     });
 
     return { draftId, resumeToken };
+  },
+});
+
+export const createOrUpdate = action({
+  args: {
+    resumeToken: v.optional(v.string()),
+    name: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    smsOptIn: v.optional(v.boolean()),
+    address: addressValidator,
+    existingVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    vehicles: v.optional(v.array(draftVehicleValidator)),
+    petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    serviceIds: v.array(v.id("services")),
+    scheduledDate: v.string(),
+    scheduledTime: v.string(),
+    paymentOption: v.optional(bookingPaymentOptionValidator),
+  },
+  returns: v.object({
+    draftId: v.id("bookingDrafts"),
+    resumeToken: v.string(),
+    travelDistanceMiles: v.number(),
+    travelFee: v.number(),
+  }),
+  handler: async (ctx, args): Promise<{
+    draftId: Id<"bookingDrafts">;
+    resumeToken: string;
+    travelDistanceMiles: number;
+    travelFee: number;
+  }> => {
+    const travel = await ctx.runAction(api.travelFees.calculate, {
+      address: args.address,
+    });
+    const draft = await ctx.runMutation(internal.bookingDrafts.createOrUpdateInternal, {
+      ...args,
+      travelDistanceMiles: travel.distanceMiles,
+    });
+    return {
+      ...draft,
+      travelDistanceMiles: travel.distanceMiles,
+      travelFee: travel.fee,
+    };
+  },
+});
+
+export const createBeforePhotoUploadUrl = mutation({
+  args: {
+    fileName: v.string(),
+    contentType: v.string(),
+  },
+  returns: v.object({
+    key: v.string(),
+    url: v.string(),
+  }),
+  handler: async (_ctx, args) => {
+    validateBeforePhotoFile(args.fileName, args.contentType);
+    const sanitizedFileName = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const key = `booking-before-photos/${Date.now()}-${crypto.randomUUID()}-${sanitizedFileName}`;
+    return await r2.generateUploadUrl(key);
   },
 });
 
@@ -797,6 +923,15 @@ export const convertSuccessfulCheckout = internalMutation({
 
     const createdVehicleIds: Id<"vehicles">[] = [];
     const createdPetFeeVehicleIds: Id<"vehicles">[] = [];
+    const beforePhotos: Array<{
+      vehicleId: Id<"vehicles">;
+      vehicleLabel: string;
+      key: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+      uploadedAt: number;
+    }> = [];
     for (const draftVehicle of draft.draftVehicles) {
       const vehicleId = await ctx.db.insert("vehicles", {
         userId: user._id,
@@ -810,6 +945,14 @@ export const convertSuccessfulCheckout = internalMutation({
         licensePlate: draftVehicle.licensePlate,
       });
       createdVehicleIds.push(vehicleId);
+      const vehicleLabel = `${draftVehicle.year} ${draftVehicle.make} ${draftVehicle.model}`;
+      for (const photo of draftVehicle.beforePhotos ?? []) {
+        beforePhotos.push({
+          vehicleId,
+          vehicleLabel,
+          ...photo,
+        });
+      }
       if (draftVehicle.hasPet) {
         createdPetFeeVehicleIds.push(vehicleId);
       }
@@ -863,6 +1006,9 @@ export const convertSuccessfulCheckout = internalMutation({
       createdBy: user._id,
       paymentOption: draft.paymentOption,
       petFeeVehicleIds,
+      beforePhotos: beforePhotos.length > 0 ? beforePhotos : undefined,
+      travelDistanceMiles: draft.travelDistanceMiles,
+      travelFee: draft.travelFee,
     });
 
     const invoiceCountResult: { count: number } = await ctx.runQuery(
@@ -952,10 +1098,13 @@ export const getPublicContext = query({
         classification: vehicle.classification,
         size: vehicle.size,
         hasPet: vehicle.hasPet ?? false,
+        beforePhotos: vehicle.beforePhotos ?? [],
       })),
       existingVehicleIds: draft.existingVehicleIds,
       petFeeExistingVehicleIds: draft.petFeeExistingVehicleIds ?? [],
       paymentOption: draft.paymentOption,
+      travelDistanceMiles: draft.travelDistanceMiles,
+      travelFee: draft.travelFee,
       convertedAppointmentId: draft.convertedAppointmentId,
       convertedInvoiceId: draft.convertedInvoiceId,
       convertedUserId: draft.convertedUserId,
