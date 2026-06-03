@@ -1,20 +1,55 @@
 import { auth } from "@clerk/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
+import { api } from "@/convex/_generated/api";
+import { getRoleHomePath } from "@/lib/auth-routing";
 
 export default async function OnboardingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { sessionClaims } = await auth();
+  const { sessionClaims, getToken } = await auth();
+  let redirectPath: string | null = null;
 
-  // Fast path: Check session claims first (no API call)
-  // If onboarding is complete according to Clerk, redirect to dashboard
   if (sessionClaims?.metadata?.onboardingComplete === true) {
-    redirect("/dashboard");
+    try {
+      const token = await getToken({ template: "convex" });
+      if (!token) {
+        return <>{children}</>;
+      }
+
+      const userRole = await fetchQuery(
+        api.auth.getUserRole,
+        {},
+        {
+          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+          token,
+        },
+      );
+      if (!userRole) {
+        return <>{children}</>;
+      }
+
+      const hasCompletedOnboarding = await fetchQuery(
+        api.users.hasCompletedOnboarding,
+        {},
+        {
+          url: process.env.NEXT_PUBLIC_CONVEX_URL!,
+          token,
+        },
+      );
+      if (hasCompletedOnboarding) {
+        redirectPath = getRoleHomePath(userRole.type);
+      }
+    } catch (error) {
+      console.error("Error checking onboarding status:", error);
+    }
   }
 
-  // Onboarding not complete or missing - allow onboarding to proceed
+  if (redirectPath) {
+    redirect(redirectPath);
+  }
+
   return <>{children}</>;
 }
-

@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -27,6 +27,17 @@ import {
   type VehicleClassification,
   type VehicleLookupValue,
 } from "@/components/forms/vehicle-lookup-card";
+import AddressInput from "@/components/ui/address-input";
+
+interface RadarAddress {
+  formattedAddress?: string;
+  addressLabel?: string;
+  number?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+}
 
 type Vehicle = {
   year: string;
@@ -56,7 +67,7 @@ export default function OnboardingPage() {
     const urlParams = new URLSearchParams(window.location.search);
     const stepParam = urlParams.get("step");
     if (stepParam && !isNaN(Number(stepParam))) {
-      const stepNumber = Math.max(1, Math.min(3, Number(stepParam)));
+      const stepNumber = Math.max(1, Math.min(2, Number(stepParam)));
       setStep(stepNumber);
     }
   }, []);
@@ -89,13 +100,26 @@ export default function OnboardingPage() {
     }
   }, [user, currentUser, hasEditedName]);
 
-  // Step 2: Service Address
+  // Service Address
   const [street, setStreet] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
 
-  // Step 3: Vehicles
+  const handleAddressSelect = useCallback((address: RadarAddress) => {
+    const streetNumber = address.number || "";
+    const streetName = address.street || "";
+    const fullStreet = streetNumber
+      ? `${streetNumber} ${streetName}`.trim()
+      : streetName || address.formattedAddress || address.addressLabel || "";
+
+    setStreet(fullStreet);
+    setCity(address.city || "");
+    setState(address.state || "");
+    setZipCode(address.postalCode || "");
+  }, []);
+
+  // Step 2: Vehicles
   const [vehicles, setVehicles] = useState<Vehicle[]>([
     { year: "", make: "", model: "" },
   ]);
@@ -137,15 +161,11 @@ export default function OnboardingPage() {
         setError("Please fill in all fields");
         return;
       }
-      const newStep = 2;
-      setStep(newStep);
-      updateUrlStep(newStep);
-    } else if (step === 2) {
       if (!street.trim() || !city.trim() || !state.trim() || !zipCode.trim()) {
-        setError("Please fill in all address fields");
+        setError("Please select your service address");
         return;
       }
-      const newStep = 3;
+      const newStep = 2;
       setStep(newStep);
       updateUrlStep(newStep);
     }
@@ -292,7 +312,7 @@ export default function OnboardingPage() {
 
         {/* Progress Indicator */}
         <div className="flex items-center justify-center gap-2">
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div
               key={s}
               className={`h-2 rounded-full transition-all ${
@@ -311,13 +331,11 @@ export default function OnboardingPage() {
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold">
               {step === 1 && "Personal Information"}
-              {step === 2 && "Service Address"}
-              {step === 3 && "Your Vehicles"}
+              {step === 2 && "Your Vehicles"}
             </CardTitle>
             <CardDescription>
-              {step === 1 && "Let's get to know you better"}
-              {step === 2 && "Where should we provide our services?"}
-              {step === 3 && "Tell us about your vehicles"}
+              {step === 1 && "Tell us who you are and where we'll provide service"}
+              {step === 2 && "Tell us about your vehicles"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -339,92 +357,48 @@ export default function OnboardingPage() {
                       required
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="john@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      disabled
-                      className="bg-muted"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Email from your account
-                    </p>
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="john@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        disabled
+                        className="bg-muted"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Email from your account
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone Number</Label>
+                      <Input
+                        id="phone"
+                        type="tel"
+                        placeholder="(501) 555-0123"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number</Label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="(501) 555-0123"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      required
+
+                  <div className="border-t pt-4">
+                    <AddressInput
+                      onAddressSelect={handleAddressSelect}
+                      label="Service Address"
+                      placeholder="Search for your service address"
                     />
                   </div>
                 </div>
               )}
 
-              {/* Step 2: Service Address */}
+              {/* Step 2: Vehicles */}
               {step === 2 && (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="street">Street Address</Label>
-                    <Input
-                      id="street"
-                      type="text"
-                      placeholder="123 Main St"
-                      value={street}
-                      onChange={(e) => setStreet(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="city">City</Label>
-                      <Input
-                        id="city"
-                        type="text"
-                        placeholder="Little Rock"
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="state">State</Label>
-                      <Input
-                        id="state"
-                        type="text"
-                        placeholder="AR"
-                        value={state}
-                        onChange={(e) => setState(e.target.value)}
-                        required
-                        maxLength={2}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="zipCode">ZIP Code</Label>
-                    <Input
-                      id="zipCode"
-                      type="text"
-                      placeholder="72201"
-                      value={zipCode}
-                      onChange={(e) => setZipCode(e.target.value)}
-                      required
-                      maxLength={5}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Step 3: Vehicles */}
-              {step === 3 && (
                 <div className="space-y-4">
                   {vehicles.map((vehicle, index) => (
                     <VehicleLookupCard
@@ -470,7 +444,7 @@ export default function OnboardingPage() {
                     Back
                   </Button>
                 )}
-                {step < 3 ? (
+                {step < 2 ? (
                   <Button type="button" onClick={handleNext} className="flex-1">
                     Continue
                   </Button>
