@@ -266,6 +266,7 @@ function toMenuItems(value: any): Array<{ text: string; value: string }> {
 
 function dedupeVehicleSuggestions(
   suggestions: Array<{
+    year: number;
     make: string;
     model: string;
     source: "fuelEconomy" | "vpic";
@@ -274,21 +275,20 @@ function dedupeVehicleSuggestions(
   const seen = new Set<string>();
   return suggestions
     .filter((suggestion) => {
-      const key = `${suggestion.make}|${suggestion.model}`.toLowerCase();
+      const key = `${suggestion.year}|${suggestion.make}|${suggestion.model}`.toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
     .map((suggestion) => ({
       ...suggestion,
-      label: `${suggestion.make} ${suggestion.model}`,
+      label: `${suggestion.year} ${suggestion.make} ${suggestion.model}`,
     }))
     .slice(0, 8);
 }
 
 export const searchModels = action({
   args: {
-    year: v.number(),
     query: v.string(),
   },
   handler: async (
@@ -296,26 +296,33 @@ export const searchModels = action({
     args,
   ): Promise<
     Array<{
+      year: number;
       make: string;
       model: string;
       label: string;
       source: "fuelEconomy" | "vpic";
     }>
   > => {
-    const year = Math.trunc(args.year);
     const normalizedQuery = args.query.trim().replace(/\s+/g, " ");
+    const yearMatch = normalizedQuery.match(/\b(19|20)\d{2}\b/);
+    const year = yearMatch ? Number(yearMatch[0]) : 0;
+    const vehicleQuery = normalizedQuery
+      .replace(yearMatch?.[0] ?? "", "")
+      .trim()
+      .replace(/\s+/g, " ");
     if (
-      !normalizedQuery ||
-      normalizedQuery.length < 2 ||
+      !vehicleQuery ||
+      vehicleQuery.length < 2 ||
       year < 1900 ||
       year > new Date().getFullYear() + 1
     ) {
       return [];
     }
 
-    const [makeQuery = "", ...modelParts] = normalizedQuery.toLowerCase().split(" ");
+    const [makeQuery = "", ...modelParts] = vehicleQuery.toLowerCase().split(" ");
     const modelQuery = modelParts.join(" ");
     const suggestions: Array<{
+      year: number;
       make: string;
       model: string;
       source: "fuelEconomy" | "vpic";
@@ -346,6 +353,7 @@ export const searchModels = action({
 
         for (const model of matchingModels) {
           suggestions.push({
+            year,
             make: make.text,
             model: model.text,
             source: "fuelEconomy",
@@ -367,6 +375,7 @@ export const searchModels = action({
           if (!make || !model) continue;
           if (modelQuery && !model.toLowerCase().includes(modelQuery)) continue;
           suggestions.push({
+            year,
             make,
             model,
             source: "vpic",

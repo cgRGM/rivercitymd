@@ -45,6 +45,7 @@ export type VehicleLookupValue = {
 };
 
 type Suggestion = {
+  year: number;
   make: string;
   model: string;
   label: string;
@@ -55,7 +56,7 @@ type VehicleLookupCardProps = {
   value: VehicleLookupValue;
   onChange: (value: VehicleLookupValue) => void;
   title?: string;
-  colorRequired?: boolean;
+  showColor?: boolean;
   showLicensePlate?: boolean;
   showPetToggle?: boolean;
   showBeforePhotos?: boolean;
@@ -71,9 +72,13 @@ const ALLOWED_PHOTO_TYPES = new Set([
   "image/gif",
 ]);
 
-function splitVehicleQuery(query: string) {
-  const [make = "", ...modelParts] = query.trim().replace(/\s+/g, " ").split(" ");
+function parseVehicleQuery(query: string) {
+  const normalized = query.trim().replace(/\s+/g, " ");
+  const yearMatch = normalized.match(/\b(19|20)\d{2}\b/);
+  const withoutYear = normalized.replace(yearMatch?.[0] ?? "", "").trim();
+  const [make = "", ...modelParts] = withoutYear.split(" ");
   return {
+    year: yearMatch?.[0] ?? "",
     make,
     model: modelParts.join(" "),
   };
@@ -91,7 +96,7 @@ export function VehicleLookupCard({
   value,
   onChange,
   title = "Vehicle",
-  colorRequired = false,
+  showColor = true,
   showLicensePlate = false,
   showPetToggle = false,
   showBeforePhotos = false,
@@ -103,7 +108,7 @@ export function VehicleLookupCard({
     api.bookingDrafts.createBeforePhotoUploadUrl,
   );
 
-  const initialQuery = [value.make, value.model].filter(Boolean).join(" ");
+  const initialQuery = [value.year, value.make, value.model].filter(Boolean).join(" ");
   const [query, setQuery] = useState(initialQuery);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -111,11 +116,17 @@ export function VehicleLookupCard({
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
-    setQuery([value.make, value.model].filter(Boolean).join(" "));
-  }, [value.make, value.model]);
+    const selectedVehicle = [value.year, value.make, value.model]
+      .filter(Boolean)
+      .join(" ");
+    if (!query && selectedVehicle) {
+      setQuery(selectedVehicle);
+    }
+  }, [query, value.make, value.model, value.year]);
 
   useEffect(() => {
-    if (!isValidYear(value.year) || query.trim().length < 2) {
+    const parsed = parseVehicleQuery(query);
+    if (!isValidYear(parsed.year) || !parsed.make || query.trim().length < 6) {
       setSuggestions([]);
       return;
     }
@@ -124,7 +135,6 @@ export function VehicleLookupCard({
       setIsSearching(true);
       try {
         const results = await searchModels({
-          year: Number(value.year),
           query,
         });
         setSuggestions(results);
@@ -136,7 +146,7 @@ export function VehicleLookupCard({
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [query, searchModels, value.year]);
+  }, [query, searchModels]);
 
   const detectedLabel = useMemo(() => {
     if (isClassifying) return "Detecting vehicle type...";
@@ -193,17 +203,19 @@ export function VehicleLookupCard({
     setQuery(suggestion.label);
     void classifySelection({
       ...value,
+      year: String(suggestion.year),
       make: suggestion.make,
       model: suggestion.model,
     });
   };
 
   const acceptTypedVehicle = () => {
-    const typed = splitVehicleQuery(query);
-    if (!typed.make || !typed.model) return;
+    const typed = parseVehicleQuery(query);
+    if (!isValidYear(typed.year) || !typed.make || !typed.model) return;
     setSuggestions([]);
     void classifySelection({
       ...value,
+      year: typed.year,
       make: typed.make,
       model: typed.model,
     });
@@ -302,36 +314,14 @@ export function VehicleLookupCard({
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-[120px_1fr]">
-        <div className="space-y-2">
-          <Label htmlFor={`${title}-year`}>Year</Label>
-          <Input
-            id={`${title}-year`}
-            type="number"
-            inputMode="numeric"
-            placeholder="2020"
-            min={1900}
-            max={new Date().getFullYear() + 1}
-            value={value.year}
-            onChange={(event) =>
-              updateValue({
-                year: event.target.value,
-                vehicleTypeId: undefined,
-                vehicleTypeName: undefined,
-                classification: undefined,
-              })
-            }
-          />
-        </div>
-
-        <div className="relative space-y-2">
-          <Label htmlFor={`${title}-vehicle`}>Make and Model</Label>
+      <div className="relative space-y-2">
+          <Label htmlFor={`${title}-vehicle`}>Vehicle</Label>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id={`${title}-vehicle`}
               className="pl-9"
-              placeholder="Search Kia Sorento"
+              placeholder="Search 2020 Kia Sorento"
               value={query}
               onBlur={() => {
                 if (!value.make || !value.model) {
@@ -341,6 +331,7 @@ export function VehicleLookupCard({
               onChange={(event) => {
                 setQuery(event.target.value);
                 updateValue({
+                  year: "",
                   make: "",
                   model: "",
                   vehicleTypeId: undefined,
@@ -351,7 +342,7 @@ export function VehicleLookupCard({
             />
           </div>
 
-          {(suggestions.length > 0 || isSearching || splitVehicleQuery(query).model) && (
+          {(suggestions.length > 0 || isSearching || parseVehicleQuery(query).model) && (
             <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border bg-background shadow-lg">
               {isSearching && (
                 <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
@@ -375,7 +366,7 @@ export function VehicleLookupCard({
                   </span>
                 </button>
               ))}
-              {splitVehicleQuery(query).model && (
+              {parseVehicleQuery(query).year && parseVehicleQuery(query).model && (
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm hover:bg-muted"
@@ -390,33 +381,34 @@ export function VehicleLookupCard({
               )}
             </div>
           )}
-        </div>
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor={`${title}-color`}>
-            Color{colorRequired ? "" : " (Optional)"}
-          </Label>
-          <Input
-            id={`${title}-color`}
-            placeholder="Silver"
-            value={value.color ?? ""}
-            onChange={(event) => updateValue({ color: event.target.value })}
-          />
-        </div>
+      {(showColor || showLicensePlate) && (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {showColor && (
+            <div className="space-y-2">
+              <Label htmlFor={`${title}-color`}>Color (Optional)</Label>
+              <Input
+                id={`${title}-color`}
+                placeholder="Silver"
+                value={value.color ?? ""}
+                onChange={(event) => updateValue({ color: event.target.value })}
+              />
+            </div>
+          )}
 
-        {showLicensePlate && (
-          <div className="space-y-2">
-            <Label htmlFor={`${title}-plate`}>License Plate (Optional)</Label>
-            <Input
-              id={`${title}-plate`}
-              value={value.licensePlate ?? ""}
-              onChange={(event) => updateValue({ licensePlate: event.target.value })}
-            />
-          </div>
-        )}
-      </div>
+          {showLicensePlate && (
+            <div className="space-y-2">
+              <Label htmlFor={`${title}-plate`}>License Plate (Optional)</Label>
+              <Input
+                id={`${title}-plate`}
+                value={value.licensePlate ?? ""}
+                onChange={(event) => updateValue({ licensePlate: event.target.value })}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {showPetToggle && (
         <div className="mt-4 flex items-center justify-between gap-4 rounded-md border p-3">

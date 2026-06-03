@@ -32,7 +32,7 @@ type Vehicle = {
   year: string;
   make: string;
   model: string;
-  color: string;
+  color?: string;
   size?: "small" | "medium" | "large";
   vehicleTypeId?: string;
   vehicleTypeName?: string;
@@ -97,11 +97,11 @@ export default function OnboardingPage() {
 
   // Step 3: Vehicles
   const [vehicles, setVehicles] = useState<Vehicle[]>([
-    { year: "", make: "", model: "", color: "" },
+    { year: "", make: "", model: "" },
   ]);
 
   const addVehicle = () => {
-    setVehicles([...vehicles, { year: "", make: "", model: "", color: "" }]);
+    setVehicles([...vehicles, { year: "", make: "", model: "" }]);
   };
 
   const removeVehicle = (index: number) => {
@@ -119,7 +119,7 @@ export default function OnboardingPage() {
               year: nextVehicle.year,
               make: nextVehicle.make,
               model: nextVehicle.model,
-              color: nextVehicle.color ?? "",
+              color: nextVehicle.color,
               size: nextVehicle.size,
               vehicleTypeId: nextVehicle.vehicleTypeId,
               vehicleTypeName: nextVehicle.vehicleTypeName,
@@ -172,11 +172,11 @@ export default function OnboardingPage() {
 
     // Validate vehicles
     const validVehicles = vehicles.filter(
-      (v) => /^\d{4}$/.test(v.year) && v.make && v.model && v.color,
+      (v) => /^\d{4}$/.test(v.year) && v.make && v.model,
     );
 
     if (validVehicles.length === 0) {
-      setError("Please add at least one vehicle with all fields filled");
+      setError("Please search for and select at least one vehicle");
       return;
     }
 
@@ -432,7 +432,7 @@ export default function OnboardingPage() {
                       title={`Vehicle ${index + 1}`}
                       value={vehicle}
                       onChange={(nextVehicle) => updateVehicle(index, nextVehicle)}
-                      colorRequired
+                      showColor={false}
                       onRemove={vehicles.length > 1 ? () => removeVehicle(index) : undefined}
                     />
                   ))}

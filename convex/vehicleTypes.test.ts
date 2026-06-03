@@ -94,15 +94,15 @@ describe("vehicleTypes", () => {
     );
 
     const results = await t.action(api.vehicleTypes.searchModels, {
-      year: 2024,
-      query: "kia sor",
+      query: "2024 kia sor",
     });
 
     expect(results).toEqual([
       {
+        year: 2024,
         make: "Kia",
         model: "Sorento",
-        label: "Kia Sorento",
+        label: "2024 Kia Sorento",
         source: "fuelEconomy",
       },
     ]);

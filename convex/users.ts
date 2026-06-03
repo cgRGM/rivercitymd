@@ -553,7 +553,7 @@ export const createUserProfile = mutation({
         year: v.number(),
         make: v.string(),
         model: v.string(),
-        color: v.string(),
+        color: v.optional(v.string()),
         size: v.optional(v.union(v.literal("small"), v.literal("medium"), v.literal("large"))),
         vehicleTypeId: v.optional(v.id("vehicleTypes")),
         classification: v.optional(
