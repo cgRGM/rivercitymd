@@ -40,6 +40,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { DEFAULT_PET_FEE_TIME_MINUTES } from "@/convex/lib/booking";
 
 type ServiceRecord = {
   _id: Id<"services">;
@@ -95,6 +96,7 @@ export default function ServicesClient() {
     basePriceSmall: 50,
     basePriceMedium: 50,
     basePriceLarge: 50,
+    timeAddMinutes: DEFAULT_PET_FEE_TIME_MINUTES,
     isActive: true,
   });
 
@@ -106,7 +108,11 @@ export default function ServicesClient() {
 
   useEffect(() => {
     if (petFeeSettings) {
-      setPetFeePrices(petFeeSettings);
+      setPetFeePrices({
+        ...petFeeSettings,
+        timeAddMinutes:
+          petFeeSettings.timeAddMinutes ?? DEFAULT_PET_FEE_TIME_MINUTES,
+      });
     }
   }, [petFeeSettings]);
 
@@ -198,7 +204,7 @@ export default function ServicesClient() {
   const formatPetFeePricing = () => {
     const settings = petFeeSettings ?? petFeePrices;
     if (!settings.isActive) return "Pet fee off";
-    return `Pet fee: S $${settings.basePriceSmall.toFixed(0)} • M $${settings.basePriceMedium.toFixed(0)} • L $${settings.basePriceLarge.toFixed(0)}`;
+    return `Pet fee: S $${settings.basePriceSmall.toFixed(0)} • M $${settings.basePriceMedium.toFixed(0)} • L $${settings.basePriceLarge.toFixed(0)} • +${settings.timeAddMinutes ?? DEFAULT_PET_FEE_TIME_MINUTES} min`;
   };
 
   const popularityBadgeClass = (popularity?: string) => {
@@ -470,6 +476,21 @@ export default function ServicesClient() {
                   />
                 </div>
               ))}
+              <div className="space-y-1">
+                <Label className="text-xs">Extra min</Label>
+                <Input
+                  type="number"
+                  step="5"
+                  value={petFeePrices.timeAddMinutes}
+                  onChange={(event) =>
+                    setPetFeePrices((current) => ({
+                      ...current,
+                      timeAddMinutes: parseInt(event.target.value, 10) || 0,
+                    }))
+                  }
+                  className="w-24"
+                />
+              </div>
               <Button
                 size="sm"
                 onClick={async () => {
@@ -490,7 +511,13 @@ export default function ServicesClient() {
                 variant="ghost"
                 onClick={() => {
                   setIsEditingPetFee(false);
-                  if (petFeeSettings) setPetFeePrices(petFeeSettings);
+                  if (petFeeSettings) {
+                    setPetFeePrices({
+                      ...petFeeSettings,
+                      timeAddMinutes:
+                        petFeeSettings.timeAddMinutes ?? DEFAULT_PET_FEE_TIME_MINUTES,
+                    });
+                  }
                 }}
               >
                 <X className="h-4 w-4" />

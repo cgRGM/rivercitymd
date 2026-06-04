@@ -65,6 +65,47 @@ describe("services", () => {
     });
   });
 
+  test("presents legacy prices as editable vehicle type pricing", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-legacy-pricing@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-legacy-pricing@test.com",
+    });
+
+    await asAdmin.mutation(api.vehicleTypes.ensureDefaults, {});
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Legacy Detail",
+      description: "Legacy S/M/L pricing",
+      basePriceSmall: 100,
+      basePriceMedium: 140,
+      basePriceLarge: 180,
+      duration: 90,
+    });
+    await t.finishInProgressScheduledFunctions();
+
+    const service = await asAdmin.query(api.services.getById, { serviceId });
+    expect(
+      service?.vehiclePrices.map((row) => ({
+        name: row.vehicleType?.name,
+        price: row.price,
+        duration: row.duration,
+        available: row.isAvailable,
+      })),
+    ).toEqual([
+      { name: "Car", price: 100, duration: 90, available: true },
+      { name: "SUV", price: 140, duration: 90, available: true },
+      { name: "Truck", price: 180, duration: 90, available: true },
+    ]);
+  });
+
   test("creates vehicle type pricing rows and inline vehicle types", async () => {
     const t = convexTest(schema, modules);
 
@@ -103,7 +144,8 @@ describe("services", () => {
     await t.finishInProgressScheduledFunctions();
 
     const service = await asAdmin.query(api.services.getById, { serviceId });
-    expect(service?.basePriceMedium).toBe(125);
+    expect(service?.basePriceSmall).toBe(125);
+    expect(service?.basePriceMedium).toBe(225);
     expect(service?.duration).toBe(75);
     expect(service?.vehiclePrices).toHaveLength(2);
     expect(

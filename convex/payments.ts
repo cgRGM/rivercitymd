@@ -2290,10 +2290,16 @@ async function createCheckoutSessionForDraft(
     };
   }
 
+  const schedulingDuration: number = await ctx.runQuery(
+    internal.bookingDrafts.getSchedulingDurationInternal,
+    {
+      draftId: draft._id,
+    },
+  );
   const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
     date: draft.scheduledDate,
     startTime: draft.scheduledTime,
-    duration: BOOKING_BLOCK_MINUTES,
+    duration: Math.max(schedulingDuration, BOOKING_BLOCK_MINUTES),
     ignoreBookingDraftId: draft._id,
   });
   if (!slotAvailability.available) {
@@ -2523,10 +2529,16 @@ export const resumeBookingDraftCheckout = action({
       };
     }
 
+    const schedulingDuration: number = await ctx.runQuery(
+      internal.bookingDrafts.getSchedulingDurationInternal,
+      {
+        draftId: draft._id,
+      },
+    );
     const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
       date: draft.scheduledDate,
       startTime: draft.scheduledTime,
-      duration: BOOKING_BLOCK_MINUTES,
+      duration: Math.max(schedulingDuration, BOOKING_BLOCK_MINUTES),
       ignoreBookingDraftId: draft._id,
     });
     if (!slotAvailability.available) {

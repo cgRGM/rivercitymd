@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { useQuery, useAction } from "convex/react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useQuery, useAction, useConvex } from "convex/react";
 import { useUser } from "@clerk/nextjs";
 import { useBookingStore } from "@/hooks/use-booking-store";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { calculateSchedulingDuration } from "@/convex/lib/booking";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -197,6 +198,7 @@ export default function AppointmentModal({
   const upsertBookingDraft = useAction(api.bookingDrafts.createOrUpdate);
   const calculateTravelFee = useAction(api.travelFees.calculate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+  const convex = useConvex();
   const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
 
   const watchedStreet = step1Form.watch("street");
@@ -236,6 +238,27 @@ export default function AppointmentModal({
     watchedState,
     watchedStreet,
     watchedZip,
+  ]);
+
+  const schedulingDuration = useMemo(() => {
+    const selectedServices =
+      services?.filter((service) => step4Data?.serviceIds?.includes(service._id)) ?? [];
+    const petFeeVehicleCount =
+      petFeeSettings?.isActive === false
+        ? 0
+        : step3Data?.vehicles?.filter((vehicle) => vehicle.hasPet).length ?? 0;
+
+    return calculateSchedulingDuration({
+      serviceDurations: selectedServices.map((service) => service.duration || 0),
+      petFeeVehicleCount,
+      petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+    });
+  }, [
+    petFeeSettings?.isActive,
+    petFeeSettings?.timeAddMinutes,
+    services,
+    step3Data?.vehicles,
+    step4Data?.serviceIds,
   ]);
 
 
@@ -464,7 +487,44 @@ export default function AppointmentModal({
       case 4:
         isValid = await step4Form.trigger();
         if (isValid) {
-          setStep4Data(step4Form.getValues());
+          const selectedStep4Data = step4Form.getValues();
+          const selectedServices =
+            services?.filter((service) =>
+              selectedStep4Data.serviceIds?.includes(service._id),
+            ) ?? [];
+          const petFeeVehicleCount =
+            petFeeSettings?.isActive === false
+              ? 0
+              : step3Data?.vehicles?.filter((vehicle) => vehicle.hasPet).length ?? 0;
+          const selectedDuration = calculateSchedulingDuration({
+            serviceDurations: selectedServices.map((service) => service.duration || 0),
+            petFeeVehicleCount,
+            petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+          });
+          const scheduledDateValue = step1Data?.scheduledDate;
+          const scheduledDate =
+            scheduledDateValue instanceof Date
+              ? scheduledDateValue.toISOString().split("T")[0]
+              : scheduledDateValue;
+
+          if (scheduledDate && step1Data?.scheduledTime) {
+            const availability = await convex.query(api.availability.checkAvailability, {
+              date: scheduledDate,
+              startTime: step1Data.scheduledTime,
+              duration: selectedDuration,
+            });
+
+            if (!availability.available) {
+              setStep4Data(selectedStep4Data);
+              toast.error(
+                "That time is no longer available for the selected services. Please choose a new time.",
+              );
+              setCurrentStep(1);
+              return;
+            }
+          }
+
+          setStep4Data(selectedStep4Data);
           setCurrentStep(5);
         }
         break;
@@ -787,6 +847,7 @@ export default function AppointmentModal({
                         }
                         selectedTime={field.value}
                         onTimeSelect={(time) => field.onChange(time)}
+                        serviceDuration={schedulingDuration}
                       />
                     </FormControl>
                     <FormMessage />

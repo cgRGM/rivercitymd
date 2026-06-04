@@ -146,6 +146,41 @@ async function getServiceVehiclePrices(ctx: any, serviceId: Id<"services">) {
   });
 }
 
+async function getServiceVehiclePricesForPresentation(
+  ctx: any,
+  service: Doc<"services">,
+) {
+  const storedPrices = await getServiceVehiclePrices(ctx, service._id);
+  if (storedPrices.length > 0) return storedPrices;
+
+  const vehicleTypes = await ctx.db.query("vehicleTypes").collect();
+  const legacyMappings = [
+    { slug: "car", price: service.basePriceSmall ?? service.basePrice ?? 0 },
+    { slug: "suv", price: service.basePriceMedium ?? service.basePrice ?? 0 },
+    { slug: "truck", price: service.basePriceLarge ?? service.basePrice ?? 0 },
+  ];
+
+  return legacyMappings.flatMap(({ slug, price }) => {
+    const vehicleType = vehicleTypes.find(
+      (candidate: Doc<"vehicleTypes">) => candidate.slug === slug && candidate.isActive,
+    );
+    if (!vehicleType) return [];
+
+    return [
+      {
+        serviceId: service._id,
+        vehicleTypeId: vehicleType._id,
+        price,
+        duration: service.duration,
+        isAvailable: price > 0,
+        createdAt: service._creationTime,
+        updatedAt: service._creationTime,
+        vehicleType,
+      },
+    ];
+  });
+}
+
 function calculateLegacyPrices(
   rows: Array<{
     price: number;
@@ -159,13 +194,32 @@ function calculateLegacyPrices(
   },
 ) {
   const result = { ...fallback };
+  const canonicalMappings = [
+    { slug: "car", size: "small" },
+    { slug: "suv", size: "medium" },
+    { slug: "truck", size: "large" },
+  ] as const;
+
   for (const size of ["small", "medium", "large"] as VehicleSize[]) {
-    const matching = rows.find(
-      (row) =>
-        row.isAvailable &&
-        row.price > 0 &&
-        row.vehicleType?.legacySize === size,
-    );
+    const canonicalSlug = canonicalMappings.find(
+      (mapping) => mapping.size === size,
+    )?.slug;
+    const matching =
+      rows.find(
+        (row) =>
+          row.isAvailable &&
+          row.price > 0 &&
+          row.vehicleType?.slug === canonicalSlug,
+      ) ??
+      rows.find(
+        (row) =>
+          row.isAvailable &&
+          row.price > 0 &&
+          !canonicalMappings.some(
+            (mapping) => mapping.slug === row.vehicleType?.slug,
+          ) &&
+          row.vehicleType?.legacySize === size,
+      );
     if (matching) {
       if (size === "small") result.basePriceSmall = matching.price;
       if (size === "medium") result.basePriceMedium = matching.price;
@@ -508,7 +562,7 @@ export const listWithCategories = query({
         serviceType: normalizeServiceType(service.serviceType),
         categoryName:
           SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
-        vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
+        vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
       })),
     );
   },
@@ -522,7 +576,7 @@ export const list = query({
     return await Promise.all(
       services.map(async (service) => ({
         ...service,
-        vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
+        vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
       })),
     );
   },
@@ -756,7 +810,7 @@ export const listWithBookingStats = query({
         serviceType: normalizeServiceType(service.serviceType),
         serviceTypeLabel:
           SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
-        vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
+        vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
         bookings: bookingCount,
         popularity,
       };
@@ -800,7 +854,7 @@ export const getById = query({
     if (!service) return null;
     return {
       ...service,
-      vehiclePrices: await getServiceVehiclePrices(ctx, service._id),
+      vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
     };
   },
 });

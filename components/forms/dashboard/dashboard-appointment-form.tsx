@@ -9,6 +9,7 @@ import {
   getEffectiveServicePrice,
   normalizeServiceType,
 } from "@/convex/lib/pricing";
+import { calculateSchedulingDuration } from "@/convex/lib/booking";
 import type { VehicleSize } from "@/convex/lib/pricing";
 
 import {
@@ -301,6 +302,21 @@ export function DashboardAppointmentForm({
   const travelFeeTotal = travelQuote?.fee ?? 0;
   const orderTotal = serviceTotal + petFeeTotal + travelFeeTotal;
   const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
+  const schedulingDuration = useMemo(
+    () =>
+      calculateSchedulingDuration({
+        serviceDurations: selectedServicesData.map((service) => service.duration || 0),
+        petFeeVehicleCount:
+          hasPetFee && petFeeSettings?.isActive !== false ? 1 : 0,
+        petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+      }),
+    [
+      hasPetFee,
+      petFeeSettings?.isActive,
+      petFeeSettings?.timeAddMinutes,
+      selectedServicesData,
+    ],
+  );
 
   // Step validation
   const canAdvance = (step: number): boolean => {
@@ -630,6 +646,7 @@ export function DashboardAppointmentForm({
                   date={scheduledDate}
                   selectedTime={scheduledTime}
                   onTimeSelect={setScheduledTime}
+                  serviceDuration={schedulingDuration}
                 />
               </div>
             </div>
