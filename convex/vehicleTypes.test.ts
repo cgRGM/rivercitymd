@@ -180,4 +180,24 @@ describe("vehicleTypes", () => {
     expect(result.confidence).toBe("high");
     expect(result.needsAdminReview).toBe(false);
   });
+
+  test("does not assign Car pricing when classification confidence is low", async () => {
+    const t = convexTest(schema, modules);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({}, { status: 404 })),
+    );
+
+    const result = await t.action(api.vehicleTypes.classify, {
+      year: 2024,
+      make: "Unknown",
+      model: "Mystery Vehicle",
+    });
+
+    expect(result.vehicleTypeId).toBeUndefined();
+    expect(result.vehicleTypeName).toBeUndefined();
+    expect(result.confidence).toBe("low");
+    expect(result.needsAdminReview).toBe(true);
+  });
 });

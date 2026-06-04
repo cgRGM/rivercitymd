@@ -494,8 +494,10 @@ export const classify = action({
       slug: mapped.slug,
     });
     return {
-      vehicleTypeId: vehicleType?._id,
-      vehicleTypeName: vehicleType?.name,
+      vehicleTypeId:
+        mapped.confidence === "low" ? undefined : vehicleType?._id,
+      vehicleTypeName:
+        mapped.confidence === "low" ? undefined : vehicleType?.name,
       legacySize: vehicleType?.legacySize ?? "medium",
       source,
       confidence: mapped.confidence,
