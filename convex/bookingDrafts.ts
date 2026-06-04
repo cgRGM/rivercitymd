@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import {
+  action,
   internalMutation,
   internalQuery,
   mutation,
@@ -17,6 +18,8 @@ import {
   DEFAULT_USER_NOTIFICATION_PREFERENCES,
   normalizeUserNotificationPreferences,
 } from "./lib/notificationSettings";
+import { r2 } from "./r2";
+import { calculateTravelFeeForMiles } from "./lib/travelFees";
 import {
   getEffectivePetFeePrice,
   getEffectiveServicePrice,
@@ -34,16 +37,39 @@ const addressValidator = v.object({
   notes: v.optional(v.string()),
 });
 
+const beforePhotoValidator = v.object({
+  key: v.string(),
+  fileName: v.string(),
+  contentType: v.string(),
+  sizeBytes: v.number(),
+  uploadedAt: v.number(),
+});
+
 const draftVehicleValidator = v.object({
   year: v.number(),
   make: v.string(),
   model: v.string(),
+  vehicleTypeId: v.optional(v.id("vehicleTypes")),
+  classification: v.optional(
+    v.object({
+      source: v.union(
+        v.literal("fuelEconomy"),
+        v.literal("vpic"),
+        v.literal("manual"),
+        v.literal("fallback"),
+      ),
+      confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+      rawCategory: v.optional(v.string()),
+      needsAdminReview: v.boolean(),
+    }),
+  ),
   size: v.optional(
     v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
   ),
   color: v.optional(v.string()),
   licensePlate: v.optional(v.string()),
   hasPet: v.optional(v.boolean()),
+  beforePhotos: v.optional(v.array(beforePhotoValidator)),
 });
 
 const bookingPaymentOptionValidator = v.union(
@@ -95,6 +121,36 @@ function formatVehicleSizeLabel(size: VehicleSize) {
   if (size === "small") return "Small";
   if (size === "large") return "Large";
   return "Medium";
+}
+
+function normalizeContentType(contentType: string): string {
+  return contentType.toLowerCase().split(";")[0]?.trim() || "";
+}
+
+function getFileExtension(fileName: string): string {
+  const normalized = fileName.toLowerCase().trim();
+  const lastDotIndex = normalized.lastIndexOf(".");
+  if (lastDotIndex === -1) return "";
+  return normalized.slice(lastDotIndex);
+}
+
+function validateBeforePhotoFile(fileName: string, contentType: string) {
+  const allowedContentTypes = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+  ]);
+  const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+  if (
+    !allowedContentTypes.has(normalizeContentType(contentType)) ||
+    !allowedExtensions.has(getFileExtension(fileName))
+  ) {
+    throw new ConvexError({
+      code: "INVALID_BEFORE_PHOTO_FILE_TYPE",
+      message: "Only JPG, PNG, WEBP, and GIF vehicle photos are allowed.",
+    });
+  }
 }
 
 function assertBookableServices(
@@ -209,26 +265,73 @@ async function buildDraftPricing(args: {
   vehicleSize: VehicleSize;
   existingVehicles: Array<Doc<"vehicles">>;
   draftVehicles: Array<{
+    year?: number;
+    make?: string;
+    model?: string;
+    vehicleTypeId?: Id<"vehicleTypes">;
     size?: VehicleSize;
     hasPet?: boolean;
   }>;
   petFeeExistingVehicleIds: Id<"vehicles">[];
+  travelDistanceMiles?: number;
 }) {
   const services = await getServicesForDraft(args.ctx, args.serviceIds);
   assertBookableServices(services, args.serviceIds, args.vehicleSize);
 
-  const items = services.map((service) => {
-    const unitPrice = getEffectiveServicePrice(service, args.vehicleSize);
+  const bookingVehicles = [
+    ...args.existingVehicles.map((vehicle) => ({
+      vehicleId: vehicle._id,
+      vehicle,
+      vehicleLabel: [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" "),
+    })),
+    ...args.draftVehicles.map((vehicle, index) => ({
+      vehicleId: undefined,
+      vehicle,
+      vehicleLabel:
+        [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") ||
+        `Vehicle ${index + 1}`,
+    })),
+  ];
 
-    return {
-      itemType: "service" as const,
-      serviceId: service._id,
-      serviceName: service.name,
-      quantity: args.vehicleCount,
-      unitPrice,
-      totalPrice: unitPrice * args.vehicleCount,
-    };
-  });
+  const items = [];
+  let duration = 0;
+  for (const { vehicle, vehicleId, vehicleLabel } of bookingVehicles) {
+    for (const service of services) {
+      let unitPrice = getEffectiveServicePrice(service, vehicle.size ?? args.vehicleSize);
+      let serviceDuration = service.duration || 0;
+      if (vehicle.vehicleTypeId) {
+        const matrixPrice = await args.ctx.db
+          .query("serviceVehiclePrices")
+          .withIndex("by_service_and_vehicle_type", (q: any) =>
+            q.eq("serviceId", service._id).eq("vehicleTypeId", vehicle.vehicleTypeId),
+          )
+          .first();
+        if (matrixPrice) {
+          if (!matrixPrice.isAvailable || matrixPrice.price <= 0) {
+            const vehicleType = await args.ctx.db.get(vehicle.vehicleTypeId);
+            throw new ConvexError({
+              code: "SERVICE_NOT_BOOKABLE",
+              message: `${service.name} is not available for ${vehicleType?.name ?? "this vehicle type"}.`,
+            });
+          }
+          unitPrice = matrixPrice.price;
+          serviceDuration = matrixPrice.duration || serviceDuration;
+        }
+      }
+      duration += serviceDuration;
+      items.push({
+        itemType: "service" as const,
+        serviceId: service._id,
+        vehicleId,
+        vehicleLabel,
+        vehicleTypeId: vehicle.vehicleTypeId,
+        serviceName: `${service.name} - ${vehicleLabel}`,
+        quantity: 1,
+        unitPrice,
+        totalPrice: unitPrice,
+      });
+    }
+  }
 
   const petFeeSettings = await args.ctx.runQuery(
     internal.petFeeSettings.getInternal,
@@ -257,10 +360,25 @@ async function buildDraftPricing(args: {
     })
     .filter((item) => item.quantity > 0 && item.totalPrice > 0);
 
-  const priceItems = [...items, ...petFeeItems];
+  const travelFee =
+    args.travelDistanceMiles !== undefined
+      ? calculateTravelFeeForMiles(args.travelDistanceMiles)
+      : 0;
+  const travelFeeItems =
+    travelFee > 0 && args.travelDistanceMiles !== undefined
+      ? [
+          {
+            itemType: "travel_fee" as const,
+            serviceName: `Travel fee (${args.travelDistanceMiles.toFixed(1)} miles)`,
+            quantity: 1,
+            unitPrice: travelFee,
+            totalPrice: travelFee,
+          },
+        ]
+      : [];
+  const priceItems = [...items, ...petFeeItems, ...travelFeeItems];
 
   const totalPrice = priceItems.reduce((sum, item) => sum + item.totalPrice, 0);
-  const duration = services.reduce((sum, service) => sum + (service.duration || 0), 0);
   const depositSettings = await args.ctx.runQuery(
     internal.depositSettings.getInternal,
     {},
@@ -276,6 +394,7 @@ async function buildDraftPricing(args: {
     duration,
     depositAmount,
     remainingBalance,
+    travelFee,
   };
 }
 
@@ -285,7 +404,7 @@ function buildClaimRedirectPath(onboardingComplete: boolean) {
     : "/onboarding?payment=success";
 }
 
-export const createOrUpdate = mutation({
+export const createOrUpdateInternal = internalMutation({
   args: {
     resumeToken: v.optional(v.string()),
     name: v.string(),
@@ -300,6 +419,7 @@ export const createOrUpdate = mutation({
     scheduledDate: v.string(),
     scheduledTime: v.string(),
     paymentOption: v.optional(bookingPaymentOptionValidator),
+    travelDistanceMiles: v.number(),
   },
   returns: v.object({
     draftId: v.id("bookingDrafts"),
@@ -396,6 +516,7 @@ export const createOrUpdate = mutation({
       existingVehicles: validExistingVehicles,
       draftVehicles,
       petFeeExistingVehicleIds,
+      travelDistanceMiles: args.travelDistanceMiles,
     });
 
     if (existingDraft) {
@@ -427,6 +548,8 @@ export const createOrUpdate = mutation({
             : pricing.remainingBalance,
         paymentOption: args.paymentOption ?? "deposit",
         priceSnapshot: pricing.items,
+        travelDistanceMiles: args.travelDistanceMiles,
+        travelFee: pricing.travelFee,
         status: "draft",
         stripeCheckoutSessionId: undefined,
         stripeCheckoutUrl: undefined,
@@ -474,12 +597,74 @@ export const createOrUpdate = mutation({
           : pricing.remainingBalance,
       paymentOption: args.paymentOption ?? "deposit",
       priceSnapshot: pricing.items,
+      travelDistanceMiles: args.travelDistanceMiles,
+      travelFee: pricing.travelFee,
       status: "draft",
       resumeToken,
       lastActivityAt: now,
     });
 
     return { draftId, resumeToken };
+  },
+});
+
+export const createOrUpdate = action({
+  args: {
+    resumeToken: v.optional(v.string()),
+    name: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    smsOptIn: v.optional(v.boolean()),
+    address: addressValidator,
+    existingVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    vehicles: v.optional(v.array(draftVehicleValidator)),
+    petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    serviceIds: v.array(v.id("services")),
+    scheduledDate: v.string(),
+    scheduledTime: v.string(),
+    paymentOption: v.optional(bookingPaymentOptionValidator),
+  },
+  returns: v.object({
+    draftId: v.id("bookingDrafts"),
+    resumeToken: v.string(),
+    travelDistanceMiles: v.number(),
+    travelFee: v.number(),
+  }),
+  handler: async (ctx, args): Promise<{
+    draftId: Id<"bookingDrafts">;
+    resumeToken: string;
+    travelDistanceMiles: number;
+    travelFee: number;
+  }> => {
+    const travel = await ctx.runAction(api.travelFees.calculate, {
+      address: args.address,
+    });
+    const draft = await ctx.runMutation(internal.bookingDrafts.createOrUpdateInternal, {
+      ...args,
+      travelDistanceMiles: travel.distanceMiles,
+    });
+    return {
+      ...draft,
+      travelDistanceMiles: travel.distanceMiles,
+      travelFee: travel.fee,
+    };
+  },
+});
+
+export const createBeforePhotoUploadUrl = mutation({
+  args: {
+    fileName: v.string(),
+    contentType: v.string(),
+  },
+  returns: v.object({
+    key: v.string(),
+    url: v.string(),
+  }),
+  handler: async (_ctx, args) => {
+    validateBeforePhotoFile(args.fileName, args.contentType);
+    const sanitizedFileName = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const key = `booking-before-photos/${Date.now()}-${crypto.randomUUID()}-${sanitizedFileName}`;
+    return await r2.generateUploadUrl(key);
   },
 });
 
@@ -738,17 +923,36 @@ export const convertSuccessfulCheckout = internalMutation({
 
     const createdVehicleIds: Id<"vehicles">[] = [];
     const createdPetFeeVehicleIds: Id<"vehicles">[] = [];
+    const beforePhotos: Array<{
+      vehicleId: Id<"vehicles">;
+      vehicleLabel: string;
+      key: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+      uploadedAt: number;
+    }> = [];
     for (const draftVehicle of draft.draftVehicles) {
       const vehicleId = await ctx.db.insert("vehicles", {
         userId: user._id,
         year: draftVehicle.year,
         make: draftVehicle.make,
         model: draftVehicle.model,
+        vehicleTypeId: draftVehicle.vehicleTypeId,
+        classification: draftVehicle.classification,
         size: draftVehicle.size,
         color: draftVehicle.color,
         licensePlate: draftVehicle.licensePlate,
       });
       createdVehicleIds.push(vehicleId);
+      const vehicleLabel = `${draftVehicle.year} ${draftVehicle.make} ${draftVehicle.model}`;
+      for (const photo of draftVehicle.beforePhotos ?? []) {
+        beforePhotos.push({
+          vehicleId,
+          vehicleLabel,
+          ...photo,
+        });
+      }
       if (draftVehicle.hasPet) {
         createdPetFeeVehicleIds.push(vehicleId);
       }
@@ -802,6 +1006,9 @@ export const convertSuccessfulCheckout = internalMutation({
       createdBy: user._id,
       paymentOption: draft.paymentOption,
       petFeeVehicleIds,
+      beforePhotos: beforePhotos.length > 0 ? beforePhotos : undefined,
+      travelDistanceMiles: draft.travelDistanceMiles,
+      travelFee: draft.travelFee,
     });
 
     const invoiceCountResult: { count: number } = await ctx.runQuery(
@@ -887,12 +1094,17 @@ export const getPublicContext = query({
         model: vehicle.model,
         color: vehicle.color,
         licensePlate: vehicle.licensePlate,
+        vehicleTypeId: vehicle.vehicleTypeId,
+        classification: vehicle.classification,
         size: vehicle.size,
         hasPet: vehicle.hasPet ?? false,
+        beforePhotos: vehicle.beforePhotos ?? [],
       })),
       existingVehicleIds: draft.existingVehicleIds,
       petFeeExistingVehicleIds: draft.petFeeExistingVehicleIds ?? [],
       paymentOption: draft.paymentOption,
+      travelDistanceMiles: draft.travelDistanceMiles,
+      travelFee: draft.travelFee,
       convertedAppointmentId: draft.convertedAppointmentId,
       convertedInvoiceId: draft.convertedInvoiceId,
       convertedUserId: draft.convertedUserId,

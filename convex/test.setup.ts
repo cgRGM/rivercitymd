@@ -11,6 +11,8 @@ if (typeof process !== "undefined") {
   process.env.STRIPE_WEBHOOK_SECRET =
     process.env.STRIPE_WEBHOOK_SECRET || "whsec_test_mock_secret";
   process.env.CONVEX_TEST = process.env.CONVEX_TEST || "true";
+  process.env.RADAR_SECRET_KEY =
+    process.env.RADAR_SECRET_KEY || "prj_test_radar_secret";
 }
 
 // Helper function to create a mock Response with both json() and text() methods
@@ -48,6 +50,17 @@ export async function stripeFetchMock(
   options?: RequestInit,
 ): Promise<Response> {
   const urlString = typeof url === "string" ? url : url.toString();
+
+  if (urlString.includes("api.radar.io/v1/geocode/forward")) {
+    return createMockResponse({
+      addresses: [{ latitude: 34.75, longitude: -92.3 }],
+    });
+  }
+  if (urlString.includes("api.radar.io/v1/route/distance")) {
+    return createMockResponse({
+      routes: { car: { distance: { text: "10 mi", value: 10 } } },
+    });
+  }
 
   // Intercept Stripe API calls
   if (urlString.includes("api.stripe.com")) {

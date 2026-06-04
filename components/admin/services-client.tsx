@@ -30,9 +30,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/ui/data-table";
 import { toast } from "sonner";
-import { AddServiceForm } from "@/components/forms";
-import { AddAddonForm } from "@/components/admin/forms/add-addon-form";
-import { EditServiceForm } from "@/components/forms/admin/edit-service-form";
 import {
   AlertCircle,
   ArrowUpDown,
@@ -62,6 +59,15 @@ type ServiceRecord = {
   categoryId?: Id<"serviceCategories">;
   includedServiceIds?: Id<"services">[];
   features?: string[];
+  vehiclePrices?: Array<{
+    vehicleTypeId: Id<"vehicleTypes">;
+    price: number;
+    duration: number;
+    isAvailable: boolean;
+    vehicleType?: {
+      name: string;
+    } | null;
+  }>;
 };
 
 export default function ServicesClient() {
@@ -78,10 +84,6 @@ export default function ServicesClient() {
   const updatePetFeeSettings = useMutation(api.petFeeSettings.upsert);
 
   const [showServiceTypeDialog, setShowServiceTypeDialog] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [showAddAddonForm, setShowAddAddonForm] = useState(false);
-  const [showAddSubscriptionForm, setShowAddSubscriptionForm] = useState(false);
-  const [editingId, setEditingId] = useState<Id<"services"> | null>(null);
   const [serviceToDelete, setServiceToDelete] = useState<Id<"services"> | null>(null);
   const [deletingId, setDeletingId] = useState<Id<"services"> | null>(null);
   const [updatingVisibilityId, setUpdatingVisibilityId] = useState<Id<"services"> | null>(null);
@@ -172,6 +174,16 @@ export default function ServicesClient() {
   };
 
   const formatPricing = (service: ServiceRecord) => {
+    if (service.vehiclePrices?.length) {
+      const parts = service.vehiclePrices
+        .filter((price) => price.isAvailable && price.price > 0)
+        .map(
+          (price) =>
+            `${price.vehicleType?.name ?? "Vehicle"} $${price.price.toFixed(0)}`,
+        );
+      if (parts.length > 0) return parts.join(" • ");
+    }
+
     const small = service.basePriceSmall ?? service.basePrice;
     const medium = service.basePriceMedium ?? service.basePrice;
     const large = service.basePriceLarge ?? service.basePrice;
@@ -228,6 +240,12 @@ export default function ServicesClient() {
         basePriceSmall: service.basePriceSmall ?? service.basePrice ?? 0,
         basePriceMedium: service.basePriceMedium ?? service.basePrice ?? 0,
         basePriceLarge: service.basePriceLarge ?? service.basePrice ?? 0,
+        vehiclePrices: service.vehiclePrices?.map((price) => ({
+          vehicleTypeId: price.vehicleTypeId,
+          price: price.price,
+          duration: price.duration,
+          isAvailable: price.isAvailable,
+        })),
         duration: service.duration,
         serviceType: service.serviceType ?? "standard",
         categoryId: service.categoryId,
@@ -345,7 +363,9 @@ export default function ServicesClient() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => setEditingId(service._id)}>
+              <DropdownMenuItem
+                onClick={() => router.push(`/admin/services/${service._id}/edit`)}
+              >
                 <Edit className="mr-2 h-4 w-4" />
                 Edit
               </DropdownMenuItem>
@@ -516,13 +536,13 @@ export default function ServicesClient() {
               className="h-auto justify-start p-4"
               onClick={() => {
                 setShowServiceTypeDialog(false);
-                setShowAddForm(true);
+                router.push("/admin/services/new?type=standard");
               }}
             >
               <div className="text-left">
                 <div className="font-semibold">Standard Service</div>
                 <div className="text-sm text-muted-foreground">
-                  Main services with size-based pricing
+                  Main packages with pricing and duration by vehicle type
                 </div>
               </div>
             </Button>
@@ -531,13 +551,13 @@ export default function ServicesClient() {
               className="h-auto justify-start p-4"
               onClick={() => {
                 setShowServiceTypeDialog(false);
-                setShowAddAddonForm(true);
+                router.push("/admin/services/new?type=addon");
               }}
             >
               <div className="text-left">
                 <div className="font-semibold">Add-on Service</div>
                 <div className="text-sm text-muted-foreground">
-                  Additional services with flat pricing
+                  Extras available to selected vehicle types
                 </div>
               </div>
             </Button>
@@ -546,13 +566,13 @@ export default function ServicesClient() {
               className="h-auto justify-start p-4"
               onClick={() => {
                 setShowServiceTypeDialog(false);
-                setShowAddSubscriptionForm(true);
+                router.push("/admin/services/new?type=subscription");
               }}
             >
               <div className="text-left">
                 <div className="font-semibold">Subscription Plan</div>
                 <div className="text-sm text-muted-foreground">
-                  Recurring services with subscription pricing
+                  Recurring products with vehicle-specific pricing
                 </div>
               </div>
             </Button>
@@ -580,18 +600,6 @@ export default function ServicesClient() {
         </DialogContent>
       </Dialog>
 
-      <AddServiceForm open={showAddForm} onOpenChange={setShowAddForm} />
-      <AddAddonForm open={showAddAddonForm} onOpenChange={setShowAddAddonForm} />
-      <AddServiceForm
-        open={showAddSubscriptionForm}
-        onOpenChange={setShowAddSubscriptionForm}
-        subscriptionMode={true}
-      />
-      <EditServiceForm
-        serviceId={editingId}
-        open={!!editingId}
-        onOpenChange={(open) => !open && setEditingId(null)}
-      />
     </div>
   );
 }

@@ -16,6 +16,14 @@ const tripLogLocationValidator = v.object({
   longitude: v.optional(v.number()),
 });
 
+const bookingBeforePhotoValidator = v.object({
+  key: v.string(),
+  fileName: v.string(),
+  contentType: v.string(),
+  sizeBytes: v.number(),
+  uploadedAt: v.number(),
+});
+
 // Customize users table to include role and basic info
 const schema = defineSchema({
   users: defineTable({
@@ -68,6 +76,26 @@ const schema = defineSchema({
     year: v.number(),
     make: v.string(),
     model: v.string(),
+    vehicleTypeId: v.optional(v.id("vehicleTypes")),
+    vehicleTypeOverrideBy: v.optional(v.id("users")),
+    vehicleTypeOverrideAt: v.optional(v.number()),
+    classification: v.optional(
+      v.object({
+        source: v.union(
+          v.literal("fuelEconomy"),
+          v.literal("vpic"),
+          v.literal("manual"),
+          v.literal("fallback"),
+        ),
+        confidence: v.union(
+          v.literal("high"),
+          v.literal("medium"),
+          v.literal("low"),
+        ),
+        rawCategory: v.optional(v.string()),
+        needsAdminReview: v.boolean(),
+      }),
+    ),
     size: v.optional(
       v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
     ),
@@ -75,6 +103,23 @@ const schema = defineSchema({
     licensePlate: v.optional(v.string()),
     notes: v.optional(v.string()),
   }).index("by_user", ["userId"]),
+
+  vehicleTypes: defineTable({
+    name: v.string(),
+    slug: v.string(),
+    legacySize: v.union(
+      v.literal("small"),
+      v.literal("medium"),
+      v.literal("large"),
+    ),
+    isActive: v.boolean(),
+    displayOrder: v.number(),
+    apiAliases: v.optional(v.array(v.string())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_active", ["isActive"]),
 
   // Service Categories
   serviceCategories: defineTable({
@@ -135,6 +180,26 @@ const schema = defineSchema({
     .index("by_service_type", ["serviceType"])
     .index("by_category", ["categoryId"]),
 
+  serviceVehiclePrices: defineTable({
+    serviceId: v.id("services"),
+    vehicleTypeId: v.id("vehicleTypes"),
+    price: v.number(),
+    duration: v.number(),
+    isAvailable: v.boolean(),
+    stripePriceId: v.optional(v.string()),
+    stripeRecurringPriceIds: v.optional(
+      v.object({
+        monthly: v.optional(v.string()),
+        biweekly: v.optional(v.string()),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_service", ["serviceId"])
+    .index("by_vehicle_type", ["vehicleTypeId"])
+    .index("by_service_and_vehicle_type", ["serviceId", "vehicleTypeId"]),
+
   // Appointments/Bookings
   appointments: defineTable({
     userId: v.id("users"),
@@ -173,6 +238,21 @@ const schema = defineSchema({
     ),
     subscriptionId: v.optional(v.id("subscriptions")),
     petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    travelDistanceMiles: v.optional(v.number()),
+    travelFee: v.optional(v.number()),
+    beforePhotos: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.optional(v.id("vehicles")),
+          vehicleLabel: v.optional(v.string()),
+          key: v.string(),
+          fileName: v.string(),
+          contentType: v.string(),
+          sizeBytes: v.number(),
+          uploadedAt: v.number(),
+        }),
+      ),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_date", ["scheduledDate"])
@@ -200,9 +280,28 @@ const schema = defineSchema({
         size: v.optional(
           v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
         ),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
+        classification: v.optional(
+          v.object({
+            source: v.union(
+              v.literal("fuelEconomy"),
+              v.literal("vpic"),
+              v.literal("manual"),
+              v.literal("fallback"),
+            ),
+            confidence: v.union(
+              v.literal("high"),
+              v.literal("medium"),
+              v.literal("low"),
+            ),
+            rawCategory: v.optional(v.string()),
+            needsAdminReview: v.boolean(),
+          }),
+        ),
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
         hasPet: v.optional(v.boolean()),
+        beforePhotos: v.optional(v.array(bookingBeforePhotoValidator)),
       }),
     ),
     petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
@@ -219,6 +318,8 @@ const schema = defineSchema({
     totalPrice: v.number(),
     depositAmount: v.number(),
     remainingBalance: v.number(),
+    travelDistanceMiles: v.optional(v.number()),
+    travelFee: v.optional(v.number()),
     paymentOption: v.union(
       v.literal("deposit"),
       v.literal("full"),
@@ -226,8 +327,17 @@ const schema = defineSchema({
     ),
     priceSnapshot: v.array(
       v.object({
-        itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
+        itemType: v.optional(
+          v.union(
+            v.literal("service"),
+            v.literal("pet_fee"),
+            v.literal("travel_fee"),
+          ),
+        ),
         serviceId: v.optional(v.id("services")),
+        vehicleId: v.optional(v.id("vehicles")),
+        vehicleLabel: v.optional(v.string()),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
         serviceName: v.string(),
         quantity: v.number(),
         unitPrice: v.number(),
@@ -284,8 +394,17 @@ const schema = defineSchema({
     invoiceNumber: v.string(),
     items: v.array(
       v.object({
-        itemType: v.optional(v.union(v.literal("service"), v.literal("pet_fee"))),
+        itemType: v.optional(
+          v.union(
+            v.literal("service"),
+            v.literal("pet_fee"),
+            v.literal("travel_fee"),
+          ),
+        ),
         serviceId: v.optional(v.id("services")),
+        vehicleId: v.optional(v.id("vehicles")),
+        vehicleLabel: v.optional(v.string()),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
         serviceName: v.string(),
         quantity: v.number(),
         unitPrice: v.number(),

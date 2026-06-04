@@ -17,6 +17,7 @@ import {
   normalizeServiceType,
   type VehicleSize,
 } from "./lib/pricing";
+import { r2 } from "./r2";
 
 interface StripeInvoiceVehicleInput {
   size?: "small" | "medium" | "large";
@@ -58,6 +59,92 @@ async function buildPetFeeItems(
       };
     })
     .filter((item) => item.quantity > 0 && item.totalPrice > 0);
+}
+
+function formatVehicleLabel(vehicle: {
+  year?: number;
+  make?: string;
+  model?: string;
+}) {
+  return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+}
+
+async function getMatrixPriceForServiceAndVehicle(
+  ctx: any,
+  service: Doc<"services">,
+  vehicle: Doc<"vehicles">,
+) {
+  if (!vehicle.vehicleTypeId) {
+    const vehicleSize = vehicle.size ?? "medium";
+    return {
+      unitPrice: getEffectiveServicePrice(service, vehicleSize),
+      duration: service.duration || 0,
+      vehicleTypeId: undefined,
+    };
+  }
+
+  const matrixPrice = await ctx.db
+    .query("serviceVehiclePrices")
+    .withIndex("by_service_and_vehicle_type", (q: any) =>
+      q.eq("serviceId", service._id).eq("vehicleTypeId", vehicle.vehicleTypeId),
+    )
+    .first();
+
+  if (!matrixPrice) {
+    const vehicleType = await ctx.db.get(vehicle.vehicleTypeId);
+    return {
+      unitPrice: getEffectiveServicePrice(
+        service,
+        vehicleType?.legacySize ?? vehicle.size ?? "medium",
+      ),
+      duration: service.duration || 0,
+      vehicleTypeId: vehicle.vehicleTypeId,
+    };
+  }
+
+  if (!matrixPrice.isAvailable || matrixPrice.price <= 0) {
+    const vehicleType = await ctx.db.get(vehicle.vehicleTypeId);
+    throw new ConvexError({
+      code: "SERVICE_NOT_BOOKABLE",
+      message: `Service "${service.name}" is not available for ${vehicleType?.name ?? "this vehicle type"}.`,
+    });
+  }
+
+  return {
+    unitPrice: matrixPrice.price,
+    duration: matrixPrice.duration || service.duration || 0,
+    vehicleTypeId: vehicle.vehicleTypeId,
+  };
+}
+
+async function buildVehicleServiceItems(
+  ctx: any,
+  services: Array<Doc<"services">>,
+  vehicles: Array<Doc<"vehicles">>,
+) {
+  const items = [];
+  let duration = 0;
+
+  for (const vehicle of vehicles) {
+    const vehicleLabel = formatVehicleLabel(vehicle);
+    for (const service of services) {
+      const pricing = await getMatrixPriceForServiceAndVehicle(ctx, service, vehicle);
+      duration += pricing.duration;
+      items.push({
+        itemType: "service" as const,
+        serviceId: service._id,
+        vehicleId: vehicle._id,
+        vehicleLabel,
+        vehicleTypeId: pricing.vehicleTypeId,
+        serviceName: `${service.name} - ${vehicleLabel}`,
+        quantity: 1,
+        unitPrice: pricing.unitPrice,
+        totalPrice: pricing.unitPrice,
+      });
+    }
+  }
+
+  return { items, duration };
 }
 
 function shouldScheduleNotificationJobs(): boolean {
@@ -420,9 +507,16 @@ export const getByIdWithDetails = query({
     const services = (
       await Promise.all(appointment.serviceIds.map((id) => ctx.db.get(id)))
     ).filter((s) => s !== null);
-    const vehicles = (
+    const vehicles = await Promise.all((
       await Promise.all(appointment.vehicleIds.map((id) => ctx.db.get(id)))
-    ).filter((v) => v !== null);
+    )
+      .filter((v) => v !== null)
+      .map(async (vehicle) => ({
+        ...vehicle,
+        vehicleType: vehicle.vehicleTypeId
+          ? await ctx.db.get(vehicle.vehicleTypeId)
+          : null,
+      })));
 
     const vehicleSize: VehicleSize = (vehicles[0]?.size as VehicleSize) || "medium";
     const servicesWithPricing = services.map((s) => ({
@@ -444,8 +538,24 @@ export const getByIdWithDetails = query({
       )
       .first();
 
+    const beforePhotos = await Promise.all(
+      (appointment.beforePhotos ?? []).map(async (photo) => {
+        let signedUrl: string | undefined;
+        try {
+          signedUrl = await r2.getUrl(photo.key, { expiresIn: 60 * 60 * 24 });
+        } catch (error) {
+          console.warn(
+            `[appointments] Failed to sign before photo URL ${photo.key}`,
+            error,
+          );
+        }
+        return { ...photo, signedUrl };
+      }),
+    );
+
     return {
       ...appointment,
+      beforePhotos,
       user,
       services: servicesWithPricing,
       vehicles,
@@ -571,23 +681,13 @@ export const create = mutation({
       });
     }
 
-    const duration = validServices.reduce(
-      (sum, service) => sum + (service.duration || 0),
-      0,
+    const servicePricing = await buildVehicleServiceItems(
+      ctx,
+      validServices,
+      validVehicles,
     );
-
-    const serviceItems = validServices.map((service) => {
-      const unitPrice = getEffectiveServicePrice(service, vehicleSize);
-
-      return {
-        itemType: "service" as const,
-        serviceId: service._id,
-        serviceName: service.name,
-        quantity: args.vehicleIds.length,
-        unitPrice,
-        totalPrice: unitPrice * args.vehicleIds.length,
-      };
-    });
+    const duration = servicePricing.duration;
+    const serviceItems = servicePricing.items;
     const petFeeItems = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
     const items = [...serviceItems, ...petFeeItems];
     const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -708,7 +808,9 @@ export const update = mutation({
     const services = await Promise.all(
       updates.serviceIds.map((id) => ctx.db.get(id)),
     );
-    const validServices = services.filter((s: any) => s !== null);
+    const validServices = services.filter(
+      (service): service is Doc<"services"> => service !== null,
+    );
     if (validServices.length !== updates.serviceIds.length) {
       throw new Error("One or more services not found");
     }
@@ -731,26 +833,16 @@ export const update = mutation({
         message: "Pet fee vehicles must be included in this appointment.",
       });
     }
-    const vehicleSize = validVehicles[0]?.size || "medium";
-
-    const serviceItems = validServices.map((service) => {
-      const unitPrice = getEffectiveServicePrice(service!, vehicleSize);
-      return {
-        itemType: "service" as const,
-        serviceId: service!._id,
-        serviceName: service!.name,
-        quantity: updates.vehicleIds.length,
-        unitPrice,
-        totalPrice: unitPrice * updates.vehicleIds.length,
-      };
-    });
+    const servicePricing = await buildVehicleServiceItems(
+      ctx,
+      validServices,
+      validVehicles,
+    );
+    const serviceItems = servicePricing.items;
     const petFeeItems = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
     const items = [...serviceItems, ...petFeeItems];
     const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
-    const duration = validServices.reduce(
-      (sum, service) => sum + (service!.duration || 0),
-      0,
-    );
+    const duration = servicePricing.duration;
 
     const scheduleChanged =
       existingAppointment.scheduledDate !== updates.scheduledDate ||

@@ -65,6 +65,164 @@ describe("services", () => {
     });
   });
 
+  test("creates vehicle type pricing rows and inline vehicle types", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-vehicle-pricing@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-vehicle-pricing@test.com",
+    });
+
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Matrix Detail",
+      description: "Pricing by vehicle type",
+      duration: 75,
+      vehiclePrices: [
+        {
+          vehicleTypeName: "Car",
+          price: 125,
+          duration: 75,
+          isAvailable: true,
+        },
+        {
+          vehicleTypeName: "Boat",
+          price: 225,
+          duration: 150,
+          isAvailable: true,
+        },
+      ],
+    });
+
+    await t.finishInProgressScheduledFunctions();
+
+    const service = await asAdmin.query(api.services.getById, { serviceId });
+    expect(service?.basePriceMedium).toBe(125);
+    expect(service?.duration).toBe(75);
+    expect(service?.vehiclePrices).toHaveLength(2);
+    expect(
+      service?.vehiclePrices.map((row) => ({
+        name: row.vehicleType?.name,
+        price: row.price,
+        duration: row.duration,
+        available: row.isAvailable,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        { name: "Car", price: 125, duration: 75, available: true },
+        { name: "Boat", price: 225, duration: 150, available: true },
+      ]),
+    );
+
+    const vehicleTypes = await asAdmin.query(api.vehicleTypes.list, {});
+    expect(vehicleTypes.some((vehicleType) => vehicleType.name === "Boat")).toBe(true);
+  });
+
+  test("updates vehicle pricing rows and compatibility buckets", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-vehicle-pricing-update@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-vehicle-pricing-update@test.com",
+    });
+
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Original Matrix",
+      description: "Original pricing",
+      duration: 60,
+      vehiclePrices: [
+        {
+          vehicleTypeName: "Car",
+          price: 100,
+          duration: 60,
+          isAvailable: true,
+        },
+        {
+          vehicleTypeName: "Van",
+          price: 180,
+          duration: 120,
+          isAvailable: true,
+        },
+      ],
+    });
+
+    await asAdmin.mutation(api.services.update, {
+      serviceId,
+      name: "Updated Matrix",
+      description: "Updated pricing",
+      duration: 90,
+      isActive: true,
+      vehiclePrices: [
+        {
+          vehicleTypeName: "Van",
+          price: 210,
+          duration: 135,
+          isAvailable: true,
+        },
+      ],
+    });
+
+    const service = await asAdmin.query(api.services.getById, { serviceId });
+    expect(service?.vehiclePrices).toHaveLength(1);
+    expect(service?.vehiclePrices[0]?.vehicleType?.name).toBe("Van");
+    expect(service?.vehiclePrices[0]?.price).toBe(210);
+    expect(service?.vehiclePrices[0]?.duration).toBe(135);
+    expect(service?.basePriceLarge).toBe(210);
+    expect(service?.duration).toBe(135);
+  });
+
+  test("create rejects matrix pricing with no available positive row", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-zero-matrix@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-zero-matrix@test.com",
+    });
+
+    await expectConvexErrorCode(
+      asAdmin.mutation(api.services.create, {
+        name: "Unavailable Matrix",
+        description: "No purchasable rows",
+        duration: 45,
+        vehiclePrices: [
+          {
+            vehicleTypeName: "Car",
+            price: 100,
+            duration: 45,
+            isAvailable: false,
+          },
+          {
+            vehicleTypeName: "Van",
+            price: 0,
+            duration: 90,
+            isAvailable: true,
+          },
+        ],
+      }),
+      "INVALID_SERVICE_PRICING",
+    );
+  });
+
   test("update service", async () => {
     const t = convexTest(schema, modules);
 

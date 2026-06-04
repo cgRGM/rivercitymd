@@ -6,11 +6,39 @@ import {
 import { v } from "convex/values";
 import { getUserIdFromIdentity, isAdmin, requireAdmin } from "./auth";
 
+const legacySizeValidator = v.union(
+  v.literal("small"),
+  v.literal("medium"),
+  v.literal("large"),
+);
+
+const classificationValidator = v.object({
+  source: v.union(
+    v.literal("fuelEconomy"),
+    v.literal("vpic"),
+    v.literal("manual"),
+    v.literal("fallback"),
+  ),
+  confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+  rawCategory: v.optional(v.string()),
+  needsAdminReview: v.boolean(),
+});
+
+async function attachVehicleType(ctx: any, vehicle: any) {
+  return {
+    ...vehicle,
+    vehicleType: vehicle.vehicleTypeId
+      ? await ctx.db.get(vehicle.vehicleTypeId)
+      : null,
+  };
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    return await ctx.db.query("vehicles").collect();
+    const vehicles = await ctx.db.query("vehicles").collect();
+    return await Promise.all(vehicles.map((vehicle) => attachVehicleType(ctx, vehicle)));
   },
 });
 
@@ -26,10 +54,11 @@ export const getByUser = query({
       throw new Error("Access denied");
     }
 
-    return await ctx.db
+    const vehicles = await ctx.db
       .query("vehicles")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .collect();
+    return await Promise.all(vehicles.map((vehicle) => attachVehicleType(ctx, vehicle)));
   },
 });
 
@@ -50,9 +79,9 @@ export const create = mutation({
     year: v.number(),
     make: v.string(),
     model: v.string(),
-    size: v.optional(
-      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
-    ),
+    vehicleTypeId: v.optional(v.id("vehicleTypes")),
+    classification: v.optional(classificationValidator),
+    size: v.optional(legacySizeValidator),
     color: v.optional(v.string()),
     licensePlate: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -67,12 +96,20 @@ export const create = mutation({
       throw new Error("Access denied");
     }
 
+    let legacySize = args.size;
+    if (args.vehicleTypeId) {
+      const vehicleType = await ctx.db.get(args.vehicleTypeId);
+      legacySize = vehicleType?.legacySize ?? legacySize;
+    }
+
     return await ctx.db.insert("vehicles", {
       userId: args.userId,
       year: args.year,
       make: args.make,
       model: args.model,
-      size: args.size,
+      vehicleTypeId: args.vehicleTypeId,
+      classification: args.classification,
+      size: legacySize,
       color: args.color,
       licensePlate: args.licensePlate,
       notes: args.notes,
@@ -87,19 +124,19 @@ export const getMyVehicles = query({
     if (!userId) return [];
 
     // Get all vehicles for this user (users are now clients)
-    return await ctx.db
+    const vehicles = await ctx.db
       .query("vehicles")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
+    return await Promise.all(vehicles.map((vehicle) => attachVehicleType(ctx, vehicle)));
   },
 });
 
 export const updateVehicle = mutation({
   args: {
     id: v.id("vehicles"),
-    size: v.optional(
-      v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
-    ),
+    vehicleTypeId: v.optional(v.id("vehicleTypes")),
+    size: v.optional(legacySizeValidator),
     color: v.optional(v.string()),
     licensePlate: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -116,7 +153,34 @@ export const updateVehicle = mutation({
     }
 
     const { id, ...updates } = args;
-    await ctx.db.patch(id, updates);
+    let patch: typeof updates & {
+      vehicleTypeOverrideBy?: typeof userId;
+      vehicleTypeOverrideAt?: number;
+      classification?: {
+        source: "manual";
+        confidence: "high";
+        needsAdminReview: false;
+      };
+    } = { ...updates };
+
+    if (updates.vehicleTypeId) {
+      const vehicleType = await ctx.db.get(updates.vehicleTypeId);
+      patch = {
+        ...patch,
+        size: vehicleType?.legacySize ?? updates.size,
+      };
+      if (isAdminUser) {
+        patch.vehicleTypeOverrideBy = userId;
+        patch.vehicleTypeOverrideAt = Date.now();
+        patch.classification = {
+          source: "manual",
+          confidence: "high",
+          needsAdminReview: false,
+        };
+      }
+    }
+
+    await ctx.db.patch(id, patch);
     return id;
   },
 });
@@ -186,9 +250,11 @@ export const getByIdInternal = internalQuery({
       year: v.number(),
       make: v.string(),
       model: v.string(),
-      size: v.optional(
-        v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
-      ),
+      vehicleTypeId: v.optional(v.id("vehicleTypes")),
+      vehicleTypeOverrideBy: v.optional(v.id("users")),
+      vehicleTypeOverrideAt: v.optional(v.number()),
+      classification: v.optional(classificationValidator),
+      size: v.optional(legacySizeValidator),
       color: v.optional(v.string()),
       licensePlate: v.optional(v.string()),
       notes: v.optional(v.string()),

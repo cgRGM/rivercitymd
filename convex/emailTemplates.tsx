@@ -832,6 +832,7 @@ export interface AdminAppointmentNotificationEmailProps {
   location: string;
   status: string;
   notes?: string;
+  beforePhotoCount?: number;
   businessName: string;
   adminUrl: string;
   logoUrl?: string;
@@ -853,6 +854,7 @@ export function AdminAppointmentNotificationEmailTemplate(
     location,
     status,
     notes,
+    beforePhotoCount = 0,
     businessName,
     adminUrl,
     logoUrl,
@@ -877,6 +879,12 @@ export function AdminAppointmentNotificationEmailTemplate(
         <DetailField label="Services" value={serviceNames.join(", ")} />
         <DetailField label="Location" value={location} />
         <DetailField label="Status" value={status.replace("_", " ").toUpperCase()} />
+        {beforePhotoCount > 0 ? (
+          <DetailField
+            label="Before Photos"
+            value={`${beforePhotoCount} uploaded - open the appointment to review`}
+          />
+        ) : null}
         {notes ? <DetailField label="Notes" value={notes} /> : null}
         <Hr style={{ ...emailStyles.hr, margin: "16px 0" }} />
         <Text style={{ ...emailStyles.detailValue, fontSize: "18px", fontWeight: "600", marginBottom: "0" }}>

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useMutation, useQuery, useAction } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { useUser } from "@clerk/nextjs";
 import { useBookingStore } from "@/hooks/use-booking-store";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -25,20 +26,16 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
+import {
+  VehicleLookupCard,
+  type VehicleLookupValue,
+} from "@/components/forms/vehicle-lookup-card";
 import { TimeSlotPicker } from "./time-slot-picker";
 import { ServiceCard } from "./service-card";
 
@@ -99,8 +96,22 @@ const step3Schema = z.object({
         color: z.string().optional(),
         licensePlate: z.string().optional(),
         size: z.enum(["small", "medium", "large"]).optional(),
+        vehicleTypeId: z.string().optional(),
+        vehicleTypeName: z.string().optional(),
+        classification: z.object({
+          source: z.enum(["fuelEconomy", "vpic", "manual", "fallback"]),
+          confidence: z.enum(["high", "medium", "low"]),
+          rawCategory: z.string().optional(),
+          needsAdminReview: z.boolean(),
+        }).optional(),
         hasPet: z.boolean().optional(),
-        type: z.enum(["car", "truck", "suv", "motorcycle"]),
+        beforePhotos: z.array(z.object({
+          key: z.string(),
+          fileName: z.string(),
+          contentType: z.string(),
+          sizeBytes: z.number(),
+          uploadedAt: z.number(),
+        })).optional(),
       }),
     )
     .min(1, "Please add at least one vehicle"),
@@ -145,6 +156,10 @@ export default function AppointmentModal({
 
   const [isLoading, setIsLoading] = useState(false);
   const [paymentOption, setPaymentOption] = useState<"deposit" | "full" | "in_person">("deposit");
+  const [travelQuote, setTravelQuote] = useState<{
+    distanceMiles: number;
+    fee: number;
+  } | null>(null);
   const { user, isLoaded, isSignedIn } = useUser();
 
   // Load saved data on mount if needed (Zustand persist handles this automatically, but we might want to pre-fill forms)
@@ -179,9 +194,49 @@ export default function AppointmentModal({
     api.availability.getNextBookableDate,
     open && bookingReadiness?.isReady ? {} : "skip",
   );
-  const upsertBookingDraft = useMutation(api.bookingDrafts.createOrUpdate);
+  const upsertBookingDraft = useAction(api.bookingDrafts.createOrUpdate);
+  const calculateTravelFee = useAction(api.travelFees.calculate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
   const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
+
+  const watchedStreet = step1Form.watch("street");
+  const watchedCity = step1Form.watch("city");
+  const watchedState = step1Form.watch("state");
+  const watchedZip = step1Form.watch("zip");
+  const watchedLocationNotes = step1Form.watch("locationNotes");
+
+  useEffect(() => {
+    if (
+      !watchedStreet?.trim() ||
+      !watchedCity?.trim() ||
+      !watchedState?.trim() ||
+      !watchedZip?.trim()
+    ) {
+      setTravelQuote(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      void calculateTravelFee({
+        address: {
+          street: watchedStreet,
+          city: watchedCity,
+          state: watchedState,
+          zip: watchedZip,
+          notes: watchedLocationNotes || undefined,
+        },
+      })
+        .then(setTravelQuote)
+        .catch(() => setTravelQuote(null));
+    }, 400);
+    return () => window.clearTimeout(timeout);
+  }, [
+    calculateTravelFee,
+    watchedCity,
+    watchedLocationNotes,
+    watchedState,
+    watchedStreet,
+    watchedZip,
+  ]);
 
 
   // Step forms
@@ -210,9 +265,9 @@ export default function AppointmentModal({
           model: "",
           color: "",
           licensePlate: "",
-          type: "car",
           size: "small",
           hasPet: false,
+          beforePhotos: [],
         },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ]) as any,
@@ -319,7 +374,6 @@ export default function AppointmentModal({
         shouldValidate: true,
         shouldDirty: true,
       });
-
       // Save current form data to localStorage
       const currentData = step1Form.getValues();
       console.log("Updated form data:", currentData);
@@ -342,27 +396,25 @@ export default function AppointmentModal({
         model: "",
         color: "",
         licensePlate: "",
-        type: "car",
         size: "small",
         hasPet: false,
+        beforePhotos: [],
       },
     ]);
   };
 
-  const getVehicleSize = (
-    vehicleType: "car" | "truck" | "suv" | "motorcycle" | undefined,
-  ): "small" | "medium" | "large" => {
-    switch (vehicleType) {
-      case "car":
-      case "motorcycle":
-        return "small";
-      case "truck":
-        return "large";
-      case "suv":
-        return "medium";
-      default:
-        return "medium"; // default fallback
-    }
+  const updateVehicle = (index: number, nextVehicle: VehicleLookupValue) => {
+    const currentVehicles = step3Form.getValues("vehicles") || [];
+    step3Form.setValue(
+      "vehicles",
+      currentVehicles.map((vehicle, vehicleIndex) =>
+        vehicleIndex === index ? { ...vehicle, ...nextVehicle } : vehicle,
+      ),
+      {
+        shouldDirty: true,
+        shouldValidate: true,
+      },
+    );
   };
 
   const removeVehicle = (index: number) => {
@@ -404,7 +456,8 @@ export default function AppointmentModal({
       case 3:
         isValid = await step3Form.trigger();
         if (isValid) {
-          setStep3Data(step3Form.getValues());
+          const values = step3Form.getValues();
+          setStep3Data(values);
           setCurrentStep(4);
         }
         break;
@@ -462,7 +515,12 @@ export default function AppointmentModal({
 
       console.log("Submitting appointment for:", email);
 
-      const { draftId, resumeToken: nextResumeToken } = await upsertBookingDraft({
+      const {
+        draftId,
+        resumeToken: nextResumeToken,
+        travelDistanceMiles,
+        travelFee,
+      } = await upsertBookingDraft({
         resumeToken: resumeToken || undefined,
         name: fullName!,
         email: email!,
@@ -478,10 +536,13 @@ export default function AppointmentModal({
           year: parseInt(vehicle.year), // Ensure year is number
           make: vehicle.make,
           model: vehicle.model,
+          vehicleTypeId: vehicle.vehicleTypeId as Id<"vehicleTypes"> | undefined,
+          classification: vehicle.classification,
           size: vehicle.size,
           color: vehicle.color,
           licensePlate: vehicle.licensePlate,
           hasPet: vehicle.hasPet ?? false,
+          beforePhotos: vehicle.beforePhotos ?? [],
         })),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serviceIds: (step4Data?.serviceIds || []) as any,
@@ -491,6 +552,7 @@ export default function AppointmentModal({
         paymentOption,
       });
       setResumeToken(nextResumeToken);
+      setTravelQuote({ distanceMiles: travelDistanceMiles, fee: travelFee });
 
       const { url } = await createBookingCheckout({
         draftId,
@@ -535,6 +597,7 @@ export default function AppointmentModal({
     step2Form.reset();
     step3Form.reset();
     step4Form.reset();
+    setTravelQuote(null);
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -905,173 +968,17 @@ export default function AppointmentModal({
                   </Button>
                 </div>
 
-                {step3Form.watch("vehicles")?.map((_, index) => (
-                  <Card key={index} className="relative">
-                     <div className="absolute top-2 right-2">
-                        {index > 0 && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => removeVehicle(index)}
-                          >
-                            <span className="sr-only">Remove</span>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                          </Button>
-                        )}
-                     </div>
-                      <CardContent className="pt-6 space-y-4">
-                        <FormField
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          control={step3Form.control as any}
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          name={`vehicles.${index}.type` as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Vehicle Type</FormLabel>
-                              <Select
-                              onValueChange={(value) => {
-                                field.onChange(value);
-                                const size = getVehicleSize(
-                                  value as "car" | "truck" | "suv" | "motorcycle",
-                                );
-                                step3Form.setValue(`vehicles.${index}.size`, size);
-                              }}
-                              value={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select vehicle type" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="car">Car</SelectItem>
-                                <SelectItem value="truck">Truck</SelectItem>
-                                <SelectItem value="suv">SUV</SelectItem>
-                                <SelectItem value="motorcycle">Motorcycle</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          control={step3Form.control as any}
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          name={`vehicles.${index}.year` as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Year</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  value={field.value || ""}
-                                  type="number"
-                                  placeholder="YYYY"
-                                  min={1900}
-                                  max={new Date().getFullYear() + 1}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          control={step3Form.control as any}
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          name={`vehicles.${index}.make` as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Make</FormLabel>
-                              <FormControl>
-                                <Input {...field} value={field.value || ""} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          control={step3Form.control as any}
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          name={`vehicles.${index}.model` as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Model</FormLabel>
-                              <FormControl>
-                                <Input {...field} value={field.value || ""} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          control={step3Form.control as any}
-                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                          name={`vehicles.${index}.color` as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Color (Optional)</FormLabel>
-                              <FormControl>
-                                <Input {...field} value={field.value || ""} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <FormField
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        control={step3Form.control as any}
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        name={`vehicles.${index}.licensePlate` as any}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>License Plate (Optional)</FormLabel>
-                            <FormControl>
-                              <Input {...field} value={field.value || ""} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        control={step3Form.control as any}
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        name={`vehicles.${index}.hasPet` as any}
-                        render={({ field }) => (
-                          <FormItem className="rounded-lg border p-4">
-                            <div className="flex items-center justify-between gap-4">
-                              <div className="space-y-1">
-                                <FormLabel className="mb-0">
-                                  Pet hair or pet travel
-                                </FormLabel>
-                                
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value === true}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                            </div>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </CardContent>
-                  </Card>
+                {step3Form.watch("vehicles")?.map((vehicle, index) => (
+                  <VehicleLookupCard
+                    key={index}
+                    title={`Vehicle ${index + 1}`}
+                    value={vehicle}
+                    onChange={(nextVehicle) => updateVehicle(index, nextVehicle)}
+                    showLicensePlate
+                    showPetToggle
+                    showBeforePhotos
+                    onRemove={index > 0 ? () => removeVehicle(index) : undefined}
+                  />
                 ))}
               </div>
             </form>
@@ -1094,9 +1001,7 @@ export default function AppointmentModal({
                         <div className="space-y-8">
                           {(() => {
                             const primaryVehicle = step3Data?.vehicles?.[0];
-                            const selectedVehicleSize =
-                              primaryVehicle?.size ??
-                              getVehicleSize(primaryVehicle?.type);
+                            const selectedVehicleSize = primaryVehicle?.size ?? "medium";
 
                             return (
                               <>
@@ -1224,8 +1129,7 @@ export default function AppointmentModal({
         {currentStep === 5 && (() => {
           // Compute service total and deposit for display
           const primaryVehicle = step3Data?.vehicles?.[0];
-          const vehicleSize =
-            primaryVehicle?.size ?? getVehicleSize(primaryVehicle?.type);
+          const vehicleSize = primaryVehicle?.size ?? "medium";
           const vehicleCount = step3Data?.vehicles?.length ?? 1;
           const depositPerVehicle = 50;
           const depositTotal = depositPerVehicle * vehicleCount;
@@ -1256,7 +1160,8 @@ export default function AppointmentModal({
             if (!vehicle.hasPet) return sum;
             return sum + petFeeForSize(vehicle.size ?? "medium");
           }, 0);
-          const orderTotal = serviceTotal + petFeeTotal;
+          const travelFeeTotal = travelQuote?.fee ?? 0;
+          const orderTotal = serviceTotal + petFeeTotal + travelFeeTotal;
 
           const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
 
@@ -1298,6 +1203,19 @@ export default function AppointmentModal({
                    <div className="flex justify-between text-sm font-medium mt-1">
                      <span>Pet Fee</span>
                      <span>${petFeeTotal.toFixed(2)}</span>
+                   </div>
+                 )}
+                 {travelFeeTotal > 0 && (
+                   <div className="flex justify-between text-sm font-medium mt-1">
+                     <span>
+                       Travel Fee
+                       {travelQuote && (
+                         <span className="ml-1 text-xs font-normal text-muted-foreground">
+                           ({travelQuote.distanceMiles.toFixed(1)} miles)
+                         </span>
+                       )}
+                     </span>
+                     <span>${travelFeeTotal.toFixed(2)}</span>
                    </div>
                  )}
                  <div className="flex justify-between border-t pt-2 text-sm font-semibold mt-2">

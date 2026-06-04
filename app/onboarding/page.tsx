@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -16,25 +16,38 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { completeOnboarding } from "./_actions";
+import {
+  VehicleLookupCard,
+  type VehicleClassification,
+  type VehicleLookupValue,
+} from "@/components/forms/vehicle-lookup-card";
+import AddressInput from "@/components/ui/address-input";
+
+interface RadarAddress {
+  formattedAddress?: string;
+  addressLabel?: string;
+  number?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+}
 
 type Vehicle = {
-  year: number;
+  year: string;
   make: string;
   model: string;
-  color: string;
-  size: "small" | "medium" | "large";
+  color?: string;
+  size?: "small" | "medium" | "large";
+  vehicleTypeId?: string;
+  vehicleTypeName?: string;
+  classification?: VehicleClassification;
 };
 
 export default function OnboardingPage() {
@@ -54,7 +67,7 @@ export default function OnboardingPage() {
     const urlParams = new URLSearchParams(window.location.search);
     const stepParam = urlParams.get("step");
     if (stepParam && !isNaN(Number(stepParam))) {
-      const stepNumber = Math.max(1, Math.min(3, Number(stepParam)));
+      const stepNumber = Math.max(1, Math.min(2, Number(stepParam)));
       setStep(stepNumber);
     }
   }, []);
@@ -87,19 +100,32 @@ export default function OnboardingPage() {
     }
   }, [user, currentUser, hasEditedName]);
 
-  // Step 2: Service Address
+  // Service Address
   const [street, setStreet] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
 
-  // Step 3: Vehicles
+  const handleAddressSelect = useCallback((address: RadarAddress) => {
+    const streetNumber = address.number || "";
+    const streetName = address.street || "";
+    const fullStreet = streetNumber
+      ? `${streetNumber} ${streetName}`.trim()
+      : streetName || address.formattedAddress || address.addressLabel || "";
+
+    setStreet(fullStreet);
+    setCity(address.city || "");
+    setState(address.state || "");
+    setZipCode(address.postalCode || "");
+  }, []);
+
+  // Step 2: Vehicles
   const [vehicles, setVehicles] = useState<Vehicle[]>([
-    { year: 0, make: "", model: "", color: "", size: "medium" },
+    { year: "", make: "", model: "" },
   ]);
 
   const addVehicle = () => {
-    setVehicles([...vehicles, { year: 0, make: "", model: "", color: "", size: "medium" }]);
+    setVehicles([...vehicles, { year: "", make: "", model: "" }]);
   };
 
   const removeVehicle = (index: number) => {
@@ -108,20 +134,31 @@ export default function OnboardingPage() {
     }
   };
 
-  const updateVehicle = (
-    index: number,
-    field: keyof Vehicle,
-    value: string | number,
-  ) => {
-    const updated = [...vehicles];
-    if (field === "year") {
-      updated[index][field] = value as number;
-    } else if (field === "size") {
-      updated[index][field] = value as Vehicle["size"];
-    } else {
-      updated[index][field] = value as string;
+  const updateVehicle = (index: number, nextVehicle: VehicleLookupValue) => {
+    if (
+      /^\d{4}$/.test(nextVehicle.year) &&
+      nextVehicle.make &&
+      nextVehicle.model
+    ) {
+      setError(null);
     }
-    setVehicles(updated);
+    setVehicles(
+      vehicles.map((vehicle, vehicleIndex) =>
+        vehicleIndex === index
+          ? {
+              ...vehicle,
+              year: nextVehicle.year,
+              make: nextVehicle.make,
+              model: nextVehicle.model,
+              color: nextVehicle.color,
+              size: nextVehicle.size,
+              vehicleTypeId: nextVehicle.vehicleTypeId,
+              vehicleTypeName: nextVehicle.vehicleTypeName,
+              classification: nextVehicle.classification,
+            }
+          : vehicle,
+      ),
+    );
   };
 
   const handleNext = () => {
@@ -131,15 +168,11 @@ export default function OnboardingPage() {
         setError("Please fill in all fields");
         return;
       }
-      const newStep = 2;
-      setStep(newStep);
-      updateUrlStep(newStep);
-    } else if (step === 2) {
       if (!street.trim() || !city.trim() || !state.trim() || !zipCode.trim()) {
-        setError("Please fill in all address fields");
+        setError("Please select your service address");
         return;
       }
-      const newStep = 3;
+      const newStep = 2;
       setStep(newStep);
       updateUrlStep(newStep);
     }
@@ -166,11 +199,11 @@ export default function OnboardingPage() {
 
     // Validate vehicles
     const validVehicles = vehicles.filter(
-      (v) => v.year > 0 && v.make && v.model && v.color,
+      (v) => /^\d{4}$/.test(v.year) && v.make && v.model,
     );
 
     if (validVehicles.length === 0) {
-      setError("Please add at least one vehicle with all fields filled");
+      setError("Please search for and select at least one vehicle");
       return;
     }
 
@@ -208,7 +241,15 @@ export default function OnboardingPage() {
           state,
           zip: zipCode,
         },
-        vehicles: validVehicles,
+        vehicles: validVehicles.map((vehicle) => ({
+          year: Number(vehicle.year),
+          make: vehicle.make,
+          model: vehicle.model,
+          color: vehicle.color,
+          size: vehicle.size ?? "medium",
+          vehicleTypeId: vehicle.vehicleTypeId as Id<"vehicleTypes"> | undefined,
+          classification: vehicle.classification,
+        })),
       });
 
       // Then, update Clerk's publicMetadata to mark onboarding as complete
@@ -278,7 +319,7 @@ export default function OnboardingPage() {
 
         {/* Progress Indicator */}
         <div className="flex items-center justify-center gap-2">
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div
               key={s}
               className={`h-2 rounded-full transition-all ${
@@ -297,13 +338,11 @@ export default function OnboardingPage() {
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold">
               {step === 1 && "Personal Information"}
-              {step === 2 && "Service Address"}
-              {step === 3 && "Your Vehicles"}
+              {step === 2 && "Your Vehicles"}
             </CardTitle>
             <CardDescription>
-              {step === 1 && "Let's get to know you better"}
-              {step === 2 && "Where should we provide our services?"}
-              {step === 3 && "Tell us about your vehicles"}
+              {step === 1 && "Tell us who you are and where we'll provide service"}
+              {step === 2 && "Tell us about your vehicles"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -325,189 +364,58 @@ export default function OnboardingPage() {
                       required
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="john@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      disabled
-                      className="bg-muted"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Email from your account
-                    </p>
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="john@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        disabled
+                        className="bg-muted"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Email from your account
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone Number</Label>
+                      <Input
+                        id="phone"
+                        type="tel"
+                        placeholder="(501) 555-0123"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number</Label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="(501) 555-0123"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      required
+
+                  <div className="border-t pt-4">
+                    <AddressInput
+                      onAddressSelect={handleAddressSelect}
+                      label="Service Address"
+                      placeholder="Search for your service address"
                     />
                   </div>
                 </div>
               )}
 
-              {/* Step 2: Service Address */}
+              {/* Step 2: Vehicles */}
               {step === 2 && (
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="street">Street Address</Label>
-                    <Input
-                      id="street"
-                      type="text"
-                      placeholder="123 Main St"
-                      value={street}
-                      onChange={(e) => setStreet(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="city">City</Label>
-                      <Input
-                        id="city"
-                        type="text"
-                        placeholder="Little Rock"
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="state">State</Label>
-                      <Input
-                        id="state"
-                        type="text"
-                        placeholder="AR"
-                        value={state}
-                        onChange={(e) => setState(e.target.value)}
-                        required
-                        maxLength={2}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="zipCode">ZIP Code</Label>
-                    <Input
-                      id="zipCode"
-                      type="text"
-                      placeholder="72201"
-                      value={zipCode}
-                      onChange={(e) => setZipCode(e.target.value)}
-                      required
-                      maxLength={5}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Step 3: Vehicles */}
-              {step === 3 && (
-                <div className="space-y-4">
                   {vehicles.map((vehicle, index) => (
-                    <div
+                    <VehicleLookupCard
                       key={index}
-                      className="p-4 border rounded-lg space-y-4 relative"
-                    >
-                      {vehicles.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute top-2 right-2 h-8 w-8"
-                          onClick={() => removeVehicle(index)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <h4 className="font-medium text-sm text-muted-foreground">
-                        Vehicle {index + 1}
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`year-${index}`}>Year</Label>
-                          <Input
-                            id={`year-${index}`}
-                            type="number"
-                            placeholder="2020"
-                            value={vehicle.year || ""}
-                            onChange={(e) =>
-                              updateVehicle(
-                                index,
-                                "year",
-                                parseInt(e.target.value) || 0,
-                              )
-                            }
-                            min={1900}
-                            max={new Date().getFullYear() + 1}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`make-${index}`}>Make</Label>
-                          <Input
-                            id={`make-${index}`}
-                            type="text"
-                            placeholder="Toyota"
-                            value={vehicle.make}
-                            onChange={(e) =>
-                              updateVehicle(index, "make", e.target.value)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`model-${index}`}>Model</Label>
-                          <Input
-                            id={`model-${index}`}
-                            type="text"
-                            placeholder="Camry"
-                            value={vehicle.model}
-                            onChange={(e) =>
-                              updateVehicle(index, "model", e.target.value)
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`color-${index}`}>Color</Label>
-                          <Input
-                            id={`color-${index}`}
-                            type="text"
-                            placeholder="Silver"
-                            value={vehicle.color}
-                            onChange={(e) =>
-                              updateVehicle(index, "color", e.target.value)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`size-${index}`}>Vehicle Size</Label>
-                        <Select
-                          value={vehicle.size}
-                          onValueChange={(val) =>
-                            updateVehicle(index, "size", val)
-                          }
-                        >
-                          <SelectTrigger id={`size-${index}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="small">Small / Compact</SelectItem>
-                            <SelectItem value="medium">Mid-Size / SUV</SelectItem>
-                            <SelectItem value="large">Truck / Large</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
+                      title={`Vehicle ${index + 1}`}
+                      value={vehicle}
+                      onChange={(nextVehicle) => updateVehicle(index, nextVehicle)}
+                      showColor={false}
+                      onRemove={vehicles.length > 1 ? () => removeVehicle(index) : undefined}
+                    />
                   ))}
                   <Button
                     type="button"
@@ -543,7 +451,7 @@ export default function OnboardingPage() {
                     Back
                   </Button>
                 )}
-                {step < 3 ? (
+                {step < 2 ? (
                   <Button type="button" onClick={handleNext} className="flex-1">
                     Continue
                   </Button>

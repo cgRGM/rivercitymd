@@ -1,9 +1,10 @@
 import { convexTest } from "convex-test";
-import { expect, test, describe } from "vitest";
+import { expect, test, describe, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 import { seedBookingSetup } from "./testUtils/bookingSetup";
+import { r2 } from "./r2";
 
 const APPOINTMENT_TEST_DATE = "2024-12-02"; // Monday (dayOfWeek 1)
 
@@ -21,6 +22,75 @@ async function expectConvexErrorCode(
 }
 
 describe("appointments", () => {
+  test("appointment details include signed before photo URLs", async () => {
+    const t = convexTest(schema, modules);
+    const { appointmentId, adminId } = await t.run(async (ctx) => {
+      const adminId = await ctx.db.insert("users", {
+        name: "Photo Admin",
+        email: "photo-admin@example.com",
+        role: "admin",
+      });
+      const userId = await ctx.db.insert("users", {
+        name: "Photo Customer",
+        email: "photo-customer@example.com",
+        role: "client",
+      });
+      const appointmentId = await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [],
+        serviceIds: [],
+        scheduledDate: APPOINTMENT_TEST_DATE,
+        scheduledTime: "10:00",
+        duration: 60,
+        location: {
+          street: "123 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72205",
+        },
+        status: "confirmed",
+        totalPrice: 100,
+        createdBy: adminId,
+        beforePhotos: [
+          {
+            vehicleLabel: "2025 Kia Sorento",
+            key: "booking-photos/test/sorento.jpg",
+            fileName: "sorento.jpg",
+            contentType: "image/jpeg",
+            sizeBytes: 2048,
+            uploadedAt: Date.now(),
+          },
+        ],
+      });
+      return { appointmentId, adminId };
+    });
+    const getUrlSpy = vi
+      .spyOn(r2, "getUrl")
+      .mockResolvedValue("https://example.com/sorento.jpg");
+
+    try {
+      const asAdmin = t.withIdentity({
+        subject: adminId,
+        email: "photo-admin@example.com",
+      });
+      const appointment = await asAdmin.query(api.appointments.getByIdWithDetails, {
+        appointmentId,
+      });
+
+      expect(appointment?.beforePhotos).toEqual([
+        expect.objectContaining({
+          vehicleLabel: "2025 Kia Sorento",
+          signedUrl: "https://example.com/sorento.jpg",
+        }),
+      ]);
+      expect(getUrlSpy).toHaveBeenCalledWith("booking-photos/test/sorento.jpg", {
+        expiresIn: 60 * 60 * 24,
+      });
+    } finally {
+      getUrlSpy.mockRestore();
+    }
+  });
+
   test("create appointment", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t);
