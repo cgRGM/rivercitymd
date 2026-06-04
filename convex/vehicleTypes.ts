@@ -287,6 +287,52 @@ function dedupeVehicleSuggestions(
     .slice(0, 8);
 }
 
+async function searchFuelEconomyModelsForYear(
+  year: number,
+  makeQuery: string,
+  modelQuery: string,
+) {
+  const suggestions: Array<{
+    year: number;
+    make: string;
+    model: string;
+    source: "fuelEconomy";
+  }> = [];
+  const makes = toMenuItems(
+    await fetchJson(
+      `https://www.fueleconomy.gov/ws/rest/vehicle/menu/make?year=${year}`,
+    ),
+  );
+  const matchingMakes = makes
+    .filter((make) => make.text.toLowerCase().includes(makeQuery))
+    .slice(0, 4);
+
+  for (const make of matchingMakes) {
+    const models = toMenuItems(
+      await fetchJson(
+        `https://www.fueleconomy.gov/ws/rest/vehicle/menu/model?year=${year}&make=${encodeURIComponent(make.value)}`,
+      ),
+    );
+    const matchingModels = models
+      .filter((model) => {
+        if (!modelQuery) return true;
+        return model.text.toLowerCase().includes(modelQuery);
+      })
+      .slice(0, modelQuery ? 6 : 3);
+
+    for (const model of matchingModels) {
+      suggestions.push({
+        year,
+        make: make.text,
+        model: model.text,
+        source: "fuelEconomy",
+      });
+    }
+  }
+
+  return suggestions;
+}
+
 export const searchModels = action({
   args: {
     query: v.string(),
@@ -305,7 +351,7 @@ export const searchModels = action({
   > => {
     const normalizedQuery = args.query.trim().replace(/\s+/g, " ");
     const yearMatch = normalizedQuery.match(/\b(19|20)\d{2}\b/);
-    const year = yearMatch ? Number(yearMatch[0]) : 0;
+    const year = yearMatch ? Number(yearMatch[0]) : undefined;
     const vehicleQuery = normalizedQuery
       .replace(yearMatch?.[0] ?? "", "")
       .trim()
@@ -313,14 +359,17 @@ export const searchModels = action({
     if (
       !vehicleQuery ||
       vehicleQuery.length < 2 ||
-      year < 1900 ||
-      year > new Date().getFullYear() + 1
+      (year !== undefined &&
+        (year < 1900 || year > new Date().getFullYear() + 1))
     ) {
       return [];
     }
 
     const [makeQuery = "", ...modelParts] = vehicleQuery.toLowerCase().split(" ");
     const modelQuery = modelParts.join(" ");
+    if (!year && !modelQuery) {
+      return [];
+    }
     const suggestions: Array<{
       year: number;
       make: string;
@@ -329,42 +378,27 @@ export const searchModels = action({
     }> = [];
 
     try {
-      const makes = toMenuItems(
-        await fetchJson(
-          `https://www.fueleconomy.gov/ws/rest/vehicle/menu/make?year=${year}`,
+      const years = year
+        ? [year]
+        : Array.from(
+            { length: 8 },
+            (_, index) => new Date().getFullYear() + 1 - index,
+          );
+      const results = await Promise.allSettled(
+        years.map((searchYear) =>
+          searchFuelEconomyModelsForYear(searchYear, makeQuery, modelQuery),
         ),
       );
-      const matchingMakes = makes
-        .filter((make) => make.text.toLowerCase().includes(makeQuery))
-        .slice(0, 4);
-
-      for (const make of matchingMakes) {
-        const models = toMenuItems(
-          await fetchJson(
-            `https://www.fueleconomy.gov/ws/rest/vehicle/menu/model?year=${year}&make=${encodeURIComponent(make.value)}`,
-          ),
-        );
-        const matchingModels = models
-          .filter((model) => {
-            if (!modelQuery) return true;
-            return model.text.toLowerCase().includes(modelQuery);
-          })
-          .slice(0, modelQuery ? 6 : 3);
-
-        for (const model of matchingModels) {
-          suggestions.push({
-            year,
-            make: make.text,
-            model: model.text,
-            source: "fuelEconomy",
-          });
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          suggestions.push(...result.value);
         }
       }
     } catch {
       // vPIC is used as a fallback below.
     }
 
-    if (suggestions.length < 3 && makeQuery.length >= 2) {
+    if (year && suggestions.length < 3 && makeQuery.length >= 2) {
       try {
         const vpic = await fetchJson(
           `https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMakeYear/make/${encodeURIComponent(makeQuery)}/modelyear/${year}?format=json`,

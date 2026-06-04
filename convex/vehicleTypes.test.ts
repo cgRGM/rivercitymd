@@ -108,6 +108,42 @@ describe("vehicleTypes", () => {
     ]);
   });
 
+  test("searches recent FuelEconomy model years when the year is omitted", async () => {
+    const t = convexTest(schema, modules);
+    const newestYear = new Date().getFullYear() + 1;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const urlString = String(url);
+        if (urlString.includes("/menu/make")) {
+          return Response.json({
+            menuItem: [{ text: "Kia", value: "Kia" }],
+          });
+        }
+        if (urlString.includes("/menu/model")) {
+          return Response.json({
+            menuItem: [{ text: "Sorento AWD", value: "Sorento AWD" }],
+          });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    const results = await t.action(api.vehicleTypes.searchModels, {
+      query: "Kia Sorento",
+    });
+
+    expect(results[0]).toEqual({
+      year: newestYear,
+      make: "Kia",
+      model: "Sorento AWD",
+      label: `${newestYear} Kia Sorento AWD`,
+      source: "fuelEconomy",
+    });
+    expect(results).toHaveLength(8);
+  });
+
   test("falls back to vPIC when FuelEconomy lookup fails", async () => {
     const t = convexTest(schema, modules);
 

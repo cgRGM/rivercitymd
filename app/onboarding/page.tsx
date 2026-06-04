@@ -135,6 +135,13 @@ export default function OnboardingPage() {
   };
 
   const updateVehicle = (index: number, nextVehicle: VehicleLookupValue) => {
+    if (
+      /^\d{4}$/.test(nextVehicle.year) &&
+      nextVehicle.make &&
+      nextVehicle.model
+    ) {
+      setError(null);
+    }
     setVehicles(
       vehicles.map((vehicle, vehicleIndex) =>
         vehicleIndex === index

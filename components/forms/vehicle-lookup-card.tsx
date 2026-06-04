@@ -111,6 +111,7 @@ export function VehicleLookupCard({
   const initialQuery = [value.year, value.make, value.model].filter(Boolean).join(" ");
   const [query, setQuery] = useState(initialQuery);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isClassifying, setIsClassifying] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -126,8 +127,13 @@ export function VehicleLookupCard({
 
   useEffect(() => {
     const parsed = parseVehicleQuery(query);
-    if (!isValidYear(parsed.year) || !parsed.make || query.trim().length < 6) {
+    const canSearch =
+      parsed.make &&
+      query.trim().length >= 3 &&
+      (isValidYear(parsed.year) || Boolean(parsed.model));
+    if (!canSearch) {
       setSuggestions([]);
+      setIsSearching(false);
       return;
     }
 
@@ -160,8 +166,9 @@ export function VehicleLookupCard({
   };
 
   const classifySelection = async (nextValue: VehicleLookupValue) => {
+    onChange(nextValue);
+
     if (!isValidYear(nextValue.year) || !nextValue.make || !nextValue.model) {
-      onChange(nextValue);
       return;
     }
 
@@ -199,6 +206,7 @@ export function VehicleLookupCard({
   };
 
   const selectSuggestion = (suggestion: Suggestion) => {
+    setIsMenuOpen(false);
     setSuggestions([]);
     setQuery(suggestion.label);
     void classifySelection({
@@ -212,6 +220,7 @@ export function VehicleLookupCard({
   const acceptTypedVehicle = () => {
     const typed = parseVehicleQuery(query);
     if (!isValidYear(typed.year) || !typed.make || !typed.model) return;
+    setIsMenuOpen(false);
     setSuggestions([]);
     void classifySelection({
       ...value,
@@ -321,15 +330,18 @@ export function VehicleLookupCard({
             <Input
               id={`${title}-vehicle`}
               className="pl-9"
-              placeholder="Search 2020 Kia Sorento"
+              placeholder="Search Kia Sorento or 2020 Kia Sorento"
               value={query}
               onBlur={() => {
                 if (!value.make || !value.model) {
                   acceptTypedVehicle();
                 }
+                setIsMenuOpen(false);
               }}
+              onFocus={() => setIsMenuOpen(true)}
               onChange={(event) => {
                 setQuery(event.target.value);
+                setIsMenuOpen(true);
                 updateValue({
                   year: "",
                   make: "",
@@ -342,7 +354,10 @@ export function VehicleLookupCard({
             />
           </div>
 
-          {(suggestions.length > 0 || isSearching || parseVehicleQuery(query).model) && (
+          {isMenuOpen &&
+            (suggestions.length > 0 ||
+              isSearching ||
+              (parseVehicleQuery(query).year && parseVehicleQuery(query).model)) && (
             <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border bg-background shadow-lg">
               {isSearching && (
                 <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
