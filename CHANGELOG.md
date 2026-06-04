@@ -6,7 +6,7 @@ All notable changes to River City Mobile Detailing are documented in this file.
 
 ### Changed
 
-- Opted GitHub Actions JavaScript actions into the Node.js 24 runtime.
+- Upgraded checkout, pnpm setup, and Node setup GitHub Actions to Node.js 24-native releases.
 
 ### Fixed
 
