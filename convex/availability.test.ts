@@ -3,6 +3,7 @@ import { expect, test, describe, beforeAll } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
+import { calculateSchedulingDuration } from "./lib/booking";
 
 const SUNDAY = "2024-12-01";
 const MONDAY = "2024-12-02";
@@ -229,6 +230,168 @@ describe("availability", () => {
 
     const twelveSlot = slots.find((s: (typeof slots)[number]) => s.time === "12:00");
     expect(twelveSlot?.available).toBe(true);
+  });
+
+  test("candidate service duration blocks starts that would overlap a later appointment", async () => {
+    const t = convexTest(schema, modules);
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Client",
+        email: "later-client@test.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "later-admin@test.com",
+        role: "admin",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const serviceId = await insertActiveService(t);
+
+    const vehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2020,
+        make: "Toyota",
+        model: "Camry",
+      });
+    });
+
+    await insertAvailabilityForDay(t, {
+      dayOfWeek: 1,
+      startTime: "08:00",
+      endTime: "17:00",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: MONDAY,
+        scheduledTime: "11:45",
+        duration: 120,
+        location: {
+          street: "123 Main",
+          city: "City",
+          state: "AR",
+          zip: "72001",
+        },
+        status: "confirmed",
+        totalPrice: 50,
+        createdBy: adminId,
+      });
+    });
+
+    const slots = await t.query(api.availability.getAvailableTimeSlots, {
+      date: MONDAY,
+      serviceDuration: 210,
+    });
+
+    const nineThirtySlot = slots.find(
+      (s: (typeof slots)[number]) => s.time === "09:30",
+    );
+    expect(nineThirtySlot?.available).toBe(false);
+    expect(nineThirtySlot?.reason).toBe("Time slot already booked");
+
+    const eightSlot = slots.find(
+      (s: (typeof slots)[number]) => s.time === "08:00",
+    );
+    expect(eightSlot?.available).toBe(true);
+  });
+
+  test("pet-fee-added duration blocks starts that would overlap a later appointment", async () => {
+    const t = convexTest(schema, modules);
+
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Client",
+        email: "pet-later-client@test.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "pet-later-admin@test.com",
+        role: "admin",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+    });
+
+    const serviceId = await insertActiveService(t);
+
+    const vehicleId = await t.run(async (ctx) => {
+      return await ctx.db.insert("vehicles", {
+        userId,
+        year: 2020,
+        make: "Toyota",
+        model: "Camry",
+      });
+    });
+
+    await insertAvailabilityForDay(t, {
+      dayOfWeek: 1,
+      startTime: "08:00",
+      endTime: "17:00",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: MONDAY,
+        scheduledTime: "11:45",
+        duration: 120,
+        location: {
+          street: "123 Main",
+          city: "City",
+          state: "AR",
+          zip: "72001",
+        },
+        status: "confirmed",
+        totalPrice: 50,
+        createdBy: adminId,
+      });
+    });
+
+    const slots = await t.query(api.availability.getAvailableTimeSlots, {
+      date: MONDAY,
+      serviceDuration: calculateSchedulingDuration({
+        serviceDurations: [120],
+        petFeeVehicleCount: 1,
+        petFeeTimeMinutes: 30,
+      }),
+    });
+
+    const nineThirtySlot = slots.find(
+      (s: (typeof slots)[number]) => s.time === "09:30",
+    );
+    expect(nineThirtySlot?.available).toBe(false);
+    expect(nineThirtySlot?.reason).toBe("Time slot already booked");
+
+    const nineFifteenSlot = slots.find(
+      (s: (typeof slots)[number]) => s.time === "09:15",
+    );
+    expect(nineFifteenSlot?.available).toBe(true);
   });
 
   test("next bookable date skips closed days", async () => {

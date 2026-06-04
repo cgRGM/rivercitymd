@@ -343,7 +343,7 @@ export const checkAvailability = query({
 export const getAvailableTimeSlots = query({
   args: {
     date: v.string(),
-    serviceDuration: v.number(), // retained for API compatibility
+    serviceDuration: v.number(),
     ignoreAppointmentId: v.optional(v.id("appointments")),
   },
   handler: async (ctx, args) => {
@@ -358,6 +358,8 @@ export const getAvailableTimeSlots = query({
       return []; // No business hours for this day
     }
 
+    const blockDuration = Math.max(args.serviceDuration || 0, BOOKING_BLOCK_MINUTES);
+
     // Generate time slots in 15-minute intervals
     const slots = [];
     const startMinutes = timeToMinutes(businessHours.startTime);
@@ -366,7 +368,7 @@ export const getAvailableTimeSlots = query({
     // Only generate start times where start + blockDuration <= business close
     for (
       let minutes = startMinutes;
-      minutes + BOOKING_BLOCK_MINUTES <= endMinutes;
+      minutes + blockDuration <= endMinutes;
       minutes += 15
     ) {
       const timeString = minutesToTime(minutes);
@@ -376,7 +378,7 @@ export const getAvailableTimeSlots = query({
         ctx,
         dateKey,
         timeString,
-        BOOKING_BLOCK_MINUTES,
+        blockDuration,
         undefined,
         args.ignoreAppointmentId,
       );

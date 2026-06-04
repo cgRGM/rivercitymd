@@ -133,7 +133,9 @@ export default function AdminSidebar() {
             <SidebarMenu>
               {menuItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href;
+                const isActive =
+                  pathname === item.href ||
+                  (item.href !== "/admin" && pathname.startsWith(`${item.href}/`));
                 // Get count for specific menu items
                 let count = 0;
                 if (item.href === "/admin/appointments") {

@@ -243,6 +243,7 @@ describe("appointments", () => {
         basePriceSmall: 25,
         basePriceMedium: 50,
         basePriceLarge: 75,
+        timeAddMinutes: 30,
         isActive: true,
       });
       return await ctx.db.insert("services", {
@@ -252,7 +253,7 @@ describe("appointments", () => {
         basePriceSmall: 100,
         basePriceMedium: 100,
         basePriceLarge: 100,
-        duration: 60,
+        duration: 120,
         serviceType: "standard",
         isActive: true,
       });
@@ -302,6 +303,7 @@ describe("appointments", () => {
     });
 
     expect(created.appointment?.totalPrice).toBe(300);
+    expect(created.appointment?.duration).toBe(300);
     expect(created.appointment?.petFeeVehicleIds).toEqual([
       smallVehicleId,
       largeVehicleId,
@@ -347,6 +349,7 @@ describe("appointments", () => {
     });
 
     expect(updated.appointment?.totalPrice).toBe(275);
+    expect(updated.appointment?.duration).toBe(270);
     expect(updated.appointment?.petFeeVehicleIds).toEqual([largeVehicleId]);
     expect(updated.invoice?.items.filter((item) => item.itemType === "pet_fee")).toEqual([
       expect.objectContaining({

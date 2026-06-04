@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -37,6 +37,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus } from "lucide-react";
+import { calculateSchedulingDuration } from "@/convex/lib/booking";
+import { TimeSlotPicker } from "@/components/home/time-slot-picker";
 
 const formSchema = z.object({
   userId: z.string().min(1, "Please select a user"),
@@ -78,6 +80,7 @@ export function AddAppointmentForm({
 
   const clients = useQuery(api.users.list);
   const services = useQuery(api.services.list);
+  const petFeeSettings = useQuery(api.petFeeSettings.get);
   const createAppointment = useMutation(api.appointments.create);
   const createVehicle = useMutation(api.vehicles.create);
 
@@ -99,10 +102,30 @@ export function AddAppointmentForm({
   });
 
   const selectedUserId = form.watch("userId");
+  const selectedServiceIds = form.watch("serviceIds");
+  const scheduledDate = form.watch("scheduledDate");
   const userVehicles = useQuery(
     api.vehicles.getByUser,
     selectedUserId ? { userId: selectedUserId as Id<"users"> } : "skip",
   );
+
+  const schedulingDuration = useMemo(() => {
+    const selectedServices =
+      services?.filter((service) => selectedServiceIds.includes(service._id)) ?? [];
+
+    return calculateSchedulingDuration({
+      serviceDurations: selectedServices.map((service) => service.duration || 0),
+      petFeeVehicleCount:
+        petFeeSettings?.isActive === false ? 0 : petFeeVehicleIds.length,
+      petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+    });
+  }, [
+    petFeeSettings?.isActive,
+    petFeeSettings?.timeAddMinutes,
+    petFeeVehicleIds.length,
+    selectedServiceIds,
+    services,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -526,7 +549,12 @@ export function AddAppointmentForm({
                   <FormItem>
                     <FormLabel>Time</FormLabel>
                     <FormControl>
-                      <Input type="time" {...field} />
+                      <TimeSlotPicker
+                        date={scheduledDate}
+                        selectedTime={field.value}
+                        onTimeSelect={field.onChange}
+                        serviceDuration={schedulingDuration}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
