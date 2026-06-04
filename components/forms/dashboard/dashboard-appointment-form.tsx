@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import AddressInput from "@/components/ui/address-input";
 import { ServiceCard } from "@/components/home/service-card";
 import { TimeSlotPicker } from "@/components/home/time-slot-picker";
 import {
@@ -36,6 +37,7 @@ import {
   ArrowRight,
   Car,
   Check,
+  MapPin,
   Plus,
 } from "lucide-react";
 import Link from "next/link";
@@ -52,6 +54,24 @@ interface DashboardAppointmentFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   preselectedVehicleId?: string | null;
+}
+
+interface RadarAddress {
+  formattedAddress?: string;
+  addressLabel?: string;
+  number?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  addressComponents?: {
+    street?: string;
+    city?: string;
+    locality?: string;
+    state?: string;
+    region?: string;
+    postalCode?: string;
+  };
 }
 
 export function DashboardAppointmentForm({
@@ -77,6 +97,7 @@ export function DashboardAppointmentForm({
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zip, setZip] = useState("");
+  const [addressMode, setAddressMode] = useState<"saved" | "new">("saved");
   const [locationNotes, setLocationNotes] = useState("");
   const [paymentOption, setPaymentOption] = useState<
     "deposit" | "full" | "in_person"
@@ -99,6 +120,44 @@ export function DashboardAppointmentForm({
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
   const calculateTravelFee = useAction(api.travelFees.calculate);
 
+  const hasSavedAddress = Boolean(
+    currentUser?.address?.street?.trim() &&
+      currentUser.address.city?.trim() &&
+      currentUser.address.state?.trim() &&
+      currentUser.address.zip?.trim(),
+  );
+
+  const selectSavedAddress = React.useCallback(() => {
+    if (!hasSavedAddress || !currentUser?.address) return;
+    setStreet(currentUser.address.street);
+    setCity(currentUser.address.city);
+    setState(currentUser.address.state);
+    setZip(currentUser.address.zip);
+    setAddressMode("saved");
+  }, [currentUser?.address, hasSavedAddress]);
+
+  const selectNewAddress = React.useCallback(() => {
+    setStreet("");
+    setCity("");
+    setState("");
+    setZip("");
+    setTravelQuote(null);
+    setAddressMode("new");
+  }, []);
+
+  const handleAddressSelect = React.useCallback((address: RadarAddress) => {
+    const components = address.addressComponents;
+    const streetName = address.street || components?.street || "";
+    const fullStreet = address.number
+      ? `${address.number} ${streetName}`.trim()
+      : streetName || address.formattedAddress || address.addressLabel || "";
+
+    setStreet(fullStreet);
+    setCity(address.city || components?.city || components?.locality || "");
+    setState(address.state || components?.state || components?.region || "");
+    setZip(address.postalCode || components?.postalCode || "");
+  }, []);
+
   React.useEffect(() => {
     if (!street.trim() || !city.trim() || !state.trim() || !zip.trim()) {
       setTravelQuote(null);
@@ -116,13 +175,17 @@ export function DashboardAppointmentForm({
 
   // Pre-fill address when user data loads
   React.useEffect(() => {
-    if (currentUser?.address && !street) {
-      setStreet(currentUser.address.street);
-      setCity(currentUser.address.city);
-      setState(currentUser.address.state);
-      setZip(currentUser.address.zip);
+    if (!open || street) return;
+    if (hasSavedAddress) {
+      selectSavedAddress();
+    } else {
+      setStreet("");
+      setCity("");
+      setState("");
+      setZip("");
+      setAddressMode("new");
     }
-  }, [currentUser, street]);
+  }, [hasSavedAddress, open, selectSavedAddress, street]);
 
   React.useEffect(() => {
     if (currentUser?.notificationPreferences?.operationalSmsConsent?.optedIn) {
@@ -157,9 +220,13 @@ export function DashboardAppointmentForm({
       setScheduledTime("");
       setLocationNotes("");
       setPaymentOption("deposit");
-      // Keep address pre-filled
+      if (hasSavedAddress) {
+        selectSavedAddress();
+      } else {
+        selectNewAddress();
+      }
     }
-  }, [open]);
+  }, [hasSavedAddress, open, selectNewAddress, selectSavedAddress]);
 
   // Derived state
   const selectedVehicle = userVehicles?.find(
@@ -570,38 +637,54 @@ export function DashboardAppointmentForm({
             <div className="space-y-4">
               <h3 className="text-sm font-medium">Service Location</h3>
               <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium">Street Address</label>
-                  <Input
-                    value={street}
-                    onChange={(e) => setStreet(e.target.value)}
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-sm font-medium">City</label>
-                    <Input
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
-                    />
+                {hasSavedAddress && currentUser?.address && addressMode === "saved" ? (
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-start gap-3">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">Saved address</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {currentUser.address.street}
+                          <br />
+                          {currentUser.address.city}, {currentUser.address.state}{" "}
+                          {currentUser.address.zip}
+                        </p>
+                      </div>
+                      <Check className="h-4 w-4 shrink-0" />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 w-full"
+                      onClick={selectNewAddress}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Use a different address
+                    </Button>
                   </div>
-                  <div>
-                    <label className="text-sm font-medium">State</label>
-                    <Input
-                      value={state}
-                      onChange={(e) => setState(e.target.value)}
-                      maxLength={2}
+                ) : (
+                  <div className="space-y-3">
+                    <AddressInput
+                      onAddressSelect={handleAddressSelect}
+                      label="New service address"
+                      placeholder="Search for your service address"
                     />
+                    {hasSavedAddress && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="w-full"
+                        onClick={selectSavedAddress}
+                      >
+                        <MapPin className="mr-2 h-4 w-4" />
+                        Use saved address
+                      </Button>
+                    )}
                   </div>
-                  <div>
-                    <label className="text-sm font-medium">ZIP</label>
-                    <Input
-                      value={zip}
-                      onChange={(e) => setZip(e.target.value)}
-                      maxLength={5}
-                    />
-                  </div>
-                </div>
+                )}
+
                 <div>
                   <label className="text-sm font-medium">
                     Location Notes (Optional)
