@@ -4,6 +4,7 @@ import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { formatTime12h } from "./lib/time";
+import { formatAdminBookingSms } from "./lib/notificationMessages";
 import {
   DEFAULT_BUSINESS_NOTIFICATION_SETTINGS,
   DEFAULT_USER_NOTIFICATION_PREFERENCES,
@@ -82,6 +83,10 @@ type QueueDispatchArgs = {
   checkoutUrl?: string;
   failureReason?: string;
 };
+
+function siteUrl(): string {
+  return process.env.CONVEX_SITE_URL || "https://patient-wombat-877.convex.site";
+}
 
 function resolveBusinessNotificationSettings(
   settings?: Doc<"businessInfo">["notificationSettings"],
@@ -570,7 +575,13 @@ async function buildSmsBody(
 
   if (args.event === "booking_received") {
     if (args.recipientType === "admin") {
-      return `River City MD: New booking received for ${customerName} on ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
+      return formatAdminBookingSms({
+        customerName,
+        appointmentDate: appointment.scheduledDate,
+        appointmentTime: formatTime12h(appointment.scheduledTime),
+        photoCount: appointment.beforePhotos?.length ?? 0,
+        appointmentUrl: `${siteUrl()}/admin/appointments/${appointment._id}`,
+      });
     }
     return `River City MD: We received your booking for ${appointment.scheduledDate} at ${formatTime12h(appointment.scheduledTime)}.`;
   }

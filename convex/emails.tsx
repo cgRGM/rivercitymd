@@ -815,8 +815,9 @@ export const sendAdminAppointmentNotification = internalAction({
         location: formatLocation(appointment.location),
         status: appointment.status,
         notes: appointment.notes,
+        beforePhotoCount: appointment.beforePhotos?.length ?? 0,
         businessName: businessInfo.business.name,
-        adminUrl: `${siteUrl()}/admin/appointments`,
+        adminUrl: `${siteUrl()}/admin/appointments/${args.appointmentId}`,
         logoUrl: logoUrl(),
       }),
     );

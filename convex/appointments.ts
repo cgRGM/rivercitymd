@@ -17,6 +17,7 @@ import {
   normalizeServiceType,
   type VehicleSize,
 } from "./lib/pricing";
+import { r2 } from "./r2";
 
 interface StripeInvoiceVehicleInput {
   size?: "small" | "medium" | "large";
@@ -537,8 +538,24 @@ export const getByIdWithDetails = query({
       )
       .first();
 
+    const beforePhotos = await Promise.all(
+      (appointment.beforePhotos ?? []).map(async (photo) => {
+        let signedUrl: string | undefined;
+        try {
+          signedUrl = await r2.getUrl(photo.key, { expiresIn: 60 * 60 * 24 });
+        } catch (error) {
+          console.warn(
+            `[appointments] Failed to sign before photo URL ${photo.key}`,
+            error,
+          );
+        }
+        return { ...photo, signedUrl };
+      }),
+    );
+
     return {
       ...appointment,
+      beforePhotos,
       user,
       services: servicesWithPricing,
       vehicles,

@@ -25,6 +25,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ArrowLeft,
   Mail,
   Phone,
@@ -39,6 +45,7 @@ import {
   Pencil,
   Save,
   X,
+  Images,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -104,6 +111,10 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     "send_invoice" | "charge_automatically"
   >("send_invoice");
   const [billingLoading, setBillingLoading] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<{
+    url: string;
+    fileName: string;
+  } | null>(null);
 
   // Edit form state
   const [editDate, setEditDate] = useState("");
@@ -329,6 +340,15 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
 
   const { user, services, vehicles, invoice, tripLog, location } = data;
   const customerVehicles = customerVehiclesQuery ?? [];
+  const beforePhotoGroups = Object.entries(
+    (data.beforePhotos ?? []).reduce<
+      Record<string, NonNullable<typeof data.beforePhotos>>
+    >((groups, photo) => {
+      const label = photo.vehicleLabel || "Unassigned vehicle";
+      groups[label] = [...(groups[label] ?? []), photo];
+      return groups;
+    }, {}),
+  );
   const canEdit = data.status === "pending" || data.status === "confirmed";
   const canEditBilling =
     !!invoice &&
@@ -694,6 +714,65 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
           </CardContent>
         </Card>
 
+        {(data.beforePhotos?.length ?? 0) > 0 && (
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-lg">
+                <span className="flex items-center gap-2">
+                  <Images className="h-5 w-5" />
+                  Before Photos ({data.beforePhotos.length})
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-5">
+                {beforePhotoGroups.map(([vehicleLabel, photos]) => (
+                  <section key={vehicleLabel} className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium">{vehicleLabel}</p>
+                      <Badge variant="secondary">
+                        {photos.length} photo{photos.length === 1 ? "" : "s"}
+                      </Badge>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {photos.map((photo) => (
+                        <div key={photo.key} className="overflow-hidden rounded-md border">
+                          {photo.signedUrl ? (
+                            <button
+                              type="button"
+                              className="block w-full text-left"
+                              onClick={() =>
+                                setPreviewPhoto({
+                                  url: photo.signedUrl!,
+                                  fileName: photo.fileName,
+                                })
+                              }
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={photo.signedUrl}
+                                alt={photo.fileName}
+                                className="aspect-[4/3] w-full object-cover"
+                              />
+                            </button>
+                          ) : (
+                            <div className="flex aspect-[4/3] items-center justify-center bg-muted p-4 text-center text-xs text-muted-foreground">
+                              Preview unavailable
+                            </div>
+                          )}
+                          <p className="truncate p-3 text-xs text-muted-foreground">
+                            {photo.fileName}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Payment / Invoice */}
         <Card>
           <CardHeader>
@@ -872,6 +951,25 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
           </CardContent>
         </Card>
       ) : null}
+
+      <Dialog
+        open={!!previewPhoto}
+        onOpenChange={(open) => !open && setPreviewPhoto(null)}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{previewPhoto?.fileName || "Before Photo"}</DialogTitle>
+          </DialogHeader>
+          {previewPhoto && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewPhoto.url}
+              alt={previewPhoto.fileName}
+              className="max-h-[75vh] w-full rounded-md object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
