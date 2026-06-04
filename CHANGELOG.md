@@ -2,6 +2,16 @@
 
 All notable changes to River City Mobile Detailing are documented in this file.
 
+## [0.1.1] - 2026-06-04
+
+### Changed
+
+- Upgraded checkout, pnpm setup, and Node setup GitHub Actions to Node.js 24-native releases.
+
+### Fixed
+
+- Removed the GitHub Actions Node.js 20 deprecation warning ahead of the June 16, 2026 default-runtime change.
+
 ## [0.1.0] - 2026-06-04
 
 ### Added
