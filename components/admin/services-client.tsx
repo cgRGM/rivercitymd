@@ -284,12 +284,14 @@ export default function ServicesClient() {
         </Button>
       ),
       cell: ({ row }) => (
-        <div className="min-w-[260px]">
+        <div className="min-w-[260px] max-w-[400px] whitespace-normal">
           <div className="flex items-center gap-2">
             {row.original.icon ? <span className="text-lg">{row.original.icon}</span> : null}
             <span className="font-medium">{row.original.name}</span>
           </div>
-          <p className="line-clamp-2 text-xs text-muted-foreground">{row.original.description}</p>
+          <p className="line-clamp-2 text-xs text-muted-foreground whitespace-normal break-words">
+            {row.original.description}
+          </p>
         </div>
       ),
     },
