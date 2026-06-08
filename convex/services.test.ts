@@ -223,7 +223,7 @@ describe("services", () => {
     expect(service?.vehiclePrices[0]?.price).toBe(210);
     expect(service?.vehiclePrices[0]?.duration).toBe(135);
     expect(service?.basePriceLarge).toBe(210);
-    expect(service?.duration).toBe(135);
+    expect(service?.duration).toBe(90);
   });
 
   test("create rejects matrix pricing with no available positive row", async () => {

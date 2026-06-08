@@ -641,9 +641,7 @@ export const create = mutation({
         basePriceMedium: args.basePriceMedium,
         basePriceLarge: args.basePriceLarge,
       });
-      const legacyDuration =
-        rows.find((row) => row.isAvailable && row.duration > 0)?.duration ??
-        args.duration;
+      const legacyDuration = args.duration;
       await ctx.db.patch(serviceId, {
         ...legacyPrices,
         basePrice:
@@ -722,9 +720,7 @@ export const update = mutation({
           basePriceMedium: updates.basePriceMedium,
           basePriceLarge: updates.basePriceLarge,
         };
-    const legacyDuration =
-      rows?.find((row) => row.isAvailable && row.duration > 0)?.duration ??
-      updates.duration;
+    const legacyDuration = updates.duration;
 
     await ctx.db.patch(serviceId, {
       name: updates.name,
