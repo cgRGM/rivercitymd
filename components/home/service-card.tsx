@@ -3,6 +3,10 @@
 import { cn } from "@/lib/utils";
 import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  getEffectiveServicePricingForVehicle,
+  type VehicleSize,
+} from "@/convex/lib/pricing";
 
 interface ServiceCardProps {
   service: {
@@ -12,9 +16,21 @@ interface ServiceCardProps {
     basePriceSmall?: number;
     basePriceMedium?: number;
     basePriceLarge?: number;
+    basePrice?: number;
+    duration?: number;
     serviceType?: "standard" | "addon" | "subscription";
+    vehiclePrices?: Array<{
+      vehicleTypeId?: string;
+      price: number;
+      duration?: number;
+      isAvailable: boolean;
+      vehicleType?: {
+        legacySize?: VehicleSize;
+      } | null;
+    }>;
   };
-  vehicleSize: "small" | "medium" | "large";
+  vehicleSize: VehicleSize;
+  vehicleTypeId?: string | null;
   isSelected: boolean;
   onSelect: (selected: boolean) => void;
 }
@@ -22,16 +38,14 @@ interface ServiceCardProps {
 export function ServiceCard({
   service,
   vehicleSize,
+  vehicleTypeId,
   isSelected,
   onSelect,
 }: ServiceCardProps) {
-  const price =
-    vehicleSize === "small"
-      ? service.basePriceSmall
-      : vehicleSize === "medium"
-        ? service.basePriceMedium
-        : service.basePriceLarge;
-
+  const pricing = getEffectiveServicePricingForVehicle(service, {
+    vehicleSize,
+    vehicleTypeId,
+  });
   const isSubscription = service.serviceType === "subscription";
 
   return (
@@ -72,7 +86,7 @@ export function ServiceCard({
            </div>
            <div className="flex items-baseline gap-1">
              <span className="font-bold text-lg text-primary">
-               ${price?.toFixed(2)}
+               ${pricing.price.toFixed(2)}
              </span>
              {isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
            </div>

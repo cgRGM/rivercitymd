@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatDateString, formatTime12h } from "@/lib/time";
 import {
-  getEffectiveServicePrice,
+  getEffectiveServicePricingForVehicle,
+  isServiceAvailableForVehicle,
   normalizeServiceType,
 } from "@/convex/lib/pricing";
 import { calculateSchedulingDuration } from "@/convex/lib/booking";
@@ -235,10 +236,18 @@ export function DashboardAppointmentForm({
   );
   const vehicleSize: VehicleSize =
     (selectedVehicle?.size as VehicleSize) || "medium";
+  const vehicleTypeId = selectedVehicle?.vehicleTypeId ?? null;
+  const vehiclePricingContext = useMemo(
+    () => ({ vehicleSize, vehicleTypeId }),
+    [vehicleSize, vehicleTypeId],
+  );
 
   const activeServices = useMemo(
-    () => services?.filter((s) => s.isActive) ?? [],
-    [services],
+    () =>
+      services?.filter((service) =>
+        isServiceAvailableForVehicle(service, vehiclePricingContext),
+      ) ?? [],
+    [services, vehiclePricingContext],
   );
 
   const standardServices = useMemo(
@@ -263,6 +272,27 @@ export function DashboardAppointmentForm({
     [activeServices],
   );
 
+  React.useEffect(() => {
+    if (
+      selectedStandardId &&
+      !standardServices.some((service) => service._id === selectedStandardId)
+    ) {
+      setSelectedStandardId(null);
+    }
+
+    const availableOptionalIds = new Set<string>(
+      [...addonServices, ...subscriptionServices].map((service) => service._id),
+    );
+    setSelectedServiceIds((current) =>
+      current.filter((serviceId) => availableOptionalIds.has(serviceId)),
+    );
+  }, [
+    addonServices,
+    selectedStandardId,
+    standardServices,
+    subscriptionServices,
+  ]);
+
   // All selected service IDs (standard + addons + subscriptions)
   const allSelectedServiceIds = useMemo(() => {
     const ids = [...selectedServiceIds];
@@ -280,10 +310,15 @@ export function DashboardAppointmentForm({
   const serviceTotal = useMemo(
     () =>
       selectedServicesData.reduce(
-        (sum, s) => sum + getEffectiveServicePrice(s, vehicleSize),
+        (sum, service) =>
+          sum +
+          getEffectiveServicePricingForVehicle(
+            service,
+            vehiclePricingContext,
+          ).price,
         0,
       ),
-    [selectedServicesData, vehicleSize],
+    [selectedServicesData, vehiclePricingContext],
   );
 
   const petFeeTotal = useMemo(() => {
@@ -305,7 +340,13 @@ export function DashboardAppointmentForm({
   const schedulingDuration = useMemo(
     () =>
       calculateSchedulingDuration({
-        serviceDurations: selectedServicesData.map((service) => service.duration || 0),
+        serviceDurations: selectedServicesData.map(
+          (service) =>
+            getEffectiveServicePricingForVehicle(
+              service,
+              vehiclePricingContext,
+            ).duration,
+        ),
         petFeeVehicleCount:
           hasPetFee && petFeeSettings?.isActive !== false ? 1 : 0,
         petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
@@ -315,6 +356,7 @@ export function DashboardAppointmentForm({
       petFeeSettings?.isActive,
       petFeeSettings?.timeAddMinutes,
       selectedServicesData,
+      vehiclePricingContext,
     ],
   );
 
@@ -536,6 +578,7 @@ export function DashboardAppointmentForm({
                           key={service._id}
                           service={service}
                           vehicleSize={vehicleSize}
+                          vehicleTypeId={vehicleTypeId}
                           isSelected={selectedStandardId === service._id}
                           onSelect={(selected) =>
                             setSelectedStandardId(
@@ -565,6 +608,7 @@ export function DashboardAppointmentForm({
                           key={service._id}
                           service={service}
                           vehicleSize={vehicleSize}
+                          vehicleTypeId={vehicleTypeId}
                           isSelected={selectedServiceIds.includes(service._id)}
                           onSelect={(selected) =>
                             handleAddonToggle(service._id, selected)
@@ -592,6 +636,7 @@ export function DashboardAppointmentForm({
                           key={service._id}
                           service={service}
                           vehicleSize={vehicleSize}
+                          vehicleTypeId={vehicleTypeId}
                           isSelected={selectedServiceIds.includes(service._id)}
                           onSelect={(selected) =>
                             handleAddonToggle(service._id, selected)
@@ -742,7 +787,10 @@ export function DashboardAppointmentForm({
 
               {/* Services */}
               {selectedServicesData.map((service) => {
-                const price = getEffectiveServicePrice(service, vehicleSize);
+                const price = getEffectiveServicePricingForVehicle(
+                  service,
+                  vehiclePricingContext,
+                ).price;
                 const isSubscription =
                   normalizeServiceType(service.serviceType) === "subscription";
                 return (

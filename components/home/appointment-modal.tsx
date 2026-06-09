@@ -7,6 +7,12 @@ import { useBookingStore } from "@/hooks/use-booking-store";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { calculateSchedulingDuration } from "@/convex/lib/booking";
+import {
+  getEffectiveServicePricingForVehicle,
+  isServiceAvailableForVehicle,
+  normalizeServiceType,
+  type VehicleSize,
+} from "@/convex/lib/pricing";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -200,6 +206,28 @@ export default function AppointmentModal({
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
   const convex = useConvex();
   const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
+  const vehiclePricingContexts = useMemo(() => {
+    const vehicles = step3Data?.vehicles ?? [];
+    if (vehicles.length === 0) {
+      return [{ vehicleSize: "medium" as VehicleSize, vehicleTypeId: null }];
+    }
+
+    return vehicles.map((vehicle) => ({
+      vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+      vehicleTypeId: vehicle.vehicleTypeId ?? null,
+    }));
+  }, [step3Data?.vehicles]);
+  const primaryVehiclePricingContext = vehiclePricingContexts[0] ?? {
+    vehicleSize: "medium" as VehicleSize,
+    vehicleTypeId: null,
+  };
+  const isAvailableForBookingVehicles = useCallback(
+    (service: Parameters<typeof isServiceAvailableForVehicle>[0]) =>
+      vehiclePricingContexts.every((vehicle) =>
+        isServiceAvailableForVehicle(service, vehicle),
+      ),
+    [vehiclePricingContexts],
+  );
 
   const watchedStreet = step1Form.watch("street");
   const watchedCity = step1Form.watch("city");
@@ -249,7 +277,12 @@ export default function AppointmentModal({
         : step3Data?.vehicles?.filter((vehicle) => vehicle.hasPet).length ?? 0;
 
     return calculateSchedulingDuration({
-      serviceDurations: selectedServices.map((service) => service.duration || 0),
+      serviceDurations: selectedServices.flatMap((service) =>
+        vehiclePricingContexts.map(
+          (vehicle) =>
+            getEffectiveServicePricingForVehicle(service, vehicle).duration,
+        ),
+      ),
       petFeeVehicleCount,
       petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
     });
@@ -259,6 +292,7 @@ export default function AppointmentModal({
     services,
     step3Data?.vehicles,
     step4Data?.serviceIds,
+    vehiclePricingContexts,
   ]);
 
 
@@ -303,6 +337,35 @@ export default function AppointmentModal({
       serviceIds: step4Data?.serviceIds || [],
     },
   });
+
+  useEffect(() => {
+    if (!services || !step4Data?.serviceIds?.length) {
+      return;
+    }
+
+    const availableServiceIds = new Set(
+      services
+        .filter((service) => isAvailableForBookingVehicles(service))
+        .map((service) => service._id),
+    );
+    const nextServiceIds = step4Data.serviceIds.filter((serviceId) =>
+      availableServiceIds.has(serviceId as Id<"services">),
+    );
+
+    if (nextServiceIds.length !== step4Data.serviceIds.length) {
+      step4Form.setValue("serviceIds", nextServiceIds, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      setStep4Data({ serviceIds: nextServiceIds });
+    }
+  }, [
+    isAvailableForBookingVehicles,
+    services,
+    setStep4Data,
+    step4Data?.serviceIds,
+    step4Form,
+  ]);
 
   // Pre-fill user data if authenticated
   useEffect(() => {
@@ -497,7 +560,13 @@ export default function AppointmentModal({
               ? 0
               : step3Data?.vehicles?.filter((vehicle) => vehicle.hasPet).length ?? 0;
           const selectedDuration = calculateSchedulingDuration({
-            serviceDurations: selectedServices.map((service) => service.duration || 0),
+            serviceDurations: selectedServices.flatMap((service) =>
+              vehiclePricingContexts.map(
+                (vehicle) =>
+                  getEffectiveServicePricingForVehicle(service, vehicle)
+                    .duration,
+              ),
+            ),
             petFeeVehicleCount,
             petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
           });
@@ -1061,8 +1130,31 @@ export default function AppointmentModal({
                       <FormControl>
                         <div className="space-y-8">
                           {(() => {
-                            const primaryVehicle = step3Data?.vehicles?.[0];
-                            const selectedVehicleSize = primaryVehicle?.size ?? "medium";
+                            const selectedVehicleSize =
+                              primaryVehiclePricingContext.vehicleSize;
+                            const selectedVehicleTypeId =
+                              primaryVehiclePricingContext.vehicleTypeId;
+                            const standardServices =
+                              services?.filter(
+                                (service) =>
+                                  normalizeServiceType(service.serviceType) ===
+                                    "standard" &&
+                                  isAvailableForBookingVehicles(service),
+                              ) ?? [];
+                            const addonServices =
+                              services?.filter(
+                                (service) =>
+                                  normalizeServiceType(service.serviceType) ===
+                                    "addon" &&
+                                  isAvailableForBookingVehicles(service),
+                              ) ?? [];
+                            const subscriptionServices =
+                              services?.filter(
+                                (service) =>
+                                  normalizeServiceType(service.serviceType) ===
+                                    "subscription" &&
+                                  isAvailableForBookingVehicles(service),
+                              ) ?? [];
 
                             return (
                               <>
@@ -1074,9 +1166,7 @@ export default function AppointmentModal({
                                     Packages
                                   </h4>
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {services
-                                      ?.filter(s => s.isActive && (s.serviceType === "standard" || !s.serviceType))
-                                      .map(service => {
+                                    {standardServices.map(service => {
                                         const isSelected = field.value?.includes(service._id) || false;
 
                                         return (
@@ -1084,19 +1174,30 @@ export default function AppointmentModal({
                                             key={service._id}
                                             service={service}
                                             vehicleSize={selectedVehicleSize}
+                                            vehicleTypeId={selectedVehicleTypeId}
                                             isSelected={isSelected}
                                             onSelect={() => {
                                               const current = field.value || [];
                                               // Remove other standard services, keep addons/subs
                                               const otherServices = current.filter(id => {
                                                 const s = services.find(s => s._id === id);
-                                                return s && s.serviceType !== "standard" && s.serviceType;
+                                                return (
+                                                  s &&
+                                                  normalizeServiceType(
+                                                    s.serviceType,
+                                                  ) !== "standard"
+                                                );
                                               });
                                               field.onChange([...otherServices, service._id]);
                                             }}
                                           />
                                         );
                                       })}
+                                      {standardServices.length === 0 && (
+                                        <p className="text-sm text-muted-foreground italic col-span-full">
+                                          No packages are available for this vehicle yet.
+                                        </p>
+                                      )}
                                   </div>
                                 </div>
 
@@ -1104,9 +1205,7 @@ export default function AppointmentModal({
                                 <div className="space-y-3">
                                   <h4 className="font-medium text-muted-foreground">Add-ons (Optional)</h4>
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {services
-                                      ?.filter(s => s.isActive && s.serviceType === "addon")
-                                      .map(service => {
+                                    {addonServices.map(service => {
                                         const isSelected = field.value?.includes(service._id) || false;
 
                                         return (
@@ -1114,6 +1213,7 @@ export default function AppointmentModal({
                                             key={service._id}
                                             service={service}
                                             vehicleSize={selectedVehicleSize}
+                                            vehicleTypeId={selectedVehicleTypeId}
                                             isSelected={isSelected}
                                             onSelect={() => {
                                               const currentIds = field.value || [];
@@ -1125,7 +1225,7 @@ export default function AppointmentModal({
                                           />
                                         );
                                       })}
-                                      {services?.filter(s => s.isActive && s.serviceType === "addon").length === 0 && (
+                                      {addonServices.length === 0 && (
                                         <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
                                       )}
                                   </div>
@@ -1135,9 +1235,7 @@ export default function AppointmentModal({
                                 <div className="space-y-3">
                                   <h4 className="font-medium text-muted-foreground">Subscriptions (Optional)</h4>
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {services
-                                      ?.filter(s => s.isActive && s.serviceType === "subscription")
-                                      .map(service => {
+                                    {subscriptionServices.map(service => {
                                         const isSelected = field.value?.includes(service._id) || false;
 
                                         return (
@@ -1145,12 +1243,18 @@ export default function AppointmentModal({
                                             key={service._id}
                                             service={service}
                                             vehicleSize={selectedVehicleSize}
+                                            vehicleTypeId={selectedVehicleTypeId}
                                             isSelected={isSelected}
                                             onSelect={(selected) => {
                                               const current = field.value || [];
                                               const otherServices = current.filter(id => {
                                                 const s = services.find(s => s._id === id);
-                                                return s && s.serviceType !== "subscription";
+                                                return (
+                                                  s &&
+                                                  normalizeServiceType(
+                                                    s.serviceType,
+                                                  ) !== "subscription"
+                                                );
                                               });
                                               
                                               if (selected) {
@@ -1164,7 +1268,7 @@ export default function AppointmentModal({
                                           />
                                         );
                                       })}
-                                      {services?.filter(s => s.isActive && s.serviceType === "subscription").length === 0 && (
+                                      {subscriptionServices.length === 0 && (
                                         <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
                                       )}
                                   </div>
@@ -1189,9 +1293,7 @@ export default function AppointmentModal({
 
         {currentStep === 5 && (() => {
           // Compute service total and deposit for display
-          const primaryVehicle = step3Data?.vehicles?.[0];
-          const vehicleSize = primaryVehicle?.size ?? "medium";
-          const vehicleCount = step3Data?.vehicles?.length ?? 1;
+          const vehicleCount = vehiclePricingContexts.length;
           const depositPerVehicle = 50;
           const depositTotal = depositPerVehicle * vehicleCount;
           const petFeeForSize = (size: "small" | "medium" | "large") => {
@@ -1209,14 +1311,14 @@ export default function AppointmentModal({
             step4Data?.serviceIds?.includes(s._id),
           ) ?? [];
           const serviceTotal = selectedServices.reduce((sum, service) => {
-            const price =
-              vehicleSize === "small"
-                ? service.basePriceSmall
-                : vehicleSize === "medium"
-                  ? service.basePriceMedium
-                  : service.basePriceLarge;
-            return sum + (price ?? 0);
-          }, 0) * vehicleCount;
+            const serviceSubtotal = vehiclePricingContexts.reduce(
+              (vehicleSum, vehicle) =>
+                vehicleSum +
+                getEffectiveServicePricingForVehicle(service, vehicle).price,
+              0,
+            );
+            return sum + serviceSubtotal;
+          }, 0);
           const petFeeTotal = (step3Data?.vehicles ?? []).reduce((sum, vehicle) => {
             if (!vehicle.hasPet) return sum;
             return sum + petFeeForSize(vehicle.size ?? "medium");
@@ -1235,12 +1337,13 @@ export default function AppointmentModal({
                </h3>
                {selectedServices.map((service) => {
                    const isSubscription = service.serviceType === "subscription";
-                   const price =
-                     vehicleSize === "small"
-                       ? service.basePriceSmall
-                       : vehicleSize === "medium"
-                         ? service.basePriceMedium
-                         : service.basePriceLarge;
+                   const serviceSubtotal = vehiclePricingContexts.reduce(
+                     (sum, vehicle) =>
+                       sum +
+                       getEffectiveServicePricingForVehicle(service, vehicle)
+                         .price,
+                     0,
+                   );
 
                    return (
                      <div key={service._id} className="flex justify-between text-sm mb-2">
@@ -1249,7 +1352,7 @@ export default function AppointmentModal({
                          {vehicleCount > 1 && <span className="text-xs"> x{vehicleCount}</span>}
                        </span>
                        <div className="flex items-center gap-1">
-                          <span className="font-medium">${((price ?? 0) * vehicleCount).toFixed(2)}</span>
+                          <span className="font-medium">${serviceSubtotal.toFixed(2)}</span>
                           {isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
                        </div>
                      </div>
