@@ -17,8 +17,10 @@ type ServicePricingShape = {
   basePriceSmall?: number;
   basePriceMedium?: number;
   basePriceLarge?: number;
+  duration?: number;
   isActive?: boolean;
   serviceType?: ServiceType;
+  vehiclePrices?: ServiceVehiclePriceShape[];
 };
 
 type PetFeePricingShape = {
@@ -44,6 +46,64 @@ export function getEffectiveServicePrice(
     return service.basePriceLarge ?? service.basePriceMedium ?? fallback;
   }
   return service.basePriceMedium ?? fallback;
+}
+
+export function getEffectiveServicePricingForVehicle(
+  service: ServicePricingShape,
+  vehicle: {
+    vehicleSize: VehicleSize;
+    vehicleTypeId?: string | null;
+  },
+): {
+  price: number;
+  duration: number;
+  isAvailable: boolean;
+} {
+  const fallbackDuration = Math.max(0, service.duration ?? 0);
+  const rows = service.vehiclePrices ?? [];
+
+  if (rows.length > 0) {
+    const exactRow = vehicle.vehicleTypeId
+      ? rows.find((row) => row.vehicleTypeId === vehicle.vehicleTypeId)
+      : undefined;
+    const legacyRow = !vehicle.vehicleTypeId
+      ? rows.find(
+          (row) => row.vehicleType?.legacySize === vehicle.vehicleSize,
+        )
+      : undefined;
+    const row = exactRow ?? legacyRow;
+
+    if (!row) {
+      return { price: 0, duration: fallbackDuration, isAvailable: false };
+    }
+
+    const price = Number.isFinite(row.price) ? row.price : 0;
+    return {
+      price,
+      duration: Math.max(0, row.duration ?? fallbackDuration),
+      isAvailable: row.isAvailable && price > 0,
+    };
+  }
+
+  const price = getEffectiveServicePrice(service, vehicle.vehicleSize);
+  return {
+    price,
+    duration: fallbackDuration,
+    isAvailable: service.isActive !== false && price > 0,
+  };
+}
+
+export function isServiceAvailableForVehicle(
+  service: ServicePricingShape,
+  vehicle: {
+    vehicleSize: VehicleSize;
+    vehicleTypeId?: string | null;
+  },
+): boolean {
+  return (
+    service.isActive === true &&
+    getEffectiveServicePricingForVehicle(service, vehicle).isAvailable
+  );
 }
 
 export function hasAnyPositiveServicePrice(service: ServicePricingShape): boolean {

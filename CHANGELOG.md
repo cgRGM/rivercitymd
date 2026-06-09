@@ -2,6 +2,17 @@
 
 All notable changes to River City Mobile Detailing are documented in this file.
 
+## Unreleased
+
+### Changed
+
+- Filter booking services, add-ons, and subscriptions by the selected vehicle type across marketing-site and dashboard booking flows.
+- Calculate multi-vehicle booking totals and appointment duration from each selected service per vehicle, including vehicle-type pricing rows and pet-fee time.
+
+### Fixed
+
+- Kept draft checkout duration recalculation aligned with multi-vehicle service duration blocking.
+
 ## [0.1.1] - 2026-06-04
 
 ### Changed

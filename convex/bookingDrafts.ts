@@ -718,6 +718,36 @@ export const getSchedulingDurationInternal = internalQuery({
         draft.existingVehicleIds.map((vehicleId) => ctx.db.get(vehicleId)),
       )
     ).filter((vehicle): vehicle is Doc<"vehicles"> => vehicle !== null);
+    const pricingVehicles = [
+      ...existingVehicles.map((vehicle) => ({
+        size: vehicle.size,
+        vehicleTypeId: vehicle.vehicleTypeId,
+      })),
+      ...draft.draftVehicles.map((vehicle) => ({
+        size: vehicle.size,
+        vehicleTypeId: vehicle.vehicleTypeId,
+      })),
+    ];
+    const serviceDurations = [];
+    for (const vehicle of pricingVehicles) {
+      for (const service of services) {
+        let serviceDuration = service.duration || 0;
+        if (vehicle.vehicleTypeId) {
+          const matrixPrice = await ctx.db
+            .query("serviceVehiclePrices")
+            .withIndex("by_service_and_vehicle_type", (q: any) =>
+              q
+                .eq("serviceId", service._id)
+                .eq("vehicleTypeId", vehicle.vehicleTypeId),
+            )
+            .first();
+          if (matrixPrice?.isAvailable && matrixPrice.price > 0) {
+            serviceDuration = matrixPrice.duration || serviceDuration;
+          }
+        }
+        serviceDurations.push(serviceDuration);
+      }
+    }
     const petFeeVehicleCount =
       petFeeSettings?.isActive === false
         ? 0
@@ -726,7 +756,7 @@ export const getSchedulingDurationInternal = internalQuery({
           ).length + draft.draftVehicles.filter((vehicle) => vehicle.hasPet).length;
 
     return calculateSchedulingDuration({
-      serviceDurations: services.map((service) => service.duration || 0),
+      serviceDurations,
       petFeeVehicleCount,
       petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
     });
