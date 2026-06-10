@@ -13,6 +13,20 @@ export const size = {
 export const contentType = "image/png";
 
 export default async function Image() {
+  // Load logo
+  const logoData = await fetch(
+    new URL("../../public/BoldRiverCityMobileDetailingLogo.png", import.meta.url)
+  ).then((res) => res.arrayBuffer());
+  const logoBase64 = Buffer.from(logoData).toString("base64");
+  const logoDataUrl = `data:image/png;base64,${logoBase64}`;
+
+  // Load car image
+  const carData = await fetch(
+    new URL("../../public/luxury-car-being-detailed-professionally.jpg", import.meta.url)
+  ).then((res) => res.arrayBuffer());
+  const carBase64 = Buffer.from(carData).toString("base64");
+  const carDataUrl = `data:image/jpeg;base64,${carBase64}`;
+
   return new ImageResponse(
     (
       <div
@@ -20,265 +34,245 @@ export default async function Image() {
           height: "100%",
           width: "100%",
           display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
           justifyContent: "space-between",
-          background: "linear-gradient(135deg, #0b0f19 0%, #030712 100%)",
+          backgroundColor: "#faf9f6",
           fontFamily: "system-ui, -apple-system, sans-serif",
-          padding: "80px",
-          color: "#ffffff",
+          padding: "60px",
+          color: "#1c1917",
           position: "relative",
         }}
       >
-        {/* Glowing aura background */}
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            left: 0,
-            backgroundImage: "radial-gradient(circle at 80% 20%, rgba(14, 165, 233, 0.12) 0%, transparent 60%)",
-            display: "flex",
-          }}
-        />
-
-        {/* Top Header Row (Logo & Brand) */}
+        {/* Left Column: Branding and CTA */}
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            zIndex: 10,
+            flexDirection: "column",
+            justifyContent: "space-between",
+            width: "520px",
+            height: "100%",
           }}
         >
-          {/* Stylized River Logo in SVG */}
-          <svg
-            width="44"
-            height="44"
-            viewBox="0 0 48 48"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M6 34C14 26 18 38 26 30C34 22 34 26 42 18"
-              stroke="#0ea5e9"
-              strokeWidth="6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M6 22C14 14 18 26 26 18C34 10 34 14 42 6"
-              stroke="#38bdf8"
-              strokeWidth="6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          {/* Logo & Brand Name */}
           <div
             style={{
               display: "flex",
-              flexDirection: "column",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: "12px",
             }}
           >
+            <img
+              src={logoDataUrl}
+              alt="River City Logo"
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+              }}
+            />
             <span
               style={{
                 fontSize: "22px",
-                fontWeight: 800,
-                letterSpacing: "0.1em",
-                color: "#ffffff",
-                textTransform: "uppercase",
+                fontWeight: 700,
+                letterSpacing: "-0.01em",
+                color: "#1c1917",
               }}
             >
-              River City
-            </span>
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                letterSpacing: "0.2em",
-                color: "#38bdf8",
-                textTransform: "uppercase",
-                marginTop: "-2px",
-              }}
-            >
-              Mobile Detailing
+              River City Mobile Detailing
             </span>
           </div>
-        </div>
 
-        {/* Main Content Layout */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            width: "100%",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "48px",
-            zIndex: 10,
-          }}
-        >
-          {/* Left Column: text content */}
+          {/* Heading and Subheading */}
           <div
             style={{
               display: "flex",
               flexDirection: "column",
-              flex: 1.2,
-              gap: "24px",
+              gap: "16px",
+              marginTop: "20px",
+              marginBottom: "20px",
             }}
           >
-            <h1
+            {/* Tag / Badge */}
+            <div
               style={{
-                fontSize: "56px",
-                fontWeight: 800,
-                lineHeight: 1.1,
-                letterSpacing: "-0.02em",
-                margin: 0,
-                color: "#ffffff",
+                display: "flex",
+                width: "fit-content",
+                backgroundColor: "rgba(11, 132, 158, 0.08)",
+                border: "1px solid rgba(11, 132, 158, 0.15)",
+                color: "#0b849e",
+                padding: "6px 12px",
+                borderRadius: "9999px",
+                fontSize: "13px",
+                fontWeight: 600,
               }}
             >
-              Book Your Detailing Service{" "}
-              <span style={{ color: "#0ea5e9" }}>Online</span>
+              Serving Central Arkansas
+            </div>
+
+            <h1
+              style={{
+                fontSize: "48px",
+                fontWeight: 800,
+                lineHeight: 1.15,
+                letterSpacing: "-0.02em",
+                margin: 0,
+                color: "#1c1917",
+              }}
+            >
+              Premium mobile detailing at your{" "}
+              <span style={{ color: "#0b849e" }}>doorstep</span>
             </h1>
 
             <p
               style={{
-                fontSize: "22px",
-                color: "#94a3b8",
+                fontSize: "18px",
+                color: "#57534e",
                 lineHeight: 1.4,
                 margin: 0,
               }}
             >
-              Showroom-quality mobile car care directly at your location. Serving Little Rock, Conway, and Central Arkansas.
+              Showroom-quality car care delivered directly to you. Fast online scheduling for Sedans, SUVs, and Trucks.
             </p>
           </div>
 
-          {/* Right Column: Stylized Booking Ticket/Card */}
+          {/* CTA Button and Rating Summary */}
           <div
             style={{
               display: "flex",
-              flexDirection: "column",
-              flex: 0.8,
-              backgroundColor: "rgba(15, 23, 42, 0.6)",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              borderRadius: "24px",
-              padding: "32px",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5)",
+              flexDirection: "row",
+              alignItems: "center",
               gap: "16px",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "#38bdf8", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                Booking Preview
-              </span>
-              <span style={{ fontSize: "11px", fontWeight: 600, color: "#10b981", backgroundColor: "rgba(16, 185, 129, 0.1)", padding: "4px 10px", borderRadius: "9999px" }}>
-                Available
-              </span>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-              <span style={{ fontSize: "20px", fontWeight: 700, color: "#ffffff" }}>
-                Premium Full Detail
-              </span>
-              <span style={{ fontSize: "14px", color: "#94a3b8" }}>
-                Sedan / SUV / Truck packages
-              </span>
-            </div>
-
-            <div style={{ height: "1px", backgroundColor: "rgba(255, 255, 255, 0.08)", width: "100%" }} />
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ color: "#0ea5e9", fontSize: "14px" }}>📅</span>
-                <span style={{ fontSize: "14px", color: "#e2e8f0" }}>Select Date & Time Slot</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ color: "#0ea5e9", fontSize: "14px" }}>📍</span>
-                <span style={{ fontSize: "14px", color: "#e2e8f0" }}>Your Doorstep (Central AR)</span>
-              </div>
-            </div>
-
             <div
               style={{
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "#0ea5e9",
-                color: "#ffffff",
-                padding: "12px",
+                backgroundColor: "#1c1917",
+                color: "#faf9f6",
+                padding: "14px 28px",
                 borderRadius: "12px",
                 fontWeight: 700,
-                fontSize: "15px",
-                marginTop: "12px",
+                fontSize: "16px",
               }}
             >
-              Confirm Appointment
+              Book Your Detail
             </div>
+            <span
+              style={{
+                fontSize: "14px",
+                fontWeight: 600,
+                color: "#78716c",
+              }}
+            >
+              ★ 5.0 Rated (500+ Reviews)
+            </span>
           </div>
         </div>
 
-        {/* Footer / Highlights Row */}
+        {/* Right Column: Visual Image with Floating Cards */}
         <div
           style={{
+            position: "relative",
+            width: "500px",
+            height: "350px",
             display: "flex",
-            alignItems: "center",
-            gap: "24px",
-            zIndex: 10,
-            marginTop: "auto",
           }}
         >
-          {/* Badge 1 */}
+          {/* Main Car Image */}
           <div
             style={{
+              width: "100%",
+              height: "100%",
+              borderRadius: "24px",
+              overflow: "hidden",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
               display: "flex",
-              alignItems: "center",
-              backgroundColor: "rgba(30, 41, 59, 0.7)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              borderRadius: "9999px",
-              padding: "10px 20px",
-              gap: "8px",
             }}
           >
-            <span style={{ color: "#fbbf24", fontSize: "18px" }}>★</span>
-            <span style={{ fontSize: "15px", fontWeight: 600, color: "#f8fafc" }}>
-              5.0 Star Rated
+            <img
+              src={carDataUrl}
+              alt="Car Detailing"
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+              }}
+            />
+          </div>
+
+          {/* Floating Rating Badge */}
+          <div
+            style={{
+              position: "absolute",
+              top: "-15px",
+              right: "-15px",
+              backgroundColor: "#ffffff",
+              border: "1px solid rgba(0, 0, 0, 0.06)",
+              borderRadius: "16px",
+              padding: "10px 16px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "18px",
+                fontWeight: 800,
+                color: "#0b849e",
+              }}
+            >
+              5.0★
+            </span>
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 600,
+                color: "#78716c",
+                marginTop: "1px",
+              }}
+            >
+              Average Rating
             </span>
           </div>
 
-          {/* Badge 2 */}
+          {/* Floating Happy Customers Badge */}
           <div
             style={{
+              position: "absolute",
+              bottom: "-15px",
+              left: "-15px",
+              backgroundColor: "#ffffff",
+              border: "1px solid rgba(0, 0, 0, 0.06)",
+              borderRadius: "16px",
+              padding: "10px 16px",
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              backgroundColor: "rgba(30, 41, 59, 0.7)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              borderRadius: "9999px",
-              padding: "10px 20px",
-              gap: "8px",
+              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
             }}
           >
-            <span style={{ color: "#0ea5e9", fontSize: "16px" }}>✦</span>
-            <span style={{ fontSize: "15px", fontWeight: 600, color: "#f8fafc" }}>
-              Serving Central Arkansas
+            <span
+              style={{
+                fontSize: "18px",
+                fontWeight: 800,
+                color: "#0b849e",
+              }}
+            >
+              500+
             </span>
-          </div>
-
-          {/* Badge 3 */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              backgroundColor: "rgba(30, 41, 59, 0.7)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              borderRadius: "9999px",
-              padding: "10px 20px",
-              gap: "8px",
-            }}
-          >
-            <span style={{ color: "#10b981", fontSize: "18px" }}>●</span>
-            <span style={{ fontSize: "15px", fontWeight: 600, color: "#f8fafc" }}>
-              Open 7 Days a Week
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 600,
+                color: "#78716c",
+                marginTop: "1px",
+              }}
+            >
+              Happy Customers
             </span>
           </div>
         </div>

@@ -206,6 +206,14 @@ const schema = defineSchema({
     userId: v.id("users"),
     vehicleIds: v.array(v.id("vehicles")),
     serviceIds: v.array(v.id("services")),
+    vehicleServices: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.id("vehicles"),
+          serviceIds: v.array(v.id("services")),
+        })
+      )
+    ),
     scheduledDate: v.string(), // ISO date string
     scheduledTime: v.string(), // HH:MM format
     duration: v.number(), // total duration in minutes
@@ -273,6 +281,14 @@ const schema = defineSchema({
       notes: v.optional(v.string()),
     }),
     existingVehicleIds: v.array(v.id("vehicles")),
+    existingVehicleServices: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.id("vehicles"),
+          serviceIds: v.array(v.id("services")),
+        })
+      )
+    ),
     draftVehicles: v.array(
       v.object({
         year: v.number(),
@@ -303,6 +319,7 @@ const schema = defineSchema({
         licensePlate: v.optional(v.string()),
         hasPet: v.optional(v.boolean()),
         beforePhotos: v.optional(v.array(bookingBeforePhotoValidator)),
+        serviceIds: v.optional(v.array(v.id("services"))),
       }),
     ),
     petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),

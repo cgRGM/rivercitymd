@@ -51,6 +51,7 @@ interface Step3Data {
 
 interface Step4Data {
   serviceIds: string[]
+  vehicleServices?: Record<string, string[]>
 }
 
 interface BookingStore {
