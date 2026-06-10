@@ -1,8 +1,20 @@
-"use client";
-
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import BookingFlow from "@/components/booking/booking-flow";
+
+export const metadata: Metadata = {
+  title: "Book Online | River City Mobile Detailing",
+  description:
+    "Schedule your premium mobile detailing service online. Choose your packages, select a convenient date & time slot, and we'll come directly to your location in Central Arkansas.",
+  openGraph: {
+    title: "Book Your Detailing Service Online | River City Mobile Detailing",
+    description:
+      "Showroom-quality car detailing that comes to you. Schedule standard packages, add-ons, and subscription washes online.",
+    url: "/book",
+    siteName: "River City Mobile Detailing",
+  },
+};
 
 export default function BookPage() {
   return (
