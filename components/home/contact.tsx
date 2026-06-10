@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -8,26 +8,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MapPin, Phone, Clock } from "lucide-react";
 import { motion } from "motion/react";
-import AppointmentModal from "@/components/home/appointment-modal";
 
 export default function ContactSection() {
-  const [bookingOpen, setBookingOpen] = useState(false);
+  const router = useRouter();
   const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
 
   const handleBookNow = () => {
     if (bookingReadiness && !bookingReadiness.isReady) {
-      window.location.href = "/sign-up";
+      router.push("/sign-up");
       return;
     }
     if (bookingReadiness === undefined) {
       return;
     }
-    setBookingOpen(true);
+    router.push("/book");
   };
 
   return (
     <>
-      <AppointmentModal open={bookingOpen} onOpenChange={setBookingOpen} />
       <section id="contact" className="py-24">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center max-w-6xl mx-auto">

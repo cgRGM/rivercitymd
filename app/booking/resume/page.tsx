@@ -126,7 +126,7 @@ export default function BookingResumePage() {
       },
     });
 
-    router.push("/?resumeBooking=1");
+    router.push("/book");
   };
 
   return (
