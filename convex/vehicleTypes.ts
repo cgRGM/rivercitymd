@@ -367,9 +367,7 @@ export const searchModels = action({
 
     const [makeQuery = "", ...modelParts] = vehicleQuery.toLowerCase().split(" ");
     const modelQuery = modelParts.join(" ");
-    if (!year && !modelQuery) {
-      return [];
-    }
+
     const suggestions: Array<{
       year: number;
       make: string;

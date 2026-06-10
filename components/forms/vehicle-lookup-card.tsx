@@ -129,8 +129,7 @@ export function VehicleLookupCard({
     const parsed = parseVehicleQuery(query);
     const canSearch =
       parsed.make &&
-      query.trim().length >= 3 &&
-      (isValidYear(parsed.year) || Boolean(parsed.model));
+      query.trim().length >= 3;
     if (!canSearch) {
       setSuggestions([]);
       setIsSearching(false);
@@ -369,16 +368,13 @@ export function VehicleLookupCard({
                 <button
                   key={`${suggestion.source}-${suggestion.label}`}
                   type="button"
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     selectSuggestion(suggestion);
                   }}
                 >
                   <span>{suggestion.label}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {suggestion.source === "fuelEconomy" ? "EPA" : "NHTSA"}
-                  </span>
                 </button>
               ))}
               {parseVehicleQuery(query).year && parseVehicleQuery(query).model && (
