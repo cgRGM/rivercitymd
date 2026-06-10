@@ -70,6 +70,7 @@ const draftVehicleValidator = v.object({
   licensePlate: v.optional(v.string()),
   hasPet: v.optional(v.boolean()),
   beforePhotos: v.optional(v.array(beforePhotoValidator)),
+  serviceIds: v.optional(v.array(v.id("services"))),
 });
 
 const bookingPaymentOptionValidator = v.union(
@@ -271,12 +272,23 @@ async function buildDraftPricing(args: {
     vehicleTypeId?: Id<"vehicleTypes">;
     size?: VehicleSize;
     hasPet?: boolean;
+    serviceIds?: Id<"services">[];
   }>;
+  existingVehicleServices?: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }>;
   petFeeExistingVehicleIds: Id<"vehicles">[];
   travelDistanceMiles?: number;
 }) {
-  const services = await getServicesForDraft(args.ctx, args.serviceIds);
-  assertBookableServices(services, args.serviceIds, args.vehicleSize);
+  // Collect all serviceIds across all vehicles
+  const allServiceIdsSet = new Set<Id<"services">>();
+  args.serviceIds.forEach((id) => allServiceIdsSet.add(id));
+  args.draftVehicles.forEach((v) => {
+    v.serviceIds?.forEach((id) => allServiceIdsSet.add(id));
+  });
+  args.existingVehicleServices?.forEach((m) => {
+    m.serviceIds.forEach((id) => allServiceIdsSet.add(id));
+  });
+  const allServiceIds = Array.from(allServiceIdsSet);
+  const services = await getServicesForDraft(args.ctx, allServiceIds);
 
   const bookingVehicles = [
     ...args.existingVehicles.map((vehicle) => ({
@@ -296,7 +308,23 @@ async function buildDraftPricing(args: {
   const items = [];
   let duration = 0;
   for (const { vehicle, vehicleId, vehicleLabel } of bookingVehicles) {
-    for (const service of services) {
+    let vehicleServiceIds = args.serviceIds;
+    if (vehicleId) {
+      const mapping = args.existingVehicleServices?.find((m) => m.vehicleId === vehicleId);
+      if (mapping && mapping.serviceIds.length > 0) {
+        vehicleServiceIds = mapping.serviceIds;
+      }
+    } else {
+      const draftVehicle = vehicle as { serviceIds?: Id<"services">[] };
+      if (draftVehicle.serviceIds && draftVehicle.serviceIds.length > 0) {
+        vehicleServiceIds = draftVehicle.serviceIds;
+      }
+    }
+
+    const vehicleServices = services.filter((s) => vehicleServiceIds.includes(s._id));
+    assertBookableServices(vehicleServices, vehicleServiceIds, vehicle.size ?? args.vehicleSize);
+
+    for (const service of vehicleServices) {
       let unitPrice = getEffectiveServicePrice(service, vehicle.size ?? args.vehicleSize);
       let serviceDuration = service.duration || 0;
       if (vehicle.vehicleTypeId) {
@@ -426,6 +454,14 @@ export const createOrUpdateInternal = internalMutation({
     smsOptIn: v.optional(v.boolean()),
     address: addressValidator,
     existingVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    existingVehicleServices: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.id("vehicles"),
+          serviceIds: v.array(v.id("services")),
+        })
+      )
+    ),
     vehicles: v.optional(v.array(draftVehicleValidator)),
     petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
     serviceIds: v.array(v.id("services")),
@@ -515,6 +551,7 @@ export const createOrUpdateInternal = internalMutation({
       vehicleSize,
       existingVehicles: validExistingVehicles,
       draftVehicles,
+      existingVehicleServices: args.existingVehicleServices,
       petFeeExistingVehicleIds,
       travelDistanceMiles: args.travelDistanceMiles,
     });
@@ -542,6 +579,7 @@ export const createOrUpdateInternal = internalMutation({
         smsOptIn: args.smsOptIn ?? false,
         address: args.address,
         existingVehicleIds,
+        existingVehicleServices: args.existingVehicleServices,
         draftVehicles,
         petFeeExistingVehicleIds,
         serviceIds: args.serviceIds,
@@ -591,6 +629,7 @@ export const createOrUpdateInternal = internalMutation({
       smsOptIn: args.smsOptIn ?? false,
       address: args.address,
       existingVehicleIds,
+      existingVehicleServices: args.existingVehicleServices,
       draftVehicles,
       petFeeExistingVehicleIds,
       serviceIds: args.serviceIds,
@@ -630,6 +669,14 @@ export const createOrUpdate = action({
     smsOptIn: v.optional(v.boolean()),
     address: addressValidator,
     existingVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    existingVehicleServices: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.id("vehicles"),
+          serviceIds: v.array(v.id("services")),
+        })
+      )
+    ),
     vehicles: v.optional(v.array(draftVehicleValidator)),
     petFeeExistingVehicleIds: v.optional(v.array(v.id("vehicles"))),
     serviceIds: v.array(v.id("services")),
@@ -1063,10 +1110,27 @@ export const convertSuccessfulCheckout = internalMutation({
       ...createdPetFeeVehicleIds,
     ];
 
+    const vehicleServices: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }> = [];
+    for (const vehicleId of validExistingVehicleIds) {
+      const mapping = draft.existingVehicleServices?.find((m) => m.vehicleId === vehicleId);
+      const serviceIds = mapping && mapping.serviceIds.length > 0
+        ? mapping.serviceIds
+        : draft.serviceIds;
+      vehicleServices.push({ vehicleId, serviceIds });
+    }
+    draft.draftVehicles.forEach((draftVehicle, idx) => {
+      const vehicleId = createdVehicleIds[idx];
+      const serviceIds = draftVehicle.serviceIds && draftVehicle.serviceIds.length > 0
+        ? draftVehicle.serviceIds
+        : draft.serviceIds;
+      vehicleServices.push({ vehicleId, serviceIds });
+    });
+
     const appointmentId = await ctx.db.insert("appointments", {
       userId: user._id,
       vehicleIds,
       serviceIds: draft.serviceIds,
+      vehicleServices,
       scheduledDate: draft.scheduledDate,
       scheduledTime: draft.scheduledTime,
       duration: draft.duration,

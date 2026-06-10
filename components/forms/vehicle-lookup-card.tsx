@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAction, useMutation } from "convex/react";
-import { Camera, Check, Loader2, Search, Upload, X } from "lucide-react";
+import { Camera, Check, Loader2, Search, Upload, X, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/convex/_generated/api";
@@ -61,6 +61,8 @@ type VehicleLookupCardProps = {
   showPetToggle?: boolean;
   showBeforePhotos?: boolean;
   onRemove?: () => void;
+  isExpanded?: boolean;
+  onToggleExpanded?: () => void;
 };
 
 const MAX_PHOTOS = 6;
@@ -101,6 +103,8 @@ export function VehicleLookupCard({
   showPetToggle = false,
   showBeforePhotos = false,
   onRemove,
+  isExpanded,
+  onToggleExpanded,
 }: VehicleLookupCardProps) {
   const searchModels = useAction(api.vehicleTypes.searchModels);
   const classifyVehicle = useAction(api.vehicleTypes.classify);
@@ -291,21 +295,43 @@ export function VehicleLookupCard({
     });
   };
 
+  const isAccordion = isExpanded !== undefined;
+  const showContent = !isAccordion || isExpanded;
+
   return (
     <div className="relative rounded-md border bg-background p-4">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-medium">{title}</h4>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge variant={value.vehicleTypeName ? "default" : "secondary"}>
-              {isClassifying && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-              {detectedLabel}
-            </Badge>
-            {value.classification?.rawCategory && (
-              <span className="text-xs text-muted-foreground">
-                {value.classification.rawCategory}
-              </span>
-            )}
+      <div 
+        className={`flex items-start justify-between gap-3 ${isAccordion ? "cursor-pointer select-none" : ""}`}
+        onClick={isAccordion ? onToggleExpanded : undefined}
+      >
+        <div className="flex items-center gap-3">
+          {isAccordion && (
+            <div className="text-muted-foreground mt-0.5">
+              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </div>
+          )}
+          <div>
+            <h4 className="text-sm font-medium">
+              {title}
+              {(value.year || value.make || value.model) ? (
+                <span className="ml-2 text-foreground font-semibold">
+                  {[value.year, value.make, value.model].filter(Boolean).join(" ")}
+                </span>
+              ) : (
+                <span className="ml-2 text-muted-foreground italic">(Details pending)</span>
+              )}
+            </h4>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant={value.vehicleTypeName ? "default" : "secondary"}>
+                {isClassifying && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                {detectedLabel}
+              </Badge>
+              {value.classification?.rawCategory && (
+                <span className="text-xs text-muted-foreground">
+                  {value.classification.rawCategory}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         {onRemove && (
@@ -314,7 +340,10 @@ export function VehicleLookupCard({
             variant="ghost"
             size="icon"
             className="h-8 w-8 shrink-0"
-            onClick={onRemove}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove();
+            }}
           >
             <X className="h-4 w-4" />
             <span className="sr-only">Remove vehicle</span>
@@ -322,167 +351,171 @@ export function VehicleLookupCard({
         )}
       </div>
 
-      <div className="relative space-y-2">
-          <Label htmlFor={`${title}-vehicle`}>Vehicle</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id={`${title}-vehicle`}
-              className="pl-9"
-              placeholder="Search Kia Sorento or 2020 Kia Sorento"
-              value={query}
-              onBlur={() => {
-                if (!value.make || !value.model) {
-                  acceptTypedVehicle();
-                }
-                setIsMenuOpen(false);
-              }}
-              onFocus={() => setIsMenuOpen(true)}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setIsMenuOpen(true);
-                updateValue({
-                  year: "",
-                  make: "",
-                  model: "",
-                  vehicleTypeId: undefined,
-                  vehicleTypeName: undefined,
-                  classification: undefined,
-                });
-              }}
-            />
-          </div>
-
-          {isMenuOpen &&
-            (suggestions.length > 0 ||
-              isSearching ||
-              (parseVehicleQuery(query).year && parseVehicleQuery(query).model)) && (
-            <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border bg-background shadow-lg">
-              {isSearching && (
-                <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Searching vehicles...
-                </div>
-              )}
-              {suggestions.map((suggestion) => (
-                <button
-                  key={`${suggestion.source}-${suggestion.label}`}
-                  type="button"
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    selectSuggestion(suggestion);
+      {showContent && (
+        <div className="space-y-4 pt-4 mt-4 border-t border-border/40">
+          <div className="relative space-y-2">
+              <Label htmlFor={`${title}-vehicle`}>Vehicle</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id={`${title}-vehicle`}
+                  className="pl-9"
+                  placeholder="Search Kia Sorento or 2020 Kia Sorento"
+                  value={query}
+                  onBlur={() => {
+                    if (!value.make || !value.model) {
+                      acceptTypedVehicle();
+                    }
+                    setIsMenuOpen(false);
                   }}
-                >
-                  <span>{suggestion.label}</span>
-                </button>
-              ))}
-              {parseVehicleQuery(query).year && parseVehicleQuery(query).model && (
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm hover:bg-muted"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    acceptTypedVehicle();
-                  }}
-                >
-                  <Check className="h-4 w-4" />
-                  Use &quot;{query.trim()}&quot;
-                </button>
-              )}
-            </div>
-          )}
-      </div>
-
-      {(showColor || showLicensePlate) && (
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {showColor && (
-            <div className="space-y-2">
-              <Label htmlFor={`${title}-color`}>Color (Optional)</Label>
-              <Input
-                id={`${title}-color`}
-                placeholder="Silver"
-                value={value.color ?? ""}
-                onChange={(event) => updateValue({ color: event.target.value })}
-              />
-            </div>
-          )}
-
-          {showLicensePlate && (
-            <div className="space-y-2">
-              <Label htmlFor={`${title}-plate`}>License Plate (Optional)</Label>
-              <Input
-                id={`${title}-plate`}
-                value={value.licensePlate ?? ""}
-                onChange={(event) => updateValue({ licensePlate: event.target.value })}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {showPetToggle && (
-        <div className="mt-4 flex items-center justify-between gap-4 rounded-md border p-3">
-          <Label htmlFor={`${title}-pet`} className="mb-0">
-            Pet hair or pet travel
-          </Label>
-          <Switch
-            id={`${title}-pet`}
-            checked={value.hasPet === true}
-            onCheckedChange={(checked) => updateValue({ hasPet: checked })}
-          />
-        </div>
-      )}
-
-      {showBeforePhotos && (
-        <div className="mt-4 rounded-md border p-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Camera className="h-4 w-4 text-muted-foreground" />
-              <Label className="mb-0">Before photos (optional)</Label>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isUploading || (value.beforePhotos ?? []).length >= MAX_PHOTOS}
-              asChild
-            >
-              <label className="cursor-pointer">
-                {isUploading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="mr-2 h-4 w-4" />
-                )}
-                Upload
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  multiple
-                  className="sr-only"
+                  onFocus={() => setIsMenuOpen(true)}
                   onChange={(event) => {
-                    void uploadBeforePhotos(event.target.files);
-                    event.target.value = "";
+                    setQuery(event.target.value);
+                    setIsMenuOpen(true);
+                    updateValue({
+                      year: "",
+                      make: "",
+                      model: "",
+                      vehicleTypeId: undefined,
+                      vehicleTypeName: undefined,
+                      classification: undefined,
+                    });
                   }}
                 />
-              </label>
-            </Button>
+              </div>
+
+              {isMenuOpen &&
+                (suggestions.length > 0 ||
+                  isSearching ||
+                  (parseVehicleQuery(query).year && parseVehicleQuery(query).model)) && (
+                <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border bg-background shadow-lg">
+                  {isSearching && (
+                    <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Searching vehicles...
+                    </div>
+                  )}
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={`${suggestion.source}-${suggestion.label}`}
+                      type="button"
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        selectSuggestion(suggestion);
+                      }}
+                    >
+                      <span>{suggestion.label}</span>
+                    </button>
+                  ))}
+                  {parseVehicleQuery(query).year && parseVehicleQuery(query).model && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm hover:bg-muted"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        acceptTypedVehicle();
+                      }}
+                    >
+                      <Check className="h-4 w-4" />
+                      Use &quot;{query.trim()}&quot;
+                    </button>
+                  )}
+                </div>
+              )}
           </div>
-          {(value.beforePhotos ?? []).length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {(value.beforePhotos ?? []).map((photo) => (
-                <Badge key={photo.key} variant="secondary" className="gap-2">
-                  <span className="max-w-[150px] truncate">{photo.fileName}</span>
-                  <button
-                    type="button"
-                    className="rounded-full hover:text-destructive"
-                    onClick={() => removePhoto(photo.key)}
-                  >
-                    <X className="h-3 w-3" />
-                    <span className="sr-only">Remove photo</span>
-                  </button>
-                </Badge>
-              ))}
+
+          {(showColor || showLicensePlate) && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {showColor && (
+                <div className="space-y-2">
+                  <Label htmlFor={`${title}-color`}>Color (Optional)</Label>
+                  <Input
+                    id={`${title}-color`}
+                    placeholder="Silver"
+                    value={value.color ?? ""}
+                    onChange={(event) => updateValue({ color: event.target.value })}
+                  />
+                </div>
+              )}
+
+              {showLicensePlate && (
+                <div className="space-y-2">
+                  <Label htmlFor={`${title}-plate`}>License Plate (Optional)</Label>
+                  <Input
+                    id={`${title}-plate`}
+                    value={value.licensePlate ?? ""}
+                    onChange={(event) => updateValue({ licensePlate: event.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {showPetToggle && (
+            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+              <Label htmlFor={`${title}-pet`} className="mb-0">
+                Pet hair or pet travel
+              </Label>
+              <Switch
+                id={`${title}-pet`}
+                checked={value.hasPet === true}
+                onCheckedChange={(checked) => updateValue({ hasPet: checked })}
+              />
+            </div>
+          )}
+
+          {showBeforePhotos && (
+            <div className="rounded-md border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-muted-foreground" />
+                  <Label className="mb-0">Before photos (optional)</Label>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isUploading || (value.beforePhotos ?? []).length >= MAX_PHOTOS}
+                  asChild
+                >
+                  <label className="cursor-pointer">
+                    {isUploading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-4 w-4" />
+                    )}
+                    Upload
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      multiple
+                      className="sr-only"
+                      onChange={(event) => {
+                        void uploadBeforePhotos(event.target.files);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+                </Button>
+              </div>
+              {(value.beforePhotos ?? []).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(value.beforePhotos ?? []).map((photo) => (
+                    <Badge key={photo.key} variant="secondary" className="gap-2">
+                      <span className="max-w-[150px] truncate">{photo.fileName}</span>
+                      <button
+                        type="button"
+                        className="rounded-full hover:text-destructive"
+                        onClick={() => removePhoto(photo.key)}
+                      >
+                        <X className="h-3 w-3" />
+                        <span className="sr-only">Remove photo</span>
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -38,7 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, ArrowRight, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, X, ChevronDown, ChevronUp } from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
 import {
   VehicleLookupCard,
@@ -124,7 +124,11 @@ const step3Schema = z.object({
 });
 
 const step4Schema = z.object({
-  serviceIds: z.array(z.string()).min(1, "Please select at least one service"),
+  serviceIds: z.array(z.string()),
+  vehicleServices: z.record(
+    z.string(),
+    z.array(z.string()).min(1, "Please select at least one package/service for this vehicle")
+  ).optional(),
 });
 
 type Step1Data = z.infer<typeof step1Schema>;
@@ -157,6 +161,10 @@ export default function BookingFlow() {
     fee: number;
   } | null>(null);
   const { user, isLoaded, isSignedIn } = useUser();
+  const [expandedVehicleIndex, setExpandedVehicleIndex] = useState<number>(0);
+  const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "addons" | "subscriptions" | "">>(
+    {},
+  );
 
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
@@ -198,19 +206,6 @@ export default function BookingFlow() {
     }));
   }, [step3Data?.vehicles]);
 
-  const primaryVehiclePricingContext = vehiclePricingContexts[0] ?? {
-    vehicleSize: "medium" as VehicleSize,
-    vehicleTypeId: null,
-  };
-
-  const isAvailableForBookingVehicles = useCallback(
-    (service: Parameters<typeof isServiceAvailableForVehicle>[0]) =>
-      vehiclePricingContexts.every((vehicle) =>
-        isServiceAvailableForVehicle(service, vehicle),
-      ),
-    [vehiclePricingContexts],
-  );
-
   const watchedStreet = step1Form.watch("street");
   const watchedCity = step1Form.watch("city");
   const watchedState = step1Form.watch("state");
@@ -251,20 +246,33 @@ export default function BookingFlow() {
   ]);
 
   const schedulingDuration = useMemo(() => {
-    const selectedServices =
-      services?.filter((service) => step4Data?.serviceIds?.includes(service._id)) ?? [];
+    if (!services) return 0;
+
+    const serviceDurations: number[] = [];
+    const vehicles = step3Data?.vehicles ?? [];
+
+    vehicles.forEach((vehicle, idx) => {
+      const vServiceIds = step4Data?.vehicleServices?.[idx.toString()] || step4Data?.serviceIds || [];
+      const vehicleServices = services.filter((service) => vServiceIds.includes(service._id));
+      const context = {
+        vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+        vehicleTypeId: vehicle.vehicleTypeId ?? null,
+      };
+
+      vehicleServices.forEach((service) => {
+        serviceDurations.push(
+          getEffectiveServicePricingForVehicle(service, context).duration
+        );
+      });
+    });
+
     const petFeeVehicleCount =
       petFeeSettings?.isActive === false
         ? 0
         : step3Data?.vehicles?.filter((vehicle) => vehicle.hasPet).length ?? 0;
 
     return calculateSchedulingDuration({
-      serviceDurations: selectedServices.flatMap((service) =>
-        vehiclePricingContexts.map(
-          (vehicle) =>
-            getEffectiveServicePricingForVehicle(service, vehicle).duration,
-        ),
-      ),
+      serviceDurations,
       petFeeVehicleCount,
       petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
     });
@@ -274,7 +282,7 @@ export default function BookingFlow() {
     services,
     step3Data?.vehicles,
     step4Data?.serviceIds,
-    vehiclePricingContexts,
+    step4Data?.vehicleServices,
   ]);
 
   const step2Form = useForm<Step2Data>({
@@ -313,35 +321,54 @@ export default function BookingFlow() {
     resolver: zodResolver(step4Schema),
     defaultValues: {
       serviceIds: step4Data?.serviceIds || [],
+      vehicleServices: step4Data?.vehicleServices || {},
     },
   });
 
   useEffect(() => {
-    if (!services || !step4Data?.serviceIds?.length) {
+    if (!services || !step3Data?.vehicles || !step4Data?.vehicleServices) {
       return;
     }
 
-    const availableServiceIds = new Set(
-      services
-        .filter((service) => isAvailableForBookingVehicles(service))
-        .map((service) => service._id),
-    );
-    const nextServiceIds = step4Data.serviceIds.filter((serviceId) =>
-      availableServiceIds.has(serviceId as Id<"services">),
-    );
+    let changed = false;
+    const nextVehicleServices = { ...step4Data.vehicleServices };
 
-    if (nextServiceIds.length !== step4Data.serviceIds.length) {
-      step4Form.setValue("serviceIds", nextServiceIds, {
+    step3Data.vehicles.forEach((vehicle, idx) => {
+      const vehicleKey = idx.toString();
+      const currentSelection = nextVehicleServices[vehicleKey] || [];
+      if (currentSelection.length === 0) return;
+
+      const vehiclePricingContext = {
+        vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+        vehicleTypeId: vehicle.vehicleTypeId ?? null,
+      };
+
+      const nextSelection = currentSelection.filter((serviceId) => {
+        const service = services.find((s) => s._id === serviceId);
+        return service && isServiceAvailableForVehicle(service, vehiclePricingContext);
+      });
+
+      if (nextSelection.length !== currentSelection.length) {
+        nextVehicleServices[vehicleKey] = nextSelection;
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      step4Form.setValue("vehicleServices", nextVehicleServices, {
         shouldDirty: true,
         shouldValidate: true,
       });
-      setStep4Data({ serviceIds: nextServiceIds });
+      setStep4Data({
+        ...step4Data,
+        vehicleServices: nextVehicleServices,
+      });
     }
   }, [
-    isAvailableForBookingVehicles,
     services,
+    step3Data?.vehicles,
+    step4Data,
     setStep4Data,
-    step4Data?.serviceIds,
     step4Form,
   ]);
 
@@ -441,7 +468,7 @@ export default function BookingFlow() {
     if (!isValid) return;
 
     const currentVehicles = step3Form.getValues("vehicles") || [];
-    step3Form.setValue("vehicles", [
+    const nextVehicles = [
       ...currentVehicles,
       {
         year: "",
@@ -449,11 +476,13 @@ export default function BookingFlow() {
         model: "",
         color: "",
         licensePlate: "",
-        size: "small",
+        size: "small" as "small" | "medium" | "large" | undefined,
         hasPet: false,
         beforePhotos: [],
       },
-    ]);
+    ];
+    step3Form.setValue("vehicles", nextVehicles);
+    setExpandedVehicleIndex(nextVehicles.length - 1);
   };
 
   const updateVehicle = (index: number, nextVehicle: VehicleLookupValue) => {
@@ -477,6 +506,12 @@ export default function BookingFlow() {
         "vehicles",
         currentVehicles.filter((_, i) => i !== index),
       );
+      setExpandedVehicleIndex((prev) => {
+        if (prev >= currentVehicles.length - 1) {
+          return Math.max(0, currentVehicles.length - 2);
+        }
+        return prev;
+      });
     }
   };
 
@@ -505,6 +540,24 @@ export default function BookingFlow() {
         if (isValid) {
           const values = step3Form.getValues();
           setStep3Data(values);
+
+          // Pre-populate/clean up Step 4 vehicleServices
+          const currentStep4 = step4Form.getValues();
+          const nextVehicleServices = { ...currentStep4.vehicleServices };
+          values.vehicles.forEach((_, idx) => {
+            const key = idx.toString();
+            if (!nextVehicleServices[key] || nextVehicleServices[key].length === 0) {
+              nextVehicleServices[key] = [];
+            }
+          });
+          Object.keys(nextVehicleServices).forEach((key) => {
+            const idx = parseInt(key, 10);
+            if (isNaN(idx) || idx >= values.vehicles.length) {
+              delete nextVehicleServices[key];
+            }
+          });
+          step4Form.setValue("vehicleServices", nextVehicleServices);
+
           setCurrentStep(4);
         }
         break;
@@ -512,21 +565,29 @@ export default function BookingFlow() {
         isValid = await step4Form.trigger();
         if (isValid) {
           const selectedStep4Data = step4Form.getValues();
-          const selectedServices =
-            services?.filter((service) =>
-              selectedStep4Data.serviceIds?.includes(service._id),
-            ) ?? [];
+          
+          const serviceDurations: number[] = [];
+          const vehicles = step3Data?.vehicles ?? [];
+          vehicles.forEach((vehicle, idx) => {
+            const vServiceIds = selectedStep4Data.vehicleServices?.[idx.toString()] || selectedStep4Data.serviceIds || [];
+            const vehicleServices = services?.filter((service) => vServiceIds.includes(service._id)) ?? [];
+            const context = {
+              vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+              vehicleTypeId: vehicle.vehicleTypeId ?? null,
+            };
+            vehicleServices.forEach((service) => {
+              serviceDurations.push(
+                getEffectiveServicePricingForVehicle(service, context).duration
+              );
+            });
+          });
+
           const petFeeVehicleCount =
             petFeeSettings?.isActive === false
               ? 0
               : step3Data?.vehicles?.filter((vehicle) => vehicle.hasPet).length ?? 0;
           const selectedDuration = calculateSchedulingDuration({
-            serviceDurations: selectedServices.flatMap((service) =>
-              vehiclePricingContexts.map(
-                (vehicle) =>
-                  getEffectiveServicePricingForVehicle(service, vehicle).duration,
-              ),
-            ),
+            serviceDurations,
             petFeeVehicleCount,
             petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
           });
@@ -623,7 +684,7 @@ export default function BookingFlow() {
           zip: step1Data.zip || "",
           notes: step1Data.locationNotes,
         },
-        vehicles: step3Data.vehicles.map((vehicle) => ({
+        vehicles: step3Data.vehicles.map((vehicle, index) => ({
           year: parseInt(vehicle.year),
           make: vehicle.make,
           model: vehicle.model,
@@ -634,9 +695,12 @@ export default function BookingFlow() {
           licensePlate: vehicle.licensePlate,
           hasPet: vehicle.hasPet ?? false,
           beforePhotos: vehicle.beforePhotos ?? [],
+          serviceIds: (step4Data?.vehicleServices?.[index.toString()] || []) as Id<"services">[],
         })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        serviceIds: (step4Data?.serviceIds || []) as any,
+        existingVehicleServices: [],
+        serviceIds: Array.from(new Set(
+          Object.values(step4Data?.vehicleServices || {}).flat()
+        )) as Id<"services">[],
         scheduledDate: new Date(step1Data.scheduledDate).toISOString().split("T")[0],
         scheduledTime: step1Data.scheduledTime,
         smsOptIn: step2Data.smsOptIn,
@@ -1033,6 +1097,8 @@ export default function BookingFlow() {
                     showPetToggle
                     showBeforePhotos
                     onRemove={index > 0 ? () => removeVehicle(index) : undefined}
+                    isExpanded={expandedVehicleIndex === index}
+                    onToggleExpanded={() => setExpandedVehicleIndex(index)}
                   />
                 ))}
               </div>
@@ -1044,141 +1110,281 @@ export default function BookingFlow() {
         {currentStep === 4 && (
           <Form {...step4Form}>
             <form className="space-y-6">
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-muted-foreground">Select Services</h3>
+              <div className="space-y-6">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-semibold text-foreground">Select Detailing Services</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Customize the services for each of your vehicles below.
+                  </p>
+                </div>
                 
                 <FormField
                   control={step4Form.control}
-                  name="serviceIds"
+                  name="vehicleServices"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="space-y-6">
                       <FormControl>
-                        <div className="space-y-8">
-                          {(() => {
-                            const selectedVehicleSize = primaryVehiclePricingContext.vehicleSize;
-                            const selectedVehicleTypeId = primaryVehiclePricingContext.vehicleTypeId;
-                            const standardServices =
-                              services?.filter(
-                                (service) =>
-                                  normalizeServiceType(service.serviceType) === "standard" &&
-                                  isAvailableForBookingVehicles(service),
-                              ) ?? [];
-                            const addonServices =
-                              services?.filter(
-                                (service) =>
-                                  normalizeServiceType(service.serviceType) === "addon" &&
-                                  isAvailableForBookingVehicles(service),
-                              ) ?? [];
-                            const subscriptionServices =
-                              services?.filter(
-                                (service) =>
-                                  normalizeServiceType(service.serviceType) === "subscription" &&
-                                  isAvailableForBookingVehicles(service),
-                              ) ?? [];
+                        <div className="space-y-6">
+                          {step3Data?.vehicles.map((vehicle, vIdx) => {
+                            const vehicleKey = vIdx.toString();
+                            const vehicleLabel = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || `Vehicle ${vIdx + 1}`;
+                            
+                            const vehiclePricingContext = {
+                              vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+                              vehicleTypeId: vehicle.vehicleTypeId ?? null,
+                            };
+
+                            const standardServices = services?.filter(
+                              (service) =>
+                                normalizeServiceType(service.serviceType) === "standard" &&
+                                isServiceAvailableForVehicle(service, vehiclePricingContext)
+                            ) ?? [];
+
+                            const addonServices = services?.filter(
+                              (service) =>
+                                normalizeServiceType(service.serviceType) === "addon" &&
+                                isServiceAvailableForVehicle(service, vehiclePricingContext)
+                            ) ?? [];
+
+                            const subscriptionServices = services?.filter(
+                              (service) =>
+                                normalizeServiceType(service.serviceType) === "subscription" &&
+                                isServiceAvailableForVehicle(service, vehiclePricingContext)
+                            ) ?? [];
+
+                            const getSortedServices = (list: Array<NonNullable<typeof services>[number]>) => {
+                              return [...list].sort((a, b) => {
+                                const priceA = getEffectiveServicePricingForVehicle(a, vehiclePricingContext).price;
+                                const priceB = getEffectiveServicePricingForVehicle(b, vehiclePricingContext).price;
+                                return priceA - priceB;
+                              });
+                            };
+
+                            const sortedStandard = getSortedServices(standardServices);
+                            const sortedAddons = getSortedServices(addonServices);
+                            const sortedSubscriptions = getSortedServices(subscriptionServices);
+
+                            const currentSelection = field.value?.[vehicleKey] || [];
+                            const activeSection = activeServiceSection[vIdx] || "packages";
+
+                            const selectedPackageId = currentSelection.find(id => {
+                              const s = services?.find(s => s._id === id);
+                              return s && normalizeServiceType(s.serviceType) === "standard";
+                            });
+                            const selectedPackage = services?.find(s => s._id === selectedPackageId);
+
+                            const selectedAddons = services?.filter(s => 
+                              currentSelection.includes(s._id) && normalizeServiceType(s.serviceType) === "addon"
+                            ) ?? [];
+
+                            const selectedSubId = currentSelection.find(id => {
+                              const s = services?.find(s => s._id === id);
+                              return s && normalizeServiceType(s.serviceType) === "subscription";
+                            });
+                            const selectedSubscription = services?.find(s => s._id === selectedSubId);
 
                             return (
-                              <>
-                                {/* Packages Section */}
-                                <div className="space-y-3">
-                                  <h4 className="font-semibold text-sm flex items-center gap-2 text-foreground">
-                                    <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-bold">ONE REQUIRED</span>
-                                    Packages
-                                  </h4>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {standardServices.map(service => {
-                                        const isSelected = field.value?.includes(service._id) || false;
-                                        return (
-                                          <ServiceCard
-                                            key={service._id}
-                                            service={service}
-                                            vehicleSize={selectedVehicleSize}
-                                            vehicleTypeId={selectedVehicleTypeId}
-                                            isSelected={isSelected}
-                                            onSelect={() => {
-                                              const current = field.value || [];
-                                              const otherServices = current.filter(id => {
-                                                const s = services.find(s => s._id === id);
-                                                return s && normalizeServiceType(s.serviceType) !== "standard";
-                                              });
-                                              field.onChange([...otherServices, service._id]);
-                                            }}
-                                          />
-                                        );
-                                      })}
-                                      {standardServices.length === 0 && (
-                                        <p className="text-sm text-muted-foreground italic col-span-full">
-                                          No packages are available for this vehicle yet.
-                                        </p>
-                                      )}
+                              <Card key={vIdx} className="border border-border/60 bg-card/40 backdrop-blur-sm overflow-hidden">
+                                <CardHeader className="bg-muted/10 pb-4 border-b border-border/40">
+                                  <CardTitle className="text-lg font-bold flex items-center justify-between">
+                                    <span>{vehicleLabel}</span>
+                                    <span className="text-xs font-normal text-muted-foreground uppercase tracking-wider bg-muted/35 px-2.5 py-1 rounded-full border border-border/20">
+                                      {vehicle.size || "medium"}
+                                    </span>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-4 space-y-3 bg-card/10">
+                                  {/* Section 1: Choose a Package */}
+                                  <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
+                                    <button
+                                      type="button"
+                                      className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
+                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: (activeSection === "packages" ? "" : "packages") as "packages" | "addons" | "subscriptions" | "" }))}
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <span className="bg-accent/10 text-accent px-2 py-0.5 rounded text-[10px] font-bold">REQUIRED</span>
+                                        1. Choose Package
+                                      </span>
+                                      <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
+                                        {selectedPackage ? (
+                                          <span className="text-accent font-semibold">{selectedPackage.name} (${getEffectiveServicePricingForVehicle(selectedPackage, vehiclePricingContext).price})</span>
+                                        ) : (
+                                          <span>Select one</span>
+                                        )}
+                                        {activeSection === "packages" ? (
+                                          <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                                        ) : (
+                                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                        )}
+                                      </span>
+                                    </button>
+                                    
+                                    {activeSection === "packages" && (
+                                      <div className="p-4 border-t border-border/40 bg-background/5">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          {sortedStandard.map(service => {
+                                            const isSelected = selectedPackageId === service._id;
+                                            return (
+                                              <ServiceCard
+                                                key={service._id}
+                                                service={service}
+                                                vehicleSize={vehiclePricingContext.vehicleSize}
+                                                vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                isSelected={isSelected}
+                                                onSelect={() => {
+                                                  const otherServices = currentSelection.filter(id => {
+                                                    const s = services?.find(s => s._id === id);
+                                                    return s && normalizeServiceType(s.serviceType) !== "standard";
+                                                  });
+                                                  const nextSelection = [...otherServices, service._id];
+                                                  const nextRecord = {
+                                                    ...field.value,
+                                                    [vehicleKey]: nextSelection,
+                                                  };
+                                                  field.onChange(nextRecord);
+                                                  
+                                                  // Auto close Packages & open Addons
+                                                  setActiveServiceSection(prev => ({ ...prev, [vIdx]: "addons" }));
+                                                }}
+                                              />
+                                            );
+                                          })}
+                                          {sortedStandard.length === 0 && (
+                                            <p className="text-sm text-muted-foreground italic col-span-full">No packages available for this vehicle size.</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
 
-                                {/* Add-ons Section */}
-                                <div className="space-y-3">
-                                  <h4 className="font-semibold text-sm text-muted-foreground">Add-ons (Optional)</h4>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {addonServices.map(service => {
-                                        const isSelected = field.value?.includes(service._id) || false;
-                                        return (
-                                          <ServiceCard
-                                            key={service._id}
-                                            service={service}
-                                            vehicleSize={selectedVehicleSize}
-                                            vehicleTypeId={selectedVehicleTypeId}
-                                            isSelected={isSelected}
-                                            onSelect={() => {
-                                              const currentIds = field.value || [];
-                                              const nextIds = currentIds.includes(service._id)
-                                                ? currentIds.filter((id) => id !== service._id)
-                                                : [...currentIds, service._id];
-                                              field.onChange(nextIds);
-                                            }}
-                                          />
-                                        );
-                                      })}
-                                      {addonServices.length === 0 && (
-                                        <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
-                                      )}
+                                  {/* Section 2: Add-ons (Optional) */}
+                                  <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
+                                    <button
+                                      type="button"
+                                      className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
+                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: (activeSection === "addons" ? "" : "addons") as "packages" | "addons" | "subscriptions" | "" }))}
+                                    >
+                                      <span>2. Add-ons (Optional)</span>
+                                      <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
+                                        {selectedAddons.length > 0 ? (
+                                          <span className="text-accent font-semibold">{selectedAddons.length} selected</span>
+                                        ) : (
+                                          <span>None</span>
+                                        )}
+                                        {activeSection === "addons" ? (
+                                          <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                                        ) : (
+                                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                        )}
+                                      </span>
+                                    </button>
+                                    
+                                    {activeSection === "addons" && (
+                                      <div className="p-4 border-t border-border/40 bg-background/5">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          {sortedAddons.map(service => {
+                                            const isSelected = currentSelection.includes(service._id);
+                                            return (
+                                              <ServiceCard
+                                                key={service._id}
+                                                service={service}
+                                                vehicleSize={vehiclePricingContext.vehicleSize}
+                                                vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                isSelected={isSelected}
+                                                onSelect={() => {
+                                                  const nextSelection = currentSelection.includes(service._id)
+                                                    ? currentSelection.filter(id => id !== service._id)
+                                                    : [...currentSelection, service._id];
+                                                  
+                                                  const nextRecord = {
+                                                    ...field.value,
+                                                    [vehicleKey]: nextSelection,
+                                                  };
+                                                  field.onChange(nextRecord);
+                                                }}
+                                              />
+                                            );
+                                          })}
+                                          {sortedAddons.length === 0 && (
+                                            <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
+                                          )}
+                                        </div>
+                                        <div className="mt-4 flex justify-end">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: "subscriptions" }))}
+                                          >
+                                            Next: Subscriptions
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
 
-                                {/* Subscriptions Section */}
-                                <div className="space-y-3">
-                                  <h4 className="font-semibold text-sm text-muted-foreground">Subscriptions (Optional)</h4>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {subscriptionServices.map(service => {
-                                        const isSelected = field.value?.includes(service._id) || false;
-                                        return (
-                                          <ServiceCard
-                                            key={service._id}
-                                            service={service}
-                                            vehicleSize={selectedVehicleSize}
-                                            vehicleTypeId={selectedVehicleTypeId}
-                                            isSelected={isSelected}
-                                            onSelect={(selected) => {
-                                              const current = field.value || [];
-                                              const otherServices = current.filter(id => {
-                                                const s = services.find(s => s._id === id);
-                                                return s && normalizeServiceType(s.serviceType) !== "subscription";
-                                              });
-                                              
-                                              if (selected) {
-                                                  field.onChange([...otherServices, service._id]);
-                                              } else {
-                                                  field.onChange(otherServices);
-                                              }
-                                            }}
-                                          />
-                                        );
-                                      })}
-                                      {subscriptionServices.length === 0 && (
-                                        <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
-                                      )}
+                                  {/* Section 3: Subscriptions (Optional) */}
+                                  <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
+                                    <button
+                                      type="button"
+                                      className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
+                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: (activeSection === "subscriptions" ? "" : "subscriptions") as "packages" | "addons" | "subscriptions" | "" }))}
+                                    >
+                                      <span>3. Subscriptions (Optional)</span>
+                                      <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
+                                        {selectedSubscription ? (
+                                          <span className="text-accent font-semibold">{selectedSubscription.name}</span>
+                                        ) : (
+                                          <span>None</span>
+                                        )}
+                                        {activeSection === "subscriptions" ? (
+                                          <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                                        ) : (
+                                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                        )}
+                                      </span>
+                                    </button>
+                                    
+                                    {activeSection === "subscriptions" && (
+                                      <div className="p-4 border-t border-border/40 bg-background/5">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          {sortedSubscriptions.map(service => {
+                                            const isSelected = selectedSubId === service._id;
+                                            return (
+                                              <ServiceCard
+                                                key={service._id}
+                                                service={service}
+                                                vehicleSize={vehiclePricingContext.vehicleSize}
+                                                vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                isSelected={isSelected}
+                                                onSelect={(selected) => {
+                                                  const otherServices = currentSelection.filter(id => {
+                                                    const s = services?.find(s => s._id === id);
+                                                    return s && normalizeServiceType(s.serviceType) !== "subscription";
+                                                  });
+                                                  const nextSelection = selected
+                                                    ? [...otherServices, service._id]
+                                                    : otherServices;
+                                                  
+                                                  const nextRecord = {
+                                                    ...field.value,
+                                                    [vehicleKey]: nextSelection,
+                                                  };
+                                                  field.onChange(nextRecord);
+                                                }}
+                                              />
+                                            );
+                                          })}
+                                          {sortedSubscriptions.length === 0 && (
+                                            <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
-                              </>
+                                </CardContent>
+                              </Card>
                             );
-                          })()}
+                          })}
                         </div>
                       </FormControl>
                       <FormMessage />
@@ -1206,18 +1412,36 @@ export default function BookingFlow() {
             return petFeeSettings?.basePriceMedium ?? 50;
           };
 
-          const selectedServices = services?.filter((s) =>
-            step4Data?.serviceIds?.includes(s._id),
-          ) ?? [];
-          const serviceTotal = selectedServices.reduce((sum, service) => {
-            const serviceSubtotal = vehiclePricingContexts.reduce(
-              (vehicleSum, vehicle) =>
-                vehicleSum +
-                getEffectiveServicePricingForVehicle(service, vehicle).price,
-              0,
-            );
-            return sum + serviceSubtotal;
-          }, 0);
+          const vehicles = step3Data?.vehicles ?? [];
+          let serviceTotal = 0;
+          const serviceBreakdownItems: Array<{
+            vehicleLabel: string;
+            serviceName: string;
+            price: number;
+            isSubscription: boolean;
+          }> = [];
+
+          vehicles.forEach((vehicle, idx) => {
+            const vServiceIds = step4Data?.vehicleServices?.[idx.toString()] || step4Data?.serviceIds || [];
+            const vehicleLabel = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || `Vehicle ${idx + 1}`;
+            const vehicleContext = {
+              vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+              vehicleTypeId: vehicle.vehicleTypeId ?? null,
+            };
+
+            const vehicleServices = services?.filter((s) => vServiceIds.includes(s._id)) ?? [];
+            vehicleServices.forEach((service) => {
+              const price = getEffectiveServicePricingForVehicle(service, vehicleContext).price;
+              serviceTotal += price;
+              serviceBreakdownItems.push({
+                vehicleLabel,
+                serviceName: service.name,
+                price,
+                isSubscription: service.serviceType === "subscription",
+              });
+            });
+          });
+
           const petFeeTotal = (step3Data?.vehicles ?? []).reduce((sum, vehicle) => {
             if (!vehicle.hasPet) return sum;
             return sum + petFeeForSize(vehicle.size ?? "medium");
@@ -1234,28 +1458,17 @@ export default function BookingFlow() {
                   <span className="bg-primary text-primary-foreground w-5 h-5 rounded-full flex items-center justify-center text-[10px]">✓</span>
                   Order Summary
                 </h3>
-                {selectedServices.map((service) => {
-                  const isSubscription = service.serviceType === "subscription";
-                  const serviceSubtotal = vehiclePricingContexts.reduce(
-                    (sum, vehicle) =>
-                      sum +
-                      getEffectiveServicePricingForVehicle(service, vehicle).price,
-                    0,
-                  );
-
-                  return (
-                    <div key={service._id} className="flex justify-between text-sm mb-2">
-                      <span className="text-muted-foreground">
-                        {service.name}
-                        {vehicleCount > 1 && <span className="text-xs"> x{vehicleCount}</span>}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <span className="font-medium text-foreground">${serviceSubtotal.toFixed(2)}</span>
-                        {isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
-                      </div>
+                {serviceBreakdownItems.map((item, index) => (
+                  <div key={index} className="flex justify-between text-sm mb-2">
+                    <span className="text-muted-foreground">
+                      {item.serviceName} <span className="text-xs text-muted-foreground/60">({item.vehicleLabel})</span>
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium text-foreground">${item.price.toFixed(2)}</span>
+                      {item.isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
 
                 <div className="flex justify-between text-sm font-medium mt-3 border-t border-border/30 pt-3">
                   <span className="text-muted-foreground">Service Total</span>
