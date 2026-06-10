@@ -1,22 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Check, Calendar } from "lucide-react";
-import AppointmentModal from "@/components/home/appointment-modal";
 import { motion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function PricingSection() {
+  const router = useRouter();
   const servicesQuery = useQuery(api.services.list);
   const bookingReadiness = useQuery(
     api.setupReadiness.getPublicBookingReadiness,
   );
 
-  const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<
     "small" | "medium" | "large"
   >("medium");
@@ -30,11 +30,11 @@ export function PricingSection() {
 
   const handleBookNow = () => {
     if (bookingReadiness && !bookingReadiness.isReady) {
-      window.location.href = "/sign-up";
+      router.push("/sign-up");
       return;
     }
     if (bookingReadiness === undefined) return;
-    setBookingOpen(true);
+    router.push("/book");
   };
 
   // Loading state
@@ -301,8 +301,6 @@ export function PricingSection() {
           </motion.div>
         </div>
       </section>
-
-      <AppointmentModal open={bookingOpen} onOpenChange={setBookingOpen} />
     </>
   );
 }

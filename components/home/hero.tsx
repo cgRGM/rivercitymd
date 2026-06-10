@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import AppointmentModal from "@/components/home/appointment-modal";
 import { ArrowRight, Sparkles, MapPin, Phone } from "lucide-react";
 
 export default function HeroSection() {
-  const [bookingOpen, setBookingOpen] = useState(false);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const bookingReadiness = useQuery(
     api.setupReadiness.getPublicBookingReadiness,
@@ -20,21 +19,18 @@ export default function HeroSection() {
     if (searchParams.get("resumeBooking") !== "1") {
       return;
     }
-    setBookingOpen(true);
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.delete("resumeBooking");
-    window.history.replaceState({}, "", nextUrl.pathname + nextUrl.search);
-  }, [searchParams]);
+    router.push("/book");
+  }, [searchParams, router]);
 
   const handleBookNow = () => {
     if (bookingReadiness && !bookingReadiness.isReady) {
-      window.location.href = "/sign-up";
+      router.push("/sign-up");
       return;
     }
     if (bookingReadiness === undefined) {
       return;
     }
-    setBookingOpen(true);
+    router.push("/book");
   };
 
   return (
@@ -133,8 +129,6 @@ export default function HeroSection() {
           </div>
         </div>
       </section>
-
-      <AppointmentModal open={bookingOpen} onOpenChange={setBookingOpen} />
     </>
   );
 }

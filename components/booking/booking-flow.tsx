@@ -17,14 +17,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -37,14 +38,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
 import {
   VehicleLookupCard,
   type VehicleLookupValue,
 } from "@/components/forms/vehicle-lookup-card";
-import { TimeSlotPicker } from "./time-slot-picker";
-import { ServiceCard } from "./service-card";
+import { TimeSlotPicker } from "@/components/home/time-slot-picker";
+import { ServiceCard } from "@/components/home/service-card";
 
 interface RadarAddress {
   formattedAddress?: string;
@@ -58,7 +59,6 @@ interface RadarAddress {
     region?: string;
     postalCode?: string;
   };
-  // Direct properties from Radar API response
   street?: string;
   city?: string;
   state?: string;
@@ -67,7 +67,6 @@ interface RadarAddress {
   longitude?: number;
 }
 
-// Step schemas
 const step1Schema = z.object({
   scheduledDate: z.date({
     message: "A date of service is required.",
@@ -76,7 +75,7 @@ const step1Schema = z.object({
   street: z.string().min(1, "Street address is required"),
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
-  zip: z.string().optional(), // Make ZIP optional since not all addresses have postal codes
+  zip: z.string().optional(),
   locationNotes: z.string().optional(),
 });
 
@@ -133,18 +132,8 @@ type Step2Data = z.infer<typeof step2Schema>;
 type Step3Data = z.infer<typeof step3Schema>;
 type Step4Data = z.infer<typeof step4Schema>;
 
-interface AppointmentModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-
-}
-
-export default function AppointmentModal({
-  open,
-  onOpenChange,
-  // preselectedServices = [],
-}: AppointmentModalProps) {
-  // Use Zustand store for persisted state
+export default function BookingFlow() {
+  const router = useRouter();
   const {
     currentStep,
     setCurrentStep,
@@ -169,11 +158,6 @@ export default function AppointmentModal({
   } | null>(null);
   const { user, isLoaded, isSignedIn } = useUser();
 
-  // Load saved data on mount if needed (Zustand persist handles this automatically, but we might want to pre-fill forms)
-  // We'll trust Zustand's persist middleware for the data
-
-  // Load saved data on mount if needed (Zustand persist handles this automatically)
-
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
     defaultValues: {
@@ -189,23 +173,19 @@ export default function AppointmentModal({
     },
   });
 
-  /* 
-     Logic removed: Old localStorage fallback. 
-     Zustand persist middleware handles this now.
-  */
-
   const services = useQuery(api.services.list);
   const petFeeSettings = useQuery(api.petFeeSettings.get);
   const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
   const nextBookableDate = useQuery(
     api.availability.getNextBookableDate,
-    open && bookingReadiness?.isReady ? {} : "skip",
+    bookingReadiness?.isReady ? {} : "skip",
   );
   const upsertBookingDraft = useAction(api.bookingDrafts.createOrUpdate);
   const calculateTravelFee = useAction(api.travelFees.calculate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
   const convex = useConvex();
   const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
+
   const vehiclePricingContexts = useMemo(() => {
     const vehicles = step3Data?.vehicles ?? [];
     if (vehicles.length === 0) {
@@ -217,10 +197,12 @@ export default function AppointmentModal({
       vehicleTypeId: vehicle.vehicleTypeId ?? null,
     }));
   }, [step3Data?.vehicles]);
+
   const primaryVehiclePricingContext = vehiclePricingContexts[0] ?? {
     vehicleSize: "medium" as VehicleSize,
     vehicleTypeId: null,
   };
+
   const isAvailableForBookingVehicles = useCallback(
     (service: Parameters<typeof isServiceAvailableForVehicle>[0]) =>
       vehiclePricingContexts.every((vehicle) =>
@@ -295,10 +277,6 @@ export default function AppointmentModal({
     vehiclePricingContexts,
   ]);
 
-
-  // Step forms
-  // Note: step1Form is already defined above
-
   const step2Form = useForm<Step2Data>({
     resolver: zodResolver(step2Schema),
     defaultValues: {
@@ -326,7 +304,7 @@ export default function AppointmentModal({
           hasPet: false,
           beforePhotos: [],
         },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ]) as any,
     },
   });
@@ -378,7 +356,6 @@ export default function AppointmentModal({
         step2Form.setValue("name", fullName);
         step2Form.setValue("email", email);
         
-        // Also update store
         setStep2Data({
           ...step2Data,
           name: fullName,
@@ -407,7 +384,7 @@ export default function AppointmentModal({
   }, [currentUser, step2Data?.smsOptIn, step2Form]);
 
   useEffect(() => {
-    if (!open || currentStep !== 1 || !bookingReadiness?.isReady || !nextBookableDate) {
+    if (!bookingReadiness?.isReady || !nextBookableDate) {
       return;
     }
 
@@ -425,20 +402,13 @@ export default function AppointmentModal({
       shouldDirty: true,
       shouldValidate: true,
     });
-  }, [bookingReadiness?.isReady, currentStep, nextBookableDate, open, step1Form]);
+  }, [bookingReadiness?.isReady, nextBookableDate, step1Form]);
 
-  // Step 5 form is no longer needed as we use Clerk components
-
-
-  // Memoized address selection callback to prevent Radar reinitialization
   const handleAddressSelect = useCallback(
     (address: RadarAddress) => {
       console.log("Processing address selection:", address);
-
-      // Store the full address data in localStorage for persistence
       localStorage.setItem("selectedAddress", JSON.stringify(address));
 
-      // Combine number + street from Radar response
       const streetNumber = address.number || "";
       const streetName = address.street || "";
       const fullStreet = streetNumber
@@ -460,16 +430,13 @@ export default function AppointmentModal({
         shouldValidate: true,
         shouldDirty: true,
       });
-      // Save current form data to localStorage
       const currentData = step1Form.getValues();
-      console.log("Updated form data:", currentData);
       localStorage.setItem("appointmentFormData", JSON.stringify(currentData));
     },
     [step1Form],
   );
 
   const addVehicle = async () => {
-    // Validate current vehicles before adding new one
     const isValid = await step3Form.trigger();
     if (!isValid) return;
 
@@ -519,17 +486,11 @@ export default function AppointmentModal({
     switch (currentStep) {
       case 1:
         isValid = await step1Form.trigger();
-        console.log("Step 1 validation result:", isValid);
-        console.log("Step 1 form values:", step1Form.getValues());
-        console.log("Step 1 form errors:", step1Form.formState.errors);
         if (isValid) {
           const formData = step1Form.getValues();
           setStep1Data(formData);
-          // Save form data to localStorage
           localStorage.setItem("appointmentFormData", JSON.stringify(formData));
           setCurrentStep(2);
-        } else {
-          console.log("Step 1 validation failed");
         }
         break;
       case 2:
@@ -563,8 +524,7 @@ export default function AppointmentModal({
             serviceDurations: selectedServices.flatMap((service) =>
               vehiclePricingContexts.map(
                 (vehicle) =>
-                  getEffectiveServicePricingForVehicle(service, vehicle)
-                    .duration,
+                  getEffectiveServicePricingForVehicle(service, vehicle).duration,
               ),
             ),
             petFeeVehicleCount,
@@ -606,11 +566,18 @@ export default function AppointmentModal({
     }
   };
 
-  // Check if active services are available
+  const handleCancel = () => {
+    resetBooking();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("selectedAddress");
+      localStorage.removeItem("appointmentFormData");
+    }
+    router.push("/");
+  };
+
   const hasServices = services?.some((service) => service.isActive) ?? false;
 
   const onSubmit = async () => {
-    // Validate that all required data is present
     if (!step2Data?.phone || !step2Data?.email || !step2Data?.name) {
       toast.error("Please go back and enter your contact details.");
       return;
@@ -626,7 +593,6 @@ export default function AppointmentModal({
       return;
     }
 
-    // Check if services are available
     if (!hasServices) {
       toast.error(
         "No services are available at this time. Please contact us directly.",
@@ -636,13 +602,9 @@ export default function AppointmentModal({
 
     setIsLoading(true);
     try {
-      // Always use form data — the form is pre-filled with signed-in user's info,
-      // but the user may have edited it (e.g. admin booking for a customer)
       const fullName = step2Data.name;
       const email = step2Data.email;
       const phone = step2Data.phone;
-
-      console.log("Submitting appointment for:", email);
 
       const {
         draftId,
@@ -662,7 +624,7 @@ export default function AppointmentModal({
           notes: step1Data.locationNotes,
         },
         vehicles: step3Data.vehicles.map((vehicle) => ({
-          year: parseInt(vehicle.year), // Ensure year is number
+          year: parseInt(vehicle.year),
           make: vehicle.make,
           model: vehicle.model,
           vehicleTypeId: vehicle.vehicleTypeId as Id<"vehicleTypes"> | undefined,
@@ -689,15 +651,11 @@ export default function AppointmentModal({
       });
 
       if (url) {
-        // Clear the booking store before redirecting to Stripe
         resetBooking();
-        // Clear local storage fallbacks if any remain
         if (typeof window !== "undefined") {
-             localStorage.removeItem("selectedAddress");
-             localStorage.removeItem("appointmentFormData");
+          localStorage.removeItem("selectedAddress");
+          localStorage.removeItem("appointmentFormData");
         }
-        
-        // Redirect to Stripe Checkout
         window.location.href = url;
       } else {
         throw new Error("Failed to create checkout session");
@@ -714,145 +672,119 @@ export default function AppointmentModal({
     }
   };
 
-  // Reset function to clear all state
-  const resetModal = () => {
-    resetBooking();
-    // Clear saved data from localStorage (legacy/redundant but safe)
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("selectedAddress");
-      localStorage.removeItem("appointmentFormData");
-    }
-    step1Form.reset();
-    step2Form.reset();
-    step3Form.reset();
-    step4Form.reset();
-    setTravelQuote(null);
-  };
-
-  const handleOpenChange = (newOpen: boolean) => {
-    onOpenChange(newOpen);
-    if (!newOpen) {
-      resetModal();
-    }
-  };
-
-  // Show loading state while data is being fetched
   if (services === undefined || bookingReadiness === undefined) {
     return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold">
-              Schedule Your Detailing
-            </DialogTitle>
-            <DialogDescription>Loading available services...</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <Card className="w-full max-w-3xl mx-auto shadow-2xl bg-card/70 backdrop-blur-md border border-border/50 p-6">
+        <CardHeader className="space-y-2 text-center pb-6">
+          <CardTitle className="text-3xl font-bold text-foreground">Schedule Your Detailing</CardTitle>
+          <CardDescription className="text-base text-muted-foreground">Loading available services...</CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center justify-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (!bookingReadiness.isReady) {
     return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-center">
-              Booking Coming Soon
-            </DialogTitle>
-            <DialogDescription className="text-center">
-              Online booking is still being configured.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="text-center py-4">
-            <p className="text-muted-foreground mb-4">
-              Create an account now and we&apos;ll keep you updated when booking opens.
-            </p>
-            <div className="flex flex-col gap-2">
-              <Button onClick={() => (window.location.href = "/sign-up")}>
-                Get Started
-              </Button>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Close
-              </Button>
-            </div>
+      <Card className="w-full max-w-md mx-auto shadow-2xl bg-card/70 backdrop-blur-md border border-border/50">
+        <CardHeader className="space-y-2 text-center pb-6">
+          <CardTitle className="text-2xl font-bold text-foreground">Booking Coming Soon</CardTitle>
+          <CardDescription className="text-base text-muted-foreground">Online booking is still being configured.</CardDescription>
+        </CardHeader>
+        <CardContent className="text-center py-6 space-y-6">
+          <p className="text-muted-foreground">
+            Create an account now and we&apos;ll keep you updated when booking opens.
+          </p>
+          <div className="flex flex-col gap-3">
+            <Button onClick={() => (window.location.href = "/sign-up")}>
+              Get Started
+            </Button>
+            <Button variant="outline" onClick={handleCancel}>
+              Go Back
+            </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </CardContent>
+      </Card>
     );
   }
 
-  // Show error state if no services are available
   if (services === null || !hasServices) {
     return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-center">
-              No Services Available
-            </DialogTitle>
-            <DialogDescription className="text-center">
-              Our services are being configured.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="text-center py-6">
-            <p className="text-muted-foreground mb-4">
-              No detailing services are available for booking at this time.
-              Please contact us directly.
-            </p>
-            <div className="space-y-2">
-              <p className="font-medium">Call us at:</p>
-              <a
-                href="tel:501-454-7140"
-                className="text-accent hover:underline font-medium"
-              >
-                (501) 454-7140
-              </a>
-            </div>
+      <Card className="w-full max-w-md mx-auto shadow-2xl bg-card/70 backdrop-blur-md border border-border/50">
+        <CardHeader className="space-y-2 text-center pb-6">
+          <CardTitle className="text-2xl font-bold text-foreground">No Services Available</CardTitle>
+          <CardDescription className="text-base text-muted-foreground">Our services are being configured.</CardDescription>
+        </CardHeader>
+        <CardContent className="text-center py-6 space-y-6">
+          <p className="text-muted-foreground">
+            No detailing services are available for booking at this time.
+            Please contact us directly.
+          </p>
+          <div className="space-y-2">
+            <p className="font-medium">Call us at:</p>
+            <a
+              href="tel:501-454-7140"
+              className="text-accent hover:underline font-medium text-lg"
+            >
+              (501) 454-7140
+            </a>
           </div>
-          <div className="flex justify-center">
-            <Button onClick={() => onOpenChange(false)}>Close</Button>
+          <div className="flex justify-center pt-4">
+            <Button onClick={handleCancel} variant="outline" className="w-full">
+              Go Back
+            </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">
+    <Card className="w-full max-w-3xl mx-auto shadow-2xl bg-card/70 backdrop-blur-md border border-border/50 overflow-hidden">
+      <CardHeader className="space-y-2 border-b border-border/50 bg-muted/20 pb-6 relative">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">
             Schedule Your Detailing
-          </DialogTitle>
-          <DialogDescription>
-            Step {currentStep} of 5:{" "}
-            {currentStep === 1
-              ? "Date & Location"
-              : currentStep === 2
-                ? "Personal Info"
-                : currentStep === 3
-                  ? "Vehicle Details"
-                  : currentStep === 4
-                    ? "Service Selection"
-                    : "Create Account"}
-          </DialogDescription>
-        </DialogHeader>
+          </CardTitle>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleCancel}
+            className="h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-full"
+            title="Cancel booking"
+          >
+            <X className="h-5 w-5" />
+            <span className="sr-only">Cancel booking</span>
+          </Button>
+        </div>
+        <CardDescription className="text-base font-medium text-accent">
+          Step {currentStep} of 5:{" "}
+          {currentStep === 1
+            ? "Date & Location"
+            : currentStep === 2
+              ? "Personal Info"
+              : currentStep === 3
+                ? "Vehicle Details"
+                : currentStep === 4
+                  ? "Service Selection"
+                  : "Create Account & Payment"}
+        </CardDescription>
+      </CardHeader>
 
+      <CardContent className="p-6 md:p-8 space-y-6">
         {/* Progress Indicator */}
-        <div className="flex items-center justify-center gap-2 mb-6">
+        <div className="flex items-center justify-center gap-2 mb-4">
           {[1, 2, 3, 4, 5].map((step) => (
             <div
               key={step}
-              className={`h-2 rounded-full transition-all ${
+              className={`h-2.5 rounded-full transition-all duration-300 ${
                 step === currentStep
-                  ? "w-12 bg-accent"
+                  ? "w-16 bg-accent"
                   : step < currentStep
-                    ? "w-8 bg-accent/60"
-                    : "w-8 bg-muted"
+                    ? "w-10 bg-accent/60"
+                    : "w-10 bg-muted"
               }`}
             />
           ))}
@@ -867,32 +799,28 @@ export default function AppointmentModal({
                 name="scheduledDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Preferred Date</FormLabel>
+                    <FormLabel className="text-sm font-semibold text-foreground">Preferred Date</FormLabel>
                     <FormControl>
                       <Input
-                          type="date"
-                          {...field}
-                          value={
-                            field.value instanceof Date
-                              ? field.value.toISOString().split("T")[0]
-                              : field.value || ""
-                          }
-                          onChange={(e) => {
-                            const date = new Date(e.target.value);
-                            // Adjust for timezone offset to prevent day shifting
-                            const userTimezoneOffset =
-                              date.getTimezoneOffset() * 60000;
-                            const adjustedDate = new Date(
-                              date.getTime() + userTimezoneOffset,
-                            );
-                            field.onChange(adjustedDate);
-                            step1Form.setValue("scheduledTime", "", {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                          }}
-                          className="bg-background-50 border-gray-200"
-                        />
+                        type="date"
+                        {...field}
+                        value={
+                          field.value instanceof Date
+                            ? field.value.toISOString().split("T")[0]
+                            : field.value || ""
+                        }
+                        onChange={(e) => {
+                          const date = new Date(e.target.value);
+                          const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+                          const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
+                          field.onChange(adjustedDate);
+                          step1Form.setValue("scheduledTime", "", {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                        }}
+                        className="bg-background border-border text-foreground"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -903,7 +831,7 @@ export default function AppointmentModal({
                 name="scheduledTime"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Preferred Time</FormLabel>
+                    <FormLabel className="text-sm font-semibold text-foreground">Preferred Time</FormLabel>
                     <FormControl>
                       <TimeSlotPicker 
                         date={
@@ -929,12 +857,11 @@ export default function AppointmentModal({
                 label="Service Address"
                 placeholder="Search for your service address"
               />
-              {/* Hidden form fields for validation */}
               <FormField
                 control={step1Form.control}
                 name="street"
                 render={({ field }) => (
-                <FormItem className="hidden">
+                  <FormItem className="hidden">
                     <FormControl>
                       <Input {...field} value={field.value || ""} />
                     </FormControl>
@@ -946,7 +873,7 @@ export default function AppointmentModal({
                 control={step1Form.control}
                 name="city"
                 render={({ field }) => (
-                <FormItem className="hidden">
+                  <FormItem className="hidden">
                     <FormControl>
                       <Input {...field} value={field.value || ""} />
                     </FormControl>
@@ -958,7 +885,7 @@ export default function AppointmentModal({
                 control={step1Form.control}
                 name="state"
                 render={({ field }) => (
-                <FormItem className="hidden">
+                  <FormItem className="hidden">
                     <FormControl>
                       <Input {...field} value={field.value || ""} />
                     </FormControl>
@@ -983,11 +910,12 @@ export default function AppointmentModal({
                 name="locationNotes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Location Notes (Optional)</FormLabel>
+                    <FormLabel className="text-sm font-semibold text-foreground">Location Notes (Optional)</FormLabel>
                     <FormControl>
                       <Textarea
                         {...field}
                         placeholder="Any special instructions for finding the location"
+                        className="bg-background border-border text-foreground"
                       />
                     </FormControl>
                     <FormMessage />
@@ -1007,9 +935,9 @@ export default function AppointmentModal({
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Full Name</FormLabel>
+                    <FormLabel className="text-sm font-semibold text-foreground">Full Name</FormLabel>
                     <FormControl>
-                      <Input {...field} value={field.value || ""} />
+                      <Input {...field} value={field.value || ""} className="bg-background border-border text-foreground" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1020,17 +948,14 @@ export default function AppointmentModal({
                 name="phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Number</FormLabel>
+                    <FormLabel className="text-sm font-semibold text-foreground">Phone Number</FormLabel>
                     <FormControl>
                       <Input 
                         {...field} 
                         value={field.value || ""} 
                         type="tel" 
                         placeholder="123-456-7890"
-                        onChange={(e) => {
-                           // Allow user to type, validation is handled by schema on submit
-                           field.onChange(e);
-                        }}
+                        className="bg-background border-border text-foreground"
                       />
                     </FormControl>
                     <FormMessage />
@@ -1042,9 +967,9 @@ export default function AppointmentModal({
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email Address</FormLabel>
+                    <FormLabel className="text-sm font-semibold text-foreground">Email Address</FormLabel>
                     <FormControl>
-                      <Input {...field} value={field.value || ""} type="email" />
+                      <Input {...field} value={field.value || ""} type="email" className="bg-background border-border text-foreground" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1054,13 +979,13 @@ export default function AppointmentModal({
                 control={step2Form.control}
                 name="smsOptIn"
                 render={({ field }) => (
-                  <FormItem className="rounded-lg border p-4">
+                  <FormItem className="rounded-xl border border-border/60 bg-muted/10 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="space-y-1">
-                        <FormLabel className="mb-0">
+                        <FormLabel className="mb-0 text-sm font-semibold text-foreground">
                           Receive urgent text updates
                         </FormLabel>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-xs text-muted-foreground leading-normal">
                           Get SMS alerts for confirmations, reminders,
                           cancellations, reschedules, and when we start service.
                         </p>
@@ -1086,7 +1011,7 @@ export default function AppointmentModal({
             <form className="space-y-6">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Vehicle Details</h3>
+                  <h3 className="text-sm font-semibold text-muted-foreground">Vehicle Details</h3>
                   <Button
                     type="button"
                     variant="outline"
@@ -1120,7 +1045,7 @@ export default function AppointmentModal({
           <Form {...step4Form}>
             <form className="space-y-6">
               <div className="space-y-4">
-                <h3 className="text-sm font-medium">Select Services</h3>
+                <h3 className="text-sm font-semibold text-muted-foreground">Select Services</h3>
                 
                 <FormField
                   control={step4Form.control}
@@ -1130,45 +1055,38 @@ export default function AppointmentModal({
                       <FormControl>
                         <div className="space-y-8">
                           {(() => {
-                            const selectedVehicleSize =
-                              primaryVehiclePricingContext.vehicleSize;
-                            const selectedVehicleTypeId =
-                              primaryVehiclePricingContext.vehicleTypeId;
+                            const selectedVehicleSize = primaryVehiclePricingContext.vehicleSize;
+                            const selectedVehicleTypeId = primaryVehiclePricingContext.vehicleTypeId;
                             const standardServices =
                               services?.filter(
                                 (service) =>
-                                  normalizeServiceType(service.serviceType) ===
-                                    "standard" &&
+                                  normalizeServiceType(service.serviceType) === "standard" &&
                                   isAvailableForBookingVehicles(service),
                               ) ?? [];
                             const addonServices =
                               services?.filter(
                                 (service) =>
-                                  normalizeServiceType(service.serviceType) ===
-                                    "addon" &&
+                                  normalizeServiceType(service.serviceType) === "addon" &&
                                   isAvailableForBookingVehicles(service),
                               ) ?? [];
                             const subscriptionServices =
                               services?.filter(
                                 (service) =>
-                                  normalizeServiceType(service.serviceType) ===
-                                    "subscription" &&
+                                  normalizeServiceType(service.serviceType) === "subscription" &&
                                   isAvailableForBookingVehicles(service),
                               ) ?? [];
 
                             return (
                               <>
-                          
-                                {/* Packages Section (Single Select) */}
+                                {/* Packages Section */}
                                 <div className="space-y-3">
-                                  <h4 className="font-medium flex items-center gap-2">
-                                    <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs">ONE REQUIRED</span>
+                                  <h4 className="font-semibold text-sm flex items-center gap-2 text-foreground">
+                                    <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-bold">ONE REQUIRED</span>
                                     Packages
                                   </h4>
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {standardServices.map(service => {
                                         const isSelected = field.value?.includes(service._id) || false;
-
                                         return (
                                           <ServiceCard
                                             key={service._id}
@@ -1178,15 +1096,9 @@ export default function AppointmentModal({
                                             isSelected={isSelected}
                                             onSelect={() => {
                                               const current = field.value || [];
-                                              // Remove other standard services, keep addons/subs
                                               const otherServices = current.filter(id => {
                                                 const s = services.find(s => s._id === id);
-                                                return (
-                                                  s &&
-                                                  normalizeServiceType(
-                                                    s.serviceType,
-                                                  ) !== "standard"
-                                                );
+                                                return s && normalizeServiceType(s.serviceType) !== "standard";
                                               });
                                               field.onChange([...otherServices, service._id]);
                                             }}
@@ -1201,13 +1113,12 @@ export default function AppointmentModal({
                                   </div>
                                 </div>
 
-                                {/* Add-ons Section (Multi Select) */}
+                                {/* Add-ons Section */}
                                 <div className="space-y-3">
-                                  <h4 className="font-medium text-muted-foreground">Add-ons (Optional)</h4>
+                                  <h4 className="font-semibold text-sm text-muted-foreground">Add-ons (Optional)</h4>
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {addonServices.map(service => {
                                         const isSelected = field.value?.includes(service._id) || false;
-
                                         return (
                                           <ServiceCard
                                             key={service._id}
@@ -1231,13 +1142,12 @@ export default function AppointmentModal({
                                   </div>
                                 </div>
 
-                                {/* Subscriptions Section (Single Select) */}
+                                {/* Subscriptions Section */}
                                 <div className="space-y-3">
-                                  <h4 className="font-medium text-muted-foreground">Subscriptions (Optional)</h4>
+                                  <h4 className="font-semibold text-sm text-muted-foreground">Subscriptions (Optional)</h4>
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {subscriptionServices.map(service => {
                                         const isSelected = field.value?.includes(service._id) || false;
-
                                         return (
                                           <ServiceCard
                                             key={service._id}
@@ -1249,20 +1159,13 @@ export default function AppointmentModal({
                                               const current = field.value || [];
                                               const otherServices = current.filter(id => {
                                                 const s = services.find(s => s._id === id);
-                                                return (
-                                                  s &&
-                                                  normalizeServiceType(
-                                                    s.serviceType,
-                                                  ) !== "subscription"
-                                                );
+                                                return s && normalizeServiceType(s.serviceType) !== "subscription";
                                               });
                                               
                                               if (selected) {
-                                                 // Select this one, remove other subscriptions
-                                                 field.onChange([...otherServices, service._id]);
+                                                  field.onChange([...otherServices, service._id]);
                                               } else {
-                                                 // Deselect allowed for subscriptions
-                                                 field.onChange(otherServices);
+                                                  field.onChange(otherServices);
                                               }
                                             }}
                                           />
@@ -1276,23 +1179,19 @@ export default function AppointmentModal({
                               </>
                             );
                           })()}
-
                         </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <FormMessage />
               </div>
             </form>
           </Form>
         )}
 
         {/* Step 5: Create Account & Payment */}
-
         {currentStep === 5 && (() => {
-          // Compute service total and deposit for display
           const vehicleCount = vehiclePricingContexts.length;
           const depositPerVehicle = 50;
           const depositTotal = depositPerVehicle * vehicleCount;
@@ -1329,195 +1228,204 @@ export default function AppointmentModal({
           const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
 
           return (
-          <div className="space-y-6">
-             <div className="bg-muted/50 p-4 rounded-lg border border-border/50">
-               <h3 className="font-semibold mb-3 flex items-center gap-2">
-                 <span className="bg-primary text-primary-foreground w-6 h-6 rounded-full flex items-center justify-center text-xs">✓</span>
-                 Order Summary
-               </h3>
-               {selectedServices.map((service) => {
-                   const isSubscription = service.serviceType === "subscription";
-                   const serviceSubtotal = vehiclePricingContexts.reduce(
-                     (sum, vehicle) =>
-                       sum +
-                       getEffectiveServicePricingForVehicle(service, vehicle)
-                         .price,
-                     0,
-                   );
+            <div className="space-y-6">
+              <div className="bg-muted/30 p-4 rounded-xl border border-border/50">
+                <h3 className="font-semibold mb-3 flex items-center gap-2 text-sm text-foreground">
+                  <span className="bg-primary text-primary-foreground w-5 h-5 rounded-full flex items-center justify-center text-[10px]">✓</span>
+                  Order Summary
+                </h3>
+                {selectedServices.map((service) => {
+                  const isSubscription = service.serviceType === "subscription";
+                  const serviceSubtotal = vehiclePricingContexts.reduce(
+                    (sum, vehicle) =>
+                      sum +
+                      getEffectiveServicePricingForVehicle(service, vehicle).price,
+                    0,
+                  );
 
-                   return (
-                     <div key={service._id} className="flex justify-between text-sm mb-2">
-                       <span className="text-muted-foreground">
-                         {service.name}
-                         {vehicleCount > 1 && <span className="text-xs"> x{vehicleCount}</span>}
-                       </span>
-                       <div className="flex items-center gap-1">
-                          <span className="font-medium">${serviceSubtotal.toFixed(2)}</span>
-                          {isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
-                       </div>
-                     </div>
-                   );
-                 })}
-
-                 <div className="flex justify-between text-sm font-medium mt-1">
-                   <span>Service Total</span>
-                   <span>${serviceTotal.toFixed(2)}</span>
-                 </div>
-                 {petFeeTotal > 0 && (
-                   <div className="flex justify-between text-sm font-medium mt-1">
-                     <span>Pet Fee</span>
-                     <span>${petFeeTotal.toFixed(2)}</span>
-                   </div>
-                 )}
-                 {travelFeeTotal > 0 && (
-                   <div className="flex justify-between text-sm font-medium mt-1">
-                     <span>
-                       Travel Fee
-                       {travelQuote && (
-                         <span className="ml-1 text-xs font-normal text-muted-foreground">
-                           ({travelQuote.distanceMiles.toFixed(1)} miles)
-                         </span>
-                       )}
-                     </span>
-                     <span>${travelFeeTotal.toFixed(2)}</span>
-                   </div>
-                 )}
-                 <div className="flex justify-between border-t pt-2 text-sm font-semibold mt-2">
-                   <span>Total</span>
-                   <span>${orderTotal.toFixed(2)}</span>
-                 </div>
-             </div>
-
-             {/* Payment Option Selector */}
-             <div className="space-y-3">
-               <h3 className="font-semibold text-sm">Payment Option</h3>
-               <div className="space-y-2">
-                 <label
-                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                     paymentOption === "deposit"
-                       ? "border-primary bg-primary/5"
-                       : "border-border hover:border-primary/50"
-                   }`}
-                 >
-                   <input
-                     type="radio"
-                     name="paymentOption"
-                     value="deposit"
-                     checked={paymentOption === "deposit"}
-                     onChange={() => setPaymentOption("deposit")}
-                     className="mt-1 accent-primary"
-                   />
-                   <div>
-                     <span className="font-medium text-sm">Pay Deposit Now</span>
-                     <span className="text-xs text-muted-foreground block">
-                       ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, remaining balance invoiced after service
-                     </span>
-                   </div>
-                 </label>
-                 <label
-                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                     paymentOption === "full"
-                       ? "border-primary bg-primary/5"
-                       : "border-border hover:border-primary/50"
-                   }`}
-                 >
-                   <input
-                     type="radio"
-                     name="paymentOption"
-                     value="full"
-                     checked={paymentOption === "full"}
-                     onChange={() => setPaymentOption("full")}
-                     className="mt-1 accent-primary"
-                   />
-                   <div>
-                     <span className="font-medium text-sm">Pay Full Price Now</span>
-                     <span className="text-xs text-muted-foreground block">
-                       ${orderTotal.toFixed(2)} — pay entire amount upfront
-                     </span>
-                   </div>
-                 </label>
-                 <label
-                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                     paymentOption === "in_person"
-                       ? "border-primary bg-primary/5"
-                       : "border-border hover:border-primary/50"
-                   }`}
-                 >
-                   <input
-                     type="radio"
-                     name="paymentOption"
-                     value="in_person"
-                     checked={paymentOption === "in_person"}
-                     onChange={() => setPaymentOption("in_person")}
-                     className="mt-1 accent-primary"
-                   />
-                   <div>
-                     <span className="font-medium text-sm">Pay Remaining in Person</span>
-                     <span className="text-xs text-muted-foreground block">
-                       ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, pay balance in cash/card at service
-                     </span>
-                   </div>
-                 </label>
-               </div>
-             </div>
-
-             {/* Amount Due Now */}
-             <div className="bg-muted/50 p-4 rounded-lg border border-border/50">
-                 <div className="flex justify-between items-end">
-                   <div>
-                     <span className="font-bold text-base block">
-                       {paymentOption === "full" ? "Total Due Now" : "Deposit Due Now"}
-                     </span>
-                     <span className="text-xs text-muted-foreground">Secure payment via Stripe</span>
-                   </div>
-                   <span className="font-bold text-xl text-primary">${dueNow.toFixed(2)}</span>
-                 </div>
-                 {paymentOption !== "full" && (
-                   <p className="text-xs text-muted-foreground mt-2">
-                     This deposit is non-refundable and will be applied to your service total.
-                   </p>
-                 )}
-                 {paymentOption === "in_person" && (
-                   <p className="text-xs text-muted-foreground mt-1">
-                     Remaining balance of ${Math.max(0, orderTotal - depositTotal).toFixed(2)} will be collected in person.
-                   </p>
-                 )}
-             </div>
-
-             <div className="mt-6">
-                {!isSignedIn ? (
-                    <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-3 rounded-md text-sm mb-4 border border-blue-200 dark:border-blue-800 text-center">
-                       We&apos;ll email your booking details after payment. If you want an online account, you can create one later with the same email address.
+                  return (
+                    <div key={service._id} className="flex justify-between text-sm mb-2">
+                      <span className="text-muted-foreground">
+                        {service.name}
+                        {vehicleCount > 1 && <span className="text-xs"> x{vehicleCount}</span>}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium text-foreground">${serviceSubtotal.toFixed(2)}</span>
+                        {isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
+                      </div>
                     </div>
-                ) : (
-                   <div className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 p-3 rounded-md text-sm mb-4 flex items-center gap-2 border border-green-200 dark:border-green-800">
-                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                      Logged in as {user?.primaryEmailAddress?.emailAddress}
-                   </div>
+                  );
+                })}
+
+                <div className="flex justify-between text-sm font-medium mt-3 border-t border-border/30 pt-3">
+                  <span className="text-muted-foreground">Service Total</span>
+                  <span className="text-foreground">${serviceTotal.toFixed(2)}</span>
+                </div>
+                {petFeeTotal > 0 && (
+                  <div className="flex justify-between text-sm font-medium mt-1">
+                    <span className="text-muted-foreground">Pet Fee</span>
+                    <span className="text-foreground">${petFeeTotal.toFixed(2)}</span>
+                  </div>
                 )}
-             </div>
-          </div>
+                {travelFeeTotal > 0 && (
+                  <div className="flex justify-between text-sm font-medium mt-1">
+                    <span className="text-muted-foreground">
+                      Travel Fee
+                      {travelQuote && (
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">
+                          ({travelQuote.distanceMiles.toFixed(1)} miles)
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-foreground">${travelFeeTotal.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t border-border/50 pt-2 text-base font-bold mt-2">
+                  <span className="text-foreground">Total</span>
+                  <span className="text-foreground">${orderTotal.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Payment Option Selector */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm text-foreground">Payment Option</h3>
+                <div className="space-y-2">
+                  <label
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                      paymentOption === "deposit"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      value="deposit"
+                      checked={paymentOption === "deposit"}
+                      onChange={() => setPaymentOption("deposit")}
+                      className="mt-1 accent-primary"
+                    />
+                    <div>
+                      <span className="font-semibold text-sm text-foreground">Pay Deposit Now</span>
+                      <span className="text-xs text-muted-foreground block mt-0.5">
+                        ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, remaining balance invoiced after service
+                      </span>
+                    </div>
+                  </label>
+                  <label
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                      paymentOption === "full"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      value="full"
+                      checked={paymentOption === "full"}
+                      onChange={() => setPaymentOption("full")}
+                      className="mt-1 accent-primary"
+                    />
+                    <div>
+                      <span className="font-semibold text-sm text-foreground">Pay Full Price Now</span>
+                      <span className="text-xs text-muted-foreground block mt-0.5">
+                        ${orderTotal.toFixed(2)} — pay entire amount upfront
+                      </span>
+                    </div>
+                  </label>
+                  <label
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                      paymentOption === "in_person"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      value="in_person"
+                      checked={paymentOption === "in_person"}
+                      onChange={() => setPaymentOption("in_person")}
+                      className="mt-1 accent-primary"
+                    />
+                    <div>
+                      <span className="font-semibold text-sm text-foreground">Pay Remaining in Person</span>
+                      <span className="text-xs text-muted-foreground block mt-0.5">
+                        ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, pay balance in cash/card at service
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Amount Due Now */}
+              <div className="bg-muted/30 p-4 rounded-xl border border-border/50">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <span className="font-bold text-base block text-foreground">
+                      {paymentOption === "full" ? "Total Due Now" : "Deposit Due Now"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">Secure payment via Stripe</span>
+                  </div>
+                  <span className="font-bold text-xl text-primary">${dueNow.toFixed(2)}</span>
+                </div>
+                {paymentOption !== "full" && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    This deposit is non-refundable and will be applied to your service total.
+                  </p>
+                )}
+                {paymentOption === "in_person" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Remaining balance of ${Math.max(0, orderTotal - depositTotal).toFixed(2)} will be collected in person.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-6">
+                {!isSignedIn ? (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-4 rounded-xl text-sm mb-4 border border-blue-200 dark:border-blue-800 text-center">
+                    We&apos;ll email your booking details after payment. If you want an online account, you can create one later with the same email address.
+                  </div>
+                ) : (
+                  <div className="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 p-3 rounded-xl text-sm mb-4 flex items-center gap-2 border border-green-200 dark:border-green-800">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    Logged in as {user?.primaryEmailAddress?.emailAddress}
+                  </div>
+                )}
+              </div>
+            </div>
           );
         })()}
 
-
-
-      {/* Navigation Buttons */}
-        <div className="flex gap-4 pt-4 border-t mt-4">
-          {currentStep > 1 && (
+        {/* Navigation Buttons */}
+        <div className="flex gap-4 pt-6 border-t border-border/50 mt-6">
+          {currentStep > 1 ? (
             <Button
               type="button"
               variant="outline"
               onClick={prevStep}
-              className="flex-1"
+              className="flex-1 h-12"
               disabled={isLoading}
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
             </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCancel}
+              className="flex-1 h-12 text-muted-foreground hover:text-foreground"
+              disabled={isLoading}
+            >
+              <X className="w-4 h-4 mr-2" />
+              Cancel
+            </Button>
           )}
+
           {currentStep < 5 ? (
-            <Button type="button" onClick={nextStep} className="flex-1">
+            <Button type="button" onClick={nextStep} className="flex-1 h-12">
               Continue
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
@@ -1525,7 +1433,7 @@ export default function AppointmentModal({
             <Button
               type="button"
               onClick={onSubmit}
-              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
+              className="flex-1 h-12 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -1542,7 +1450,7 @@ export default function AppointmentModal({
             </Button>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </CardContent>
+    </Card>
   );
 }
