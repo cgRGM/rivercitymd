@@ -144,6 +144,52 @@ describe("vehicleTypes", () => {
     expect(results).toHaveLength(8);
   });
 
+  test("searches vehicles when only make is specified (year and model omitted)", async () => {
+    const t = convexTest(schema, modules);
+    const newestYear = new Date().getFullYear() + 1;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const urlString = String(url);
+        if (urlString.includes("/menu/make")) {
+          return Response.json({
+            menuItem: [{ text: "Kia", value: "Kia" }],
+          });
+        }
+        if (urlString.includes("/menu/model")) {
+          return Response.json({
+            menuItem: [
+              { text: "Sorento AWD", value: "Sorento AWD" },
+              { text: "Sportage", value: "Sportage" },
+            ],
+          });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    const results = await t.action(api.vehicleTypes.searchModels, {
+      query: "Kia",
+    });
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]).toEqual({
+      year: newestYear,
+      make: "Kia",
+      model: "Sorento AWD",
+      label: `${newestYear} Kia Sorento AWD`,
+      source: "fuelEconomy",
+    });
+    expect(results[1]).toEqual({
+      year: newestYear,
+      make: "Kia",
+      model: "Sportage",
+      label: `${newestYear} Kia Sportage`,
+      source: "fuelEconomy",
+    });
+  });
+
   test("falls back to vPIC when FuelEconomy lookup fails", async () => {
     const t = convexTest(schema, modules);
 
