@@ -3,8 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { getProtectedRouteRedirect, getRoleHomePath } from "@/lib/auth-routing";
-
-const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/book(.*)",
+  "/booking(.*)",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+]);
 
 const isOnboardingRoute = createRouteMatcher(["/onboarding(.*)"]);
 const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
