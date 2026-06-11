@@ -162,6 +162,7 @@ export default function BookingFlow() {
   } | null>(null);
   const { user, isLoaded, isSignedIn } = useUser();
   const [expandedVehicleIndex, setExpandedVehicleIndex] = useState<number>(0);
+  const [expandedStep4VehicleIndex, setExpandedStep4VehicleIndex] = useState<number>(0);
   const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "addons" | "subscriptions" | "">>(
     {},
   );
@@ -1183,17 +1184,49 @@ export default function BookingFlow() {
                             });
                             const selectedSubscription = services?.find(s => s._id === selectedSubId);
 
+                            const isExpanded = expandedStep4VehicleIndex === vIdx;
+                            const nextVehicle = step3Data?.vehicles?.[vIdx + 1];
+                            const nextVehicleLabel = nextVehicle
+                              ? [nextVehicle.year, nextVehicle.make, nextVehicle.model].filter(Boolean).join(" ") || `Vehicle ${vIdx + 2}`
+                              : "";
+
+                            const vehicleServices = services?.filter((s) => currentSelection.includes(s._id)) ?? [];
+                            const vehicleServicesTotal = vehicleServices.reduce((sum, service) => {
+                              return sum + getEffectiveServicePricingForVehicle(service, vehiclePricingContext).price;
+                            }, 0);
+
                             return (
                               <Card key={vIdx} className="border border-border/60 bg-card/40 backdrop-blur-sm overflow-hidden">
-                                <CardHeader className="bg-muted/10 pb-4 border-b border-border/40">
-                                  <CardTitle className="text-lg font-bold flex items-center justify-between">
-                                    <span>{vehicleLabel}</span>
-                                    <span className="text-xs font-normal text-muted-foreground uppercase tracking-wider bg-muted/35 px-2.5 py-1 rounded-full border border-border/20">
-                                      {vehicle.size || "medium"}
-                                    </span>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent className="p-4 space-y-3 bg-card/10">
+                                <button
+                                  type="button"
+                                  className="w-full text-left focus:outline-none"
+                                  onClick={() => setExpandedStep4VehicleIndex(isExpanded ? -1 : vIdx)}
+                                >
+                                  <CardHeader className="bg-muted/10 pb-4 border-b border-border/40 hover:bg-muted/20 transition-colors cursor-pointer p-4">
+                                    <CardTitle className="text-lg font-bold flex items-center justify-between w-full">
+                                      <div className="flex items-center gap-3">
+                                        <span>{vehicleLabel}</span>
+                                        <span className="text-xs font-normal text-muted-foreground uppercase tracking-wider bg-muted/35 px-2.5 py-1 rounded-full border border-border/20">
+                                          {vehicle.size || "medium"}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        {vehicleServicesTotal > 0 && (
+                                          <span className="text-sm font-semibold text-accent bg-accent/10 px-2.5 py-0.5 rounded-full border border-accent/20">
+                                            ${vehicleServicesTotal}
+                                          </span>
+                                        )}
+                                        {isExpanded ? (
+                                          <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                                        ) : (
+                                          <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                                        )}
+                                      </div>
+                                    </CardTitle>
+                                  </CardHeader>
+                                </button>
+                                {isExpanded && (
+                                  <CardContent className="p-4 space-y-3 bg-card/10">
                                   {/* Section 1: Choose a Package */}
                                   <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
                                     <button
@@ -1378,10 +1411,34 @@ export default function BookingFlow() {
                                             <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
                                           )}
                                         </div>
+
+                                        <div className="mt-4 flex justify-end">
+                                          {vIdx < (step3Data?.vehicles.length ?? 0) - 1 ? (
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => {
+                                                setExpandedStep4VehicleIndex(vIdx + 1);
+                                                setActiveServiceSection(prev => ({ ...prev, [vIdx + 1]: "packages" }));
+                                              }}
+                                            >
+                                              Next Vehicle: {nextVehicleLabel}
+                                            </Button>
+                                          ) : (
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={nextStep}
+                                            >
+                                              Continue to Schedule
+                                            </Button>
+                                          )}
+                                        </div>
                                       </div>
                                     )}
                                   </div>
                                 </CardContent>
+                                )}
                               </Card>
                             );
                           })}
