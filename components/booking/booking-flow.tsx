@@ -257,6 +257,21 @@ export default function BookingFlow() {
     .filter(Boolean)
     .join(", ");
 
+  const completeOutOfAreaSubmission = useCallback(
+    (message: string) => {
+      setOutOfAreaMode("submitted");
+      toast.success(message);
+
+      window.setTimeout(() => {
+        resetBooking();
+        localStorage.removeItem("selectedAddress");
+        localStorage.removeItem("appointmentFormData");
+        router.push("/");
+      }, 1500);
+    },
+    [resetBooking, router],
+  );
+
   const handleNotifySubmit = useCallback(async () => {
     if (!notifyEmail || !notifyEmail.includes("@")) {
       toast.error("Please enter a valid email address.");
@@ -271,8 +286,9 @@ export default function BookingFlow() {
         longitude: watchedLongitude,
       });
       setNotifyEmail("");
-      setOutOfAreaMode("submitted");
-      toast.success("Thank you! We'll notify you when we expand to your area.");
+      completeOutOfAreaSubmission(
+        "Thank you! We'll notify you when we expand to your area.",
+      );
     } catch (err) {
       console.error("Failed to save lead:", err);
       toast.error("Failed to submit. Please try again.");
@@ -280,6 +296,7 @@ export default function BookingFlow() {
       setIsNotifySubmitting(false);
     }
   }, [
+    completeOutOfAreaSubmission,
     notifyEmail,
     saveOutOfAreaLead,
     selectedAddressLabel,
@@ -349,8 +366,7 @@ export default function BookingFlow() {
             }
           : undefined,
       });
-      setOutOfAreaMode("submitted");
-      toast.success("Request received. We'll review it and reach out.");
+      completeOutOfAreaSubmission("Request received. We'll review it and reach out.");
     } catch (err) {
       console.error("Failed to save out-of-area request:", err);
       toast.error("Failed to submit your request. Please try again.");
@@ -363,6 +379,7 @@ export default function BookingFlow() {
     reviewContact.phone,
     reviewContact.smsOptIn,
     reviewVehicle,
+    completeOutOfAreaSubmission,
     saveOutOfAreaRequest,
     step1Form,
     travelQuote?.distanceMiles,
