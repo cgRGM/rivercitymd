@@ -34,6 +34,7 @@ import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
 import type * as petFeeSettings from "../petFeeSettings.js";
 import type * as r2 from "../r2.js";
+import type * as rateLimiter from "../rateLimiter.js";
 import type * as reviews from "../reviews.js";
 import type * as services from "../services.js";
 import type * as setupReadiness from "../setupReadiness.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   payments: typeof payments;
   petFeeSettings: typeof petFeeSettings;
   r2: typeof r2;
+  rateLimiter: typeof rateLimiter;
   reviews: typeof reviews;
   services: typeof services;
   setupReadiness: typeof setupReadiness;
@@ -133,4 +135,5 @@ export declare const components: {
   twilio: import("@convex-dev/twilio/_generated/component.js").ComponentApi<"twilio">;
   stripe: import("@convex-dev/stripe/_generated/component.js").ComponentApi<"stripe">;
   r2: import("@convex-dev/r2/_generated/component.js").ComponentApi<"r2">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { requireAdmin } from "./auth";
 import type { VehicleSize } from "./lib/pricing";
+import { assertRateLimit, normalizeRateLimitKey } from "./rateLimiter";
 
 const legacySizeValidator = v.union(
   v.literal("small"),
@@ -338,7 +339,7 @@ export const searchModels = action({
     query: v.string(),
   },
   handler: async (
-    _ctx,
+    ctx,
     args,
   ): Promise<
     Array<{
@@ -350,6 +351,14 @@ export const searchModels = action({
     }>
   > => {
     const normalizedQuery = args.query.trim().replace(/\s+/g, " ");
+    await assertRateLimit(ctx, "vehicleLookupGlobal", {
+      message: "Vehicle lookup is temporarily busy. Please try again shortly.",
+    });
+    await assertRateLimit(ctx, "vehicleLookupByQuery", {
+      key: normalizeRateLimitKey(normalizedQuery),
+      message: "Please wait a moment before searching for that vehicle again.",
+    });
+
     const yearMatch = normalizedQuery.match(/\b(19|20)\d{2}\b/);
     const year = yearMatch ? Number(yearMatch[0]) : undefined;
     const vehicleQuery = normalizedQuery
@@ -437,6 +446,14 @@ export const classify = action({
     rawCategory?: string;
     needsAdminReview: boolean;
   }> => {
+    await assertRateLimit(ctx, "vehicleLookupGlobal", {
+      message: "Vehicle lookup is temporarily busy. Please try again shortly.",
+    });
+    await assertRateLimit(ctx, "vehicleLookupByQuery", {
+      key: normalizeRateLimitKey(`${args.year} ${args.make} ${args.model}`),
+      message: "Please wait a moment before classifying that vehicle again.",
+    });
+
     await ctx.runMutation(internal.vehicleTypes.ensureDefaultsInternal, {});
 
     const make = encodeURIComponent(args.make.trim());

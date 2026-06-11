@@ -2,6 +2,19 @@
 // This file configures the test environment globally
 
 import { vi } from "vitest";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
+
+vi.mock("convex-test", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("convex-test")>();
+  return {
+    ...actual,
+    convexTest: (...args: Parameters<typeof actual.convexTest>) => {
+      const t = actual.convexTest(...args);
+      rateLimiterTest.register(t);
+      return t;
+    },
+  };
+});
 
 // Set Stripe environment variables globally for all tests
 // This ensures scheduled functions have access to the keys
@@ -154,7 +167,6 @@ declare global {
 // Glob pattern to import all Convex functions for testing.
 // Paths are relative to the convex/ directory (this file lives in convex/).
 // Vite's import.meta.glob doesn't support bash extended globbing; we match all .ts/.tsx then filter out test files.
-// @ts-expect-error - import.meta.glob is a Vite-specific feature, types may not be available
 const allModules = import.meta.glob("./**/*.{ts,tsx}", {
   eager: false,
 }) as Record<string, () => Promise<any>>;

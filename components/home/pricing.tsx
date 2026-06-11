@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -12,21 +12,30 @@ import { cn } from "@/lib/utils";
 
 export function PricingSection() {
   const router = useRouter();
-  const servicesQuery = useQuery(api.services.list);
+  const pricingQuery = useQuery(api.services.listLandingPagePricing);
   const bookingReadiness = useQuery(
     api.setupReadiness.getPublicBookingReadiness,
   );
 
-  const [selectedSize, setSelectedSize] = useState<
-    "small" | "medium" | "large"
-  >("medium");
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<
+    string | null
+  >(null);
 
-  const mainServices =
-    servicesQuery?.filter(
-      (service) =>
-        service.isActive &&
-        (service.serviceType === "standard" || !service.serviceType),
-    ) || [];
+  useEffect(() => {
+    if (!pricingQuery?.length) return;
+    const hasSelected = pricingQuery.some(
+      (group) => group.vehicleType._id === selectedVehicleTypeId,
+    );
+    if (!hasSelected) {
+      setSelectedVehicleTypeId(pricingQuery[0].vehicleType._id);
+    }
+  }, [pricingQuery, selectedVehicleTypeId]);
+
+  const selectedGroup =
+    pricingQuery?.find(
+      (group) => group.vehicleType._id === selectedVehicleTypeId,
+    ) ?? pricingQuery?.[0];
+  const mainServices = selectedGroup?.services ?? [];
 
   const handleBookNow = () => {
     if (bookingReadiness && !bookingReadiness.isReady) {
@@ -38,7 +47,7 @@ export function PricingSection() {
   };
 
   // Loading state
-  if (servicesQuery === undefined) {
+  if (pricingQuery === undefined) {
     return (
       <section
         id="pricing"
@@ -77,7 +86,7 @@ export function PricingSection() {
   }
 
   // Error state
-  if (servicesQuery === null) {
+  if (pricingQuery === null) {
     return (
       <section
         id="pricing"
@@ -112,14 +121,14 @@ export function PricingSection() {
               Transparent pricing for quality service
             </h2>
             <p className="text-lg text-muted-foreground mb-2">
-              Professional mobile detailing services for all vehicle sizes
+              Mobile detailing packages matched to your vehicle
             </p>
             <p className="text-sm text-muted-foreground">
-              Professional-grade products, non-toxic and eco-friendly.
+              Choose a vehicle type to see the services currently offered for it.
             </p>
           </motion.div>
 
-          {/* Vehicle Size Tabs */}
+          {/* Vehicle Type Tabs */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -132,28 +141,22 @@ export function PricingSection() {
             </p>
             <div
               role="tablist"
-              className="flex w-full rounded-lg border border-border/40 bg-secondary/40 p-1 gap-1"
+              className="flex w-full gap-1 overflow-x-auto rounded-lg border border-border/40 bg-secondary/40 p-1"
             >
-              {(
-                [
-                  { value: "small", label: "Small / Compact" },
-                  { value: "medium", label: "Mid-Size SUV" },
-                  { value: "large", label: "Truck / Large" },
-                ] as const
-              ).map(({ value, label }) => (
+              {pricingQuery.map(({ vehicleType }) => (
                 <button
-                  key={value}
+                  key={vehicleType._id}
                   role="tab"
-                  aria-selected={selectedSize === value}
-                  onClick={() => setSelectedSize(value)}
+                  aria-selected={selectedGroup?.vehicleType._id === vehicleType._id}
+                  onClick={() => setSelectedVehicleTypeId(vehicleType._id)}
                   className={cn(
-                    "flex-1 rounded-md py-2.5 text-xs sm:text-sm font-medium transition-colors outline-none focus-visible:outline-none",
-                    selectedSize === value
+                    "min-w-24 flex-1 rounded-md px-3 py-2.5 text-xs sm:text-sm font-medium transition-colors outline-none focus-visible:outline-none",
+                    selectedGroup?.vehicleType._id === vehicleType._id
                       ? "bg-background text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {label}
+                  {vehicleType.name}
                 </button>
               ))}
             </div>
@@ -161,18 +164,22 @@ export function PricingSection() {
 
           {/* Cards */}
           <div className="max-w-6xl mx-auto">
-            <div
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5"
-              aria-label="Service pricing cards"
-            >
+            {mainServices.length === 0 ? (
+              <div className="mx-auto max-w-2xl rounded-xl border border-border/40 bg-background px-6 py-10 text-center">
+                <h3 className="text-lg font-semibold">
+                  Pricing is being updated
+                </h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Contact us or start booking to see the best options for your
+                  vehicle.
+                </p>
+              </div>
+            ) : (
+              <div
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5"
+                aria-label="Service pricing cards"
+              >
               {mainServices.map((service, index) => {
-                const price =
-                  selectedSize === "small"
-                    ? service.basePriceSmall
-                    : selectedSize === "medium"
-                      ? service.basePriceMedium
-                      : service.basePriceLarge;
-
                 const usesTwoColFeatures =
                   service.features && service.features.length >= 4;
 
@@ -215,13 +222,11 @@ export function PricingSection() {
                             $
                           </span>
                           <span className="text-3xl font-bold text-foreground tracking-tight">
-                            {price?.toFixed(0) ?? "N/A"}
+                            {service.price.toFixed(0)}
                           </span>
-                          {price != null && (
-                            <span className="text-xs font-medium text-muted-foreground">
-                              .00
-                            </span>
-                          )}
+                          <span className="text-xs font-medium text-muted-foreground">
+                            .00
+                          </span>
                         </div>
                         <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest mt-1">
                           Approx.&nbsp;{Math.floor(service.duration / 60)}h
@@ -275,7 +280,8 @@ export function PricingSection() {
                   </motion.div>
                 );
               })}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Desktop CTA */}
