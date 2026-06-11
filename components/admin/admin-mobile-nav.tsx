@@ -12,6 +12,7 @@ import {
   FileText,
   FlaskConical,
   LayoutDashboard,
+  MapPinned,
   Settings,
   Star,
   Users,
@@ -60,6 +61,11 @@ const navItems = [
     href: "/admin/logs",
   },
   {
+    title: "Out-of-Area",
+    icon: MapPinned,
+    href: "/admin/out-of-area",
+  },
+  {
     title: "Payments",
     icon: CreditCard,
     href: "/admin/payments",
@@ -93,6 +99,7 @@ export default function AdminMobileNav() {
   const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin) ?? 0;
   const newReviewsCount = useQuery(api.reviews.getNewReviewsCount) ?? 0;
   const pendingTripLogsCount = useQuery(api.tripLogs.getPendingRequiredCount) ?? 0;
+  const outOfAreaRequestCount = useQuery(api.bookingDrafts.getOutOfAreaRequestCount) ?? 0;
 
   const getItemCount = (href: string) => {
     if (href === "/admin/appointments") return pendingAppointmentsCount;
@@ -100,6 +107,7 @@ export default function AdminMobileNav() {
     if (href === "/admin/payments") return unpaidInvoicesCount;
     if (href === "/admin/reviews") return newReviewsCount;
     if (href === "/admin/logs") return pendingTripLogsCount;
+    if (href === "/admin/out-of-area") return outOfAreaRequestCount;
     return 0;
   };
 

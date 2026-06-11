@@ -35,6 +35,8 @@ const addressValidator = v.object({
   state: v.string(),
   zip: v.string(),
   notes: v.optional(v.string()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
 });
 
 const beforePhotoValidator = v.object({
@@ -73,10 +75,46 @@ const draftVehicleValidator = v.object({
   serviceIds: v.optional(v.array(v.id("services"))),
 });
 
+const outOfAreaRequestVehicleValidator = v.object({
+  year: v.optional(v.number()),
+  make: v.optional(v.string()),
+  model: v.optional(v.string()),
+  vehicleTypeId: v.optional(v.id("vehicleTypes")),
+  vehicleTypeName: v.optional(v.string()),
+  classification: v.optional(
+    v.object({
+      source: v.union(
+        v.literal("fuelEconomy"),
+        v.literal("vpic"),
+        v.literal("manual"),
+        v.literal("fallback"),
+      ),
+      confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+      rawCategory: v.optional(v.string()),
+      needsAdminReview: v.boolean(),
+    }),
+  ),
+  size: v.optional(
+    v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+  ),
+  color: v.optional(v.string()),
+  licensePlate: v.optional(v.string()),
+  hasPet: v.optional(v.boolean()),
+});
+
 const bookingPaymentOptionValidator = v.union(
   v.literal("deposit"),
   v.literal("full"),
   v.literal("in_person"),
+);
+
+const outOfAreaRequestStatusValidator = v.union(
+  v.literal("new"),
+  v.literal("reviewing"),
+  v.literal("contacted"),
+  v.literal("approved"),
+  v.literal("declined"),
+  v.literal("notified"),
 );
 
 type ConvertedDraftResult = {
@@ -1126,6 +1164,11 @@ export const convertSuccessfulCheckout = internalMutation({
       vehicleServices.push({ vehicleId, serviceIds });
     });
 
+    let notes = "Created via checkout conversion";
+    if (draft.address.state.trim().toUpperCase() !== "AR") {
+      notes = `⚠️ OUT-OF-STATE BOOKING: Requires manual admin review. ${notes}`;
+    }
+
     const appointmentId = await ctx.db.insert("appointments", {
       userId: user._id,
       vehicleIds,
@@ -1143,7 +1186,7 @@ export const convertSuccessfulCheckout = internalMutation({
       },
       status: "pending",
       totalPrice: draft.totalPrice,
-      notes: "Created via checkout conversion",
+      notes,
       createdBy: user._id,
       paymentOption: draft.paymentOption,
       petFeeVehicleIds,
@@ -1491,5 +1534,119 @@ export const getSchedulerDefaults = query({
       holdDurationMs: HOLD_DURATION_MS,
       abandonedEmailDelayMs: ABANDONED_EMAIL_DELAY_MS,
     };
+  },
+});
+
+export const saveOutOfAreaLead = mutation({
+  args: {
+    email: v.string(),
+    address: v.string(),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+  },
+  returns: v.id("outOfAreaLeads"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("outOfAreaLeads", {
+      email: args.email,
+      address: args.address,
+      latitude: args.latitude,
+      longitude: args.longitude,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const saveOutOfAreaRequest = mutation({
+  args: {
+    name: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    smsOptIn: v.optional(v.boolean()),
+    address: addressValidator,
+    scheduledDate: v.optional(v.string()),
+    scheduledTime: v.optional(v.string()),
+    vehicle: v.optional(outOfAreaRequestVehicleValidator),
+    estimatedDistanceMiles: v.optional(v.number()),
+    estimatedTravelFee: v.optional(v.number()),
+  },
+  returns: v.id("outOfAreaRequests"),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const requestId = await ctx.db.insert("outOfAreaRequests", {
+      customerName: args.name.trim(),
+      customerEmail: normalizeEmail(args.email),
+      customerPhone: args.phone.trim(),
+      smsOptIn: args.smsOptIn,
+      address: args.address,
+      scheduledDate: args.scheduledDate,
+      scheduledTime: args.scheduledTime,
+      vehicle: args.vehicle,
+      estimatedDistanceMiles: args.estimatedDistanceMiles,
+      estimatedTravelFee: args.estimatedTravelFee,
+      status: "new",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.emails.sendAdminOutOfAreaRequestNotification,
+      { requestId },
+    );
+
+    return requestId;
+  },
+});
+
+export const listOutOfAreaRequestsForAdmin = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const requests = await ctx.db.query("outOfAreaRequests").collect();
+    return requests.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+export const getOutOfAreaRequestCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const requests = await ctx.db
+      .query("outOfAreaRequests")
+      .withIndex("by_status", (q) => q.eq("status", "new"))
+      .collect();
+    return requests.length;
+  },
+});
+
+export const updateOutOfAreaRequestStatus = mutation({
+  args: {
+    requestId: v.id("outOfAreaRequests"),
+    status: outOfAreaRequestStatusValidator,
+    adminNotes: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    await ctx.db.patch(args.requestId, {
+      status: args.status,
+      adminNotes: args.adminNotes,
+      updatedAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
+export const getOutOfAreaRequestInternal = internalQuery({
+  args: {
+    requestId: v.id("outOfAreaRequests"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.requestId);
   },
 });

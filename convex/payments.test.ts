@@ -436,7 +436,7 @@ describe("payments", () => {
     );
   });
 
-  test("booking draft includes the scalable Radar travel fee", async () => {
+  test("booking draft includes the tiered geodesic travel fee", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t, {
       includeBookableService: false,
@@ -458,12 +458,7 @@ describe("payments", () => {
       vi.fn(async (url: string | URL, options?: RequestInit) => {
         if (String(url).includes("/geocode/forward")) {
           return Response.json({
-            addresses: [{ latitude: 34.75, longitude: -92.3 }],
-          });
-        }
-        if (String(url).includes("/route/distance")) {
-          return Response.json({
-            routes: { car: { distance: { text: "100 mi", value: 100 } } },
+            addresses: [{ latitude: 35.752258, longitude: -92.329768 }],
           });
         }
         return stripeFetchMock(url, options);
@@ -487,18 +482,19 @@ describe("payments", () => {
     });
     const draft = await t.run(async (ctx: any) => await ctx.db.get(booking.draftId));
 
-    expect(booking).toMatchObject({ travelDistanceMiles: 100, travelFee: 120 });
-    expect(draft).toMatchObject({
-      totalPrice: 240,
-      travelDistanceMiles: 100,
-      travelFee: 120,
-    });
+    expect(booking.travelDistanceMiles).toBeGreaterThan(68);
+    expect(booking.travelDistanceMiles).toBeLessThan(70);
+    expect(booking.travelFee).toBe(51.83);
+    expect(draft?.totalPrice).toBeCloseTo(171.83, 2);
+    expect(draft?.travelFee).toBe(51.83);
+    expect(draft?.travelDistanceMiles).toBeGreaterThan(68);
+    expect(draft?.travelDistanceMiles).toBeLessThan(70);
     expect(draft?.priceSnapshot).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           itemType: "travel_fee",
-          unitPrice: 120,
-          totalPrice: 120,
+          unitPrice: 51.83,
+          totalPrice: 51.83,
         }),
       ]),
     );

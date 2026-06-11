@@ -143,6 +143,15 @@ function escapeIcsText(value: string): string {
     .replace(/;/g, "\\;");
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function addMinutesToDate(date: string, time: string, minutes: number): string {
   const [year, month, day] = date.split("-").map(Number);
   const [hours, mins] = time.split(":").map(Number);
@@ -784,7 +793,7 @@ export const sendAdminAppointmentNotification = internalAction({
 
     const serviceNames = await getServiceNames(ctx, appointment.serviceIds);
 
-    const actionText =
+    let actionText =
       args.action === "created"
         ? "New Appointment Booked"
         : args.action === "confirmed"
@@ -798,6 +807,10 @@ export const sendAdminAppointmentNotification = internalAction({
                 : args.action === "started"
                   ? "Appointment Started"
                   : "Appointment Completed";
+
+    if (appointment.location.state?.trim().toUpperCase() !== "AR" && args.action === "created") {
+      actionText = "⚠️ OUT-OF-STATE Booking (Review Required)";
+    }
 
     const formattedTime = formatTime12h(appointment.scheduledTime);
 
@@ -848,6 +861,75 @@ export const sendAdminAppointmentNotification = internalAction({
       subject: `${actionText} - ${appointment.scheduledDate} ${formattedTime}`,
       html,
       attachments: attachment,
+    });
+  },
+});
+
+export const sendAdminOutOfAreaRequestNotification = internalAction({
+  args: {
+    requestId: v.id("outOfAreaRequests"),
+  },
+  handler: async (ctx, args) => {
+    if (shouldSkipEmails()) return;
+
+    const request = await ctx.runQuery(
+      internal.bookingDrafts.getOutOfAreaRequestInternal,
+      { requestId: args.requestId },
+    );
+    if (!request) return;
+
+    const businessInfo = await getBusinessAndFromName(ctx);
+    if (!businessInfo) return;
+
+    const formattedTime = request.scheduledTime
+      ? formatTime12h(request.scheduledTime)
+      : "No time selected";
+    const vehicleLabel = request.vehicle
+      ? [
+          request.vehicle.year,
+          request.vehicle.make,
+          request.vehicle.model,
+        ]
+          .filter(Boolean)
+          .join(" ") || "Vehicle details pending"
+      : "Vehicle details pending";
+    const location = formatLocation(request.address);
+    const estimatedTravelFee =
+      request.estimatedTravelFee !== undefined
+        ? `$${request.estimatedTravelFee.toFixed(2)}`
+        : "Unavailable";
+    const estimatedDistance =
+      request.estimatedDistanceMiles !== undefined
+        ? `${request.estimatedDistanceMiles.toFixed(1)} miles`
+        : "Unavailable";
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.5;">
+        <h2 style="margin: 0 0 12px;">Out-of-area review request</h2>
+        <p style="margin: 0 0 16px;">A customer requested manual review for service outside the regular area.</p>
+        <table style="border-collapse: collapse; width: 100%; max-width: 680px;">
+          <tbody>
+            <tr><td style="padding: 8px; font-weight: 700;">Customer</td><td style="padding: 8px;">${escapeHtml(request.customerName)}</td></tr>
+            <tr><td style="padding: 8px; font-weight: 700;">Email</td><td style="padding: 8px;">${escapeHtml(request.customerEmail)}</td></tr>
+            <tr><td style="padding: 8px; font-weight: 700;">Phone</td><td style="padding: 8px;">${escapeHtml(request.customerPhone)}</td></tr>
+            <tr><td style="padding: 8px; font-weight: 700;">Requested date</td><td style="padding: 8px;">${escapeHtml(request.scheduledDate || "No date selected")} ${escapeHtml(formattedTime)}</td></tr>
+            <tr><td style="padding: 8px; font-weight: 700;">Location</td><td style="padding: 8px;">${escapeHtml(location)}</td></tr>
+            <tr><td style="padding: 8px; font-weight: 700;">Vehicle</td><td style="padding: 8px;">${escapeHtml(vehicleLabel)}</td></tr>
+            <tr><td style="padding: 8px; font-weight: 700;">Distance</td><td style="padding: 8px;">${escapeHtml(estimatedDistance)}</td></tr>
+            <tr><td style="padding: 8px; font-weight: 700;">Travel fee</td><td style="padding: 8px;">${escapeHtml(estimatedTravelFee)}</td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top: 16px;">
+          <a href="${siteUrl()}/admin/out-of-area" style="color: #0f766e; font-weight: 700;">Review requests in admin</a>
+        </p>
+      </div>
+    `;
+
+    await sendEmailMessage(ctx, {
+      from: businessInfo.from,
+      to: await getPrimaryAdminRecipient(ctx),
+      subject: `Out-of-area request - ${request.customerName}`,
+      html,
     });
   },
 });
