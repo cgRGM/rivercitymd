@@ -167,6 +167,7 @@ const schema = defineSchema({
     categoryId: v.optional(v.id("serviceCategories")), // legacy field
     includedServiceIds: v.optional(v.array(v.id("services"))),
     isActive: v.boolean(),
+    showOnLandingPage: v.optional(v.boolean()),
     // NEW FIELDS:
     features: v.optional(v.array(v.string())), // Service features list
     icon: v.optional(v.string()), // Emoji or icon identifier

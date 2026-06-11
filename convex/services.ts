@@ -23,6 +23,23 @@ const SERVICE_TYPE_LABELS = {
   subscription: "Subscription Plans",
 } as const;
 
+const LANDING_PAGE_SERVICE_LIMIT = 5;
+
+type LandingPageService = {
+  _id: Id<"services">;
+  name: string;
+  description: string;
+  icon?: string;
+  features?: string[];
+  price: number;
+  duration: number;
+};
+
+type LandingPageVehicleGroup = {
+  vehicleType: Doc<"vehicleTypes">;
+  services: LandingPageService[];
+};
+
 function assertHasPositivePrice(args: {
   basePriceSmall?: number;
   basePriceMedium?: number;
@@ -582,6 +599,63 @@ export const list = query({
   },
 });
 
+export const listLandingPagePricing = query({
+  args: {},
+  handler: async (ctx) => {
+    const services = await ctx.db.query("services").collect();
+    const landingServices = services.filter((service) => {
+      const serviceType = normalizeServiceType(service.serviceType);
+      return (
+        service.isActive &&
+        service.showOnLandingPage !== false &&
+        serviceType === "standard"
+      );
+    });
+
+    const vehicleTypeMap = new Map<string, LandingPageVehicleGroup>();
+
+    for (const service of landingServices) {
+      const vehiclePrices = await getServiceVehiclePricesForPresentation(ctx, service);
+      for (const price of vehiclePrices) {
+        if (!price.isAvailable || price.price <= 0 || !price.vehicleType?.isActive) {
+          continue;
+        }
+
+        const vehicleTypeId = String(price.vehicleTypeId);
+        const existing: LandingPageVehicleGroup = vehicleTypeMap.get(vehicleTypeId) ?? {
+          vehicleType: price.vehicleType,
+          services: [],
+        };
+
+        existing.services.push({
+          _id: service._id,
+          name: service.name,
+          description: service.description,
+          icon: service.icon,
+          features: service.features,
+          price: price.price,
+          duration: price.duration || service.duration,
+        });
+        vehicleTypeMap.set(vehicleTypeId, existing);
+      }
+    }
+
+    return Array.from(vehicleTypeMap.values())
+      .map((group) => ({
+        vehicleType: group.vehicleType,
+        services: group.services
+          .sort((a, b) => a.price - b.price || a.name.localeCompare(b.name))
+          .slice(0, LANDING_PAGE_SERVICE_LIMIT),
+      }))
+      .filter((group) => group.services.length > 0)
+      .sort(
+        (a, b) =>
+          a.vehicleType.displayOrder - b.vehicleType.displayOrder ||
+          a.vehicleType.name.localeCompare(b.vehicleType.name),
+      );
+  },
+});
+
 // Create a new service or subscription
 export const create = mutation({
   args: {
@@ -603,6 +677,7 @@ export const create = mutation({
     includedServiceIds: v.optional(v.array(v.id("services"))),
     features: v.optional(v.array(v.string())),
     icon: v.optional(v.string()),
+    showOnLandingPage: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
@@ -628,6 +703,7 @@ export const create = mutation({
       features: args.features,
       icon: args.icon,
       isActive: true,
+      showOnLandingPage: args.showOnLandingPage ?? true,
     });
 
     const rows = await replaceServiceVehiclePrices(
@@ -689,6 +765,7 @@ export const update = mutation({
     features: v.optional(v.array(v.string())),
     icon: v.optional(v.string()),
     isActive: v.boolean(),
+    showOnLandingPage: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
@@ -735,6 +812,8 @@ export const update = mutation({
       features: updates.features,
       icon: updates.icon,
       isActive: updates.isActive,
+      showOnLandingPage:
+        updates.showOnLandingPage ?? existingService.showOnLandingPage ?? true,
       basePrice: rows
         ? legacyPrices.basePriceMedium ??
           legacyPrices.basePriceSmall ??

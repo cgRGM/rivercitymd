@@ -166,6 +166,94 @@ describe("services", () => {
     expect(vehicleTypes.some((vehicleType) => vehicleType.name === "Boat")).toBe(true);
   });
 
+  test("landing page pricing is curated and grouped by vehicle type", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-landing-pricing@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-landing-pricing@test.com",
+    });
+
+    await asAdmin.mutation(api.vehicleTypes.ensureDefaults, {});
+    const vehicleTypes = await asAdmin.query(api.vehicleTypes.list, {});
+    const car = vehicleTypes.find((vehicleType) => vehicleType.slug === "car");
+    const motorcycle = vehicleTypes.find(
+      (vehicleType) => vehicleType.slug === "motorcycle",
+    );
+    expect(car).toBeDefined();
+    expect(motorcycle).toBeDefined();
+
+    await asAdmin.mutation(api.services.create, {
+      name: "Level 1 - Basic Reset",
+      description: "A clean reset for daily drivers",
+      duration: 60,
+      showOnLandingPage: true,
+      vehiclePrices: [
+        {
+          vehicleTypeId: car!._id,
+          price: 90,
+          duration: 60,
+          isAvailable: true,
+        },
+      ],
+    });
+
+    await asAdmin.mutation(api.services.create, {
+      name: "Motorcycle full detail",
+      description: "Motorcycle-specific detail",
+      duration: 150,
+      showOnLandingPage: true,
+      vehiclePrices: [
+        {
+          vehicleTypeId: motorcycle!._id,
+          price: 200,
+          duration: 150,
+          isAvailable: true,
+        },
+      ],
+    });
+
+    await asAdmin.mutation(api.services.create, {
+      name: "Admin-only package",
+      description: "Available for booking but hidden from landing pricing",
+      duration: 90,
+      showOnLandingPage: false,
+      vehiclePrices: [
+        {
+          vehicleTypeId: car!._id,
+          price: 125,
+          duration: 90,
+          isAvailable: true,
+        },
+      ],
+    });
+
+    await t.finishInProgressScheduledFunctions();
+
+    const groups = await t.query(api.services.listLandingPagePricing, {});
+    const carGroup = groups.find((group) => group.vehicleType.slug === "car");
+    const motorcycleGroup = groups.find(
+      (group) => group.vehicleType.slug === "motorcycle",
+    );
+
+    expect(carGroup?.services.map((service) => service.name)).toEqual([
+      "Level 1 - Basic Reset",
+    ]);
+    expect(motorcycleGroup?.services.map((service) => service.name)).toEqual([
+      "Motorcycle full detail",
+    ]);
+    expect(
+      groups.flatMap((group) => group.services.map((service) => service.name)),
+    ).not.toContain("Admin-only package");
+  });
+
   test("updates vehicle pricing rows and compatibility buckets", async () => {
     const t = convexTest(schema, modules);
 
