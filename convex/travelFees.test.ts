@@ -1,7 +1,10 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
-import { calculateTravelFeeForMiles } from "./lib/travelFees";
+import {
+  calculateHaversineDistance,
+  calculateTravelFeeForMiles,
+} from "./lib/travelFees";
 import schema from "./schema";
 import { modules, stripeFetchMock } from "./test.setup";
 
@@ -10,29 +13,60 @@ describe("travelFees", () => {
     vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
   });
 
-  test("adds $40 for each distance band after 25 miles", () => {
+  test("uses tiered fees for estimated travel distance", () => {
     expect(calculateTravelFeeForMiles(24.9)).toBe(0);
-    expect(calculateTravelFeeForMiles(25)).toBe(40);
-    expect(calculateTravelFeeForMiles(49.9)).toBe(40);
-    expect(calculateTravelFeeForMiles(50)).toBe(80);
-    expect(calculateTravelFeeForMiles(99.9)).toBe(80);
-    expect(calculateTravelFeeForMiles(100)).toBe(120);
-    expect(calculateTravelFeeForMiles(150)).toBe(160);
+    expect(calculateTravelFeeForMiles(25)).toBe(30);
+    expect(calculateTravelFeeForMiles(35)).toBe(30);
+    expect(calculateTravelFeeForMiles(35.1)).toBe(50);
+    expect(calculateTravelFeeForMiles(50)).toBe(50);
+    expect(calculateTravelFeeForMiles(50.1)).toBe(37.58);
+    expect(calculateTravelFeeForMiles(100)).toBe(75);
   });
 
-  test("calculates route distance with Radar and returns the matching fee", async () => {
+  test("calculates haversine distance in miles", () => {
+    const distance = calculateHaversineDistance(
+      34.752258,
+      -92.329768,
+      35.752258,
+      -92.329768,
+    );
+
+    expect(distance).toBeGreaterThan(68);
+    expect(distance).toBeLessThan(70);
+  });
+
+  test("uses passed coordinates before geocoding", async () => {
+    const t = convexTest(schema, modules);
+    const fetchMock = vi.fn(stripeFetchMock);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await t.action(api.travelFees.calculate, {
+      address: {
+        street: "100 Far Away Rd",
+        city: "Somewhere",
+        state: "AR",
+        zip: "72000",
+        latitude: 35.752258,
+        longitude: -92.329768,
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.distanceMiles).toBeGreaterThan(68);
+    expect(result.distanceMiles).toBeLessThan(70);
+    expect(result.fee).toBe(calculateTravelFeeForMiles(result.distanceMiles));
+  });
+
+  test("falls back to Radar geocoding when coordinates are missing", async () => {
+    const previousKey = process.env.RADAR_SECRET_KEY;
+    process.env.RADAR_SECRET_KEY = "test_radar_key";
     const t = convexTest(schema, modules);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL) => {
         if (String(url).includes("/geocode/forward")) {
           return Response.json({
-            addresses: [{ latitude: 34.75, longitude: -92.3 }],
-          });
-        }
-        if (String(url).includes("/route/distance")) {
-          return Response.json({
-            routes: { car: { distance: { text: "100 mi", value: 100 } } },
+            addresses: [{ latitude: 34.752258, longitude: -92.329768 }],
           });
         }
         return Response.json({}, { status: 404 });
@@ -41,13 +75,14 @@ describe("travelFees", () => {
 
     const result = await t.action(api.travelFees.calculate, {
       address: {
-        street: "100 Far Away Rd",
-        city: "Somewhere",
+        street: "220 N Tyler St",
+        city: "Little Rock",
         state: "AR",
-        zip: "72000",
+        zip: "72205",
       },
     });
 
-    expect(result).toEqual({ distanceMiles: 100, fee: 120 });
+    process.env.RADAR_SECRET_KEY = previousKey;
+    expect(result).toEqual({ distanceMiles: 0, fee: 0 });
   });
 });

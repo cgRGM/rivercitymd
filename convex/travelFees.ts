@@ -1,8 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
-import { calculateTravelFeeForMiles } from "./lib/travelFees";
+import { calculateTravelFeeForMiles, calculateHaversineDistance } from "./lib/travelFees";
 
-const TRAVEL_ORIGIN_ADDRESS = "220 N Tyler St, Little Rock, AR 72205";
+const ORIGIN_LAT = 34.752258;
+const ORIGIN_LNG = -92.329768;
 
 const addressValidator = v.object({
   street: v.string(),
@@ -10,28 +11,12 @@ const addressValidator = v.object({
   state: v.string(),
   zip: v.string(),
   notes: v.optional(v.string()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
 });
 
 function roundMiles(value: number) {
   return Math.round(value * 10) / 10;
-}
-
-function milesFromDistance(distance: any): number {
-  if (!distance) return 0;
-  if (typeof distance.text === "string") {
-    const text = distance.text.toLowerCase();
-    const numeric = Number.parseFloat(text.replace(/[^0-9.]/g, ""));
-    if (Number.isFinite(numeric)) {
-      if (text.includes("mi")) return numeric;
-      if (text.includes("ft")) return numeric / 5280;
-      if (text.includes("km")) return numeric / 1.60934;
-      if (text.includes("m")) return numeric / 1609.34;
-    }
-  }
-  if (typeof distance.value === "number" && Number.isFinite(distance.value)) {
-    return distance.value > 1000 ? distance.value / 1609.34 : distance.value;
-  }
-  return 0;
 }
 
 async function geocodeAddress(address: string, radarSecretKey: string) {
@@ -70,42 +55,34 @@ export const calculate = action({
     fee: v.number(),
   }),
   handler: async (_ctx, args) => {
-    const radarSecretKey = process.env.RADAR_SECRET_KEY;
-    if (!radarSecretKey) {
-      throw new ConvexError({
-        code: "MISSING_RADAR_SECRET_KEY",
-        message: "Travel distance calculation is temporarily unavailable.",
-      });
+    let lat = args.address.latitude;
+    let lng = args.address.longitude;
+
+    if (lat === undefined || lng === undefined) {
+      const radarSecretKey = process.env.RADAR_SECRET_KEY;
+      if (!radarSecretKey) {
+        throw new ConvexError({
+          code: "MISSING_RADAR_SECRET_KEY",
+          message: "Travel distance calculation is temporarily unavailable.",
+        });
+      }
+
+      const destinationAddress = [
+        args.address.street,
+        args.address.city,
+        args.address.state,
+        args.address.zip,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      const destCoords = await geocodeAddress(destinationAddress, radarSecretKey);
+      lat = destCoords.latitude;
+      lng = destCoords.longitude;
     }
 
-    const destinationAddress = [
-      args.address.street,
-      args.address.city,
-      args.address.state,
-      args.address.zip,
-    ]
-      .filter(Boolean)
-      .join(", ");
-    const [origin, destination] = await Promise.all([
-      geocodeAddress(TRAVEL_ORIGIN_ADDRESS, radarSecretKey),
-      geocodeAddress(destinationAddress, radarSecretKey),
-    ]);
-    const routeResponse = await fetch(
-      `https://api.radar.io/v1/route/distance?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&modes=car&units=imperial`,
-      {
-        headers: { Authorization: radarSecretKey },
-      },
-    );
-    if (!routeResponse.ok) {
-      throw new ConvexError({
-        code: "RADAR_ROUTE_FAILED",
-        message: "We could not calculate travel distance for this address.",
-      });
-    }
+    const distanceMiles = roundMiles(calculateHaversineDistance(ORIGIN_LAT, ORIGIN_LNG, lat, lng));
 
-    const routePayload: any = await routeResponse.json();
-    const route = routePayload.routes?.car || routePayload.routes?.geodesic;
-    const distanceMiles = roundMiles(milesFromDistance(route?.distance));
     return {
       distanceMiles,
       fee: calculateTravelFeeForMiles(distanceMiles),

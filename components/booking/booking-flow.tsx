@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { useQuery, useAction, useConvex } from "convex/react";
+import { useQuery, useAction, useConvex, useMutation } from "convex/react";
 import { useUser } from "@clerk/nextjs";
 import { useBookingStore } from "@/hooks/use-booking-store";
 import { api } from "@/convex/_generated/api";
@@ -38,7 +38,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, ArrowRight, X, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  X,
+} from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
 import {
   VehicleLookupCard,
@@ -77,6 +86,8 @@ const step1Schema = z.object({
   state: z.string().min(1, "State is required"),
   zip: z.string().optional(),
   locationNotes: z.string().optional(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
 });
 
 const step2Schema = z.object({
@@ -136,6 +147,8 @@ type Step2Data = z.infer<typeof step2Schema>;
 type Step3Data = z.infer<typeof step3Schema>;
 type Step4Data = z.infer<typeof step4Schema>;
 
+type OutOfAreaMode = "idle" | "notify" | "review" | "submitted";
+
 export default function BookingFlow() {
   const router = useRouter();
   const {
@@ -166,6 +179,25 @@ export default function BookingFlow() {
   const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "addons" | "subscriptions" | "">>(
     {},
   );
+  const [outOfAreaMode, setOutOfAreaMode] = useState<OutOfAreaMode>("idle");
+  const [notifyEmail, setNotifyEmail] = useState("");
+  const [isNotifySubmitting, setIsNotifySubmitting] = useState(false);
+  const [reviewContact, setReviewContact] = useState({
+    name: step2Data?.name || "",
+    email: step2Data?.email || "",
+    phone: step2Data?.phone || "",
+    smsOptIn: step2Data?.smsOptIn ?? false,
+  });
+  const [reviewVehicle, setReviewVehicle] = useState<VehicleLookupValue>({
+    year: "",
+    make: "",
+    model: "",
+    color: "",
+    licensePlate: "",
+    size: "small",
+    hasPet: false,
+  });
+  const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
 
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
@@ -179,11 +211,14 @@ export default function BookingFlow() {
       state: step1Data?.state || "",
       zip: step1Data?.zip || "",
       locationNotes: step1Data?.locationNotes || "",
+      latitude: step1Data?.latitude ?? undefined,
+      longitude: step1Data?.longitude ?? undefined,
     },
   });
 
   const services = useQuery(api.services.list);
   const petFeeSettings = useQuery(api.petFeeSettings.get);
+  const depositSettings = useQuery(api.depositSettings.get);
   const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);
   const nextBookableDate = useQuery(
     api.availability.getNextBookableDate,
@@ -192,6 +227,8 @@ export default function BookingFlow() {
   const upsertBookingDraft = useAction(api.bookingDrafts.createOrUpdate);
   const calculateTravelFee = useAction(api.travelFees.calculate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+  const saveOutOfAreaLead = useMutation(api.bookingDrafts.saveOutOfAreaLead);
+  const saveOutOfAreaRequest = useMutation(api.bookingDrafts.saveOutOfAreaRequest);
   const convex = useConvex();
   const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
 
@@ -212,6 +249,132 @@ export default function BookingFlow() {
   const watchedState = step1Form.watch("state");
   const watchedZip = step1Form.watch("zip");
   const watchedLocationNotes = step1Form.watch("locationNotes");
+  const watchedLatitude = step1Form.watch("latitude");
+  const watchedLongitude = step1Form.watch("longitude");
+  const isOutOfAreaAddress =
+    watchedState.trim().length > 0 && watchedState.trim().toUpperCase() !== "AR";
+  const selectedAddressLabel = [watchedStreet, watchedCity, watchedState, watchedZip]
+    .filter(Boolean)
+    .join(", ");
+
+  const handleNotifySubmit = useCallback(async () => {
+    if (!notifyEmail || !notifyEmail.includes("@")) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+    setIsNotifySubmitting(true);
+    try {
+      await saveOutOfAreaLead({
+        email: notifyEmail,
+        address: selectedAddressLabel,
+        latitude: watchedLatitude,
+        longitude: watchedLongitude,
+      });
+      setNotifyEmail("");
+      setOutOfAreaMode("submitted");
+      toast.success("Thank you! We'll notify you when we expand to your area.");
+    } catch (err) {
+      console.error("Failed to save lead:", err);
+      toast.error("Failed to submit. Please try again.");
+    } finally {
+      setIsNotifySubmitting(false);
+    }
+  }, [
+    notifyEmail,
+    saveOutOfAreaLead,
+    selectedAddressLabel,
+    watchedLatitude,
+    watchedLongitude,
+  ]);
+
+  const handleOutOfAreaReviewSubmit = useCallback(async () => {
+    if (!reviewContact.name.trim()) {
+      toast.error("Please enter your name.");
+      return;
+    }
+    if (!reviewContact.email.includes("@")) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+    if (reviewContact.phone.replace(/\D/g, "").length < 10) {
+      toast.error("Please enter a valid phone number.");
+      return;
+    }
+
+    setIsReviewSubmitting(true);
+    try {
+      const scheduledDateValue = step1Form.getValues("scheduledDate");
+      const scheduledDate =
+        scheduledDateValue instanceof Date
+          ? scheduledDateValue.toISOString().split("T")[0]
+          : undefined;
+      const vehicleYear = /^\d{4}$/.test(reviewVehicle.year)
+        ? Number(reviewVehicle.year)
+        : undefined;
+      const hasVehicleDetails =
+        vehicleYear || reviewVehicle.make.trim() || reviewVehicle.model.trim();
+
+      await saveOutOfAreaRequest({
+        name: reviewContact.name,
+        email: reviewContact.email,
+        phone: reviewContact.phone,
+        smsOptIn: reviewContact.smsOptIn,
+        address: {
+          street: watchedStreet,
+          city: watchedCity,
+          state: watchedState,
+          zip: watchedZip || "",
+          notes: watchedLocationNotes || undefined,
+          latitude: watchedLatitude,
+          longitude: watchedLongitude,
+        },
+        scheduledDate,
+        scheduledTime: step1Form.getValues("scheduledTime") || undefined,
+        estimatedDistanceMiles: travelQuote?.distanceMiles,
+        estimatedTravelFee: travelQuote?.fee,
+        vehicle: hasVehicleDetails
+          ? {
+              year: vehicleYear,
+              make: reviewVehicle.make || undefined,
+              model: reviewVehicle.model || undefined,
+              vehicleTypeId: reviewVehicle.vehicleTypeId as
+                | Id<"vehicleTypes">
+                | undefined,
+              vehicleTypeName: reviewVehicle.vehicleTypeName,
+              classification: reviewVehicle.classification,
+              size: reviewVehicle.size,
+              color: reviewVehicle.color || undefined,
+              licensePlate: reviewVehicle.licensePlate || undefined,
+              hasPet: reviewVehicle.hasPet,
+            }
+          : undefined,
+      });
+      setOutOfAreaMode("submitted");
+      toast.success("Request received. We'll review it and reach out.");
+    } catch (err) {
+      console.error("Failed to save out-of-area request:", err);
+      toast.error("Failed to submit your request. Please try again.");
+    } finally {
+      setIsReviewSubmitting(false);
+    }
+  }, [
+    reviewContact.email,
+    reviewContact.name,
+    reviewContact.phone,
+    reviewContact.smsOptIn,
+    reviewVehicle,
+    saveOutOfAreaRequest,
+    step1Form,
+    travelQuote?.distanceMiles,
+    travelQuote?.fee,
+    watchedCity,
+    watchedLatitude,
+    watchedLocationNotes,
+    watchedLongitude,
+    watchedState,
+    watchedStreet,
+    watchedZip,
+  ]);
 
   useEffect(() => {
     if (
@@ -231,6 +394,8 @@ export default function BookingFlow() {
           state: watchedState,
           zip: watchedZip,
           notes: watchedLocationNotes || undefined,
+          latitude: watchedLatitude,
+          longitude: watchedLongitude,
         },
       })
         .then(setTravelQuote)
@@ -244,6 +409,8 @@ export default function BookingFlow() {
     watchedState,
     watchedStreet,
     watchedZip,
+    watchedLatitude,
+    watchedLongitude,
   ]);
 
   const schedulingDuration = useMemo(() => {
@@ -412,6 +579,25 @@ export default function BookingFlow() {
   }, [currentUser, step2Data?.smsOptIn, step2Form]);
 
   useEffect(() => {
+    if (!isLoaded || !isSignedIn || !user) return;
+
+    setReviewContact((current) => ({
+      name: current.name || user.fullName || "",
+      email: current.email || user.primaryEmailAddress?.emailAddress || "",
+      phone: current.phone,
+      smsOptIn:
+        current.smsOptIn ||
+        currentUser?.notificationPreferences?.operationalSmsConsent?.optedIn ||
+        false,
+    }));
+  }, [
+    currentUser?.notificationPreferences?.operationalSmsConsent?.optedIn,
+    isLoaded,
+    isSignedIn,
+    user,
+  ]);
+
+  useEffect(() => {
     if (!bookingReadiness?.isReady || !nextBookableDate) {
       return;
     }
@@ -437,6 +623,10 @@ export default function BookingFlow() {
       console.log("Processing address selection:", address);
       localStorage.setItem("selectedAddress", JSON.stringify(address));
 
+      setOutOfAreaMode("idle");
+      setNotifyEmail("");
+      step1Form.clearErrors("state");
+
       const streetNumber = address.number || "";
       const streetName = address.street || "";
       const fullStreet = streetNumber
@@ -455,6 +645,14 @@ export default function BookingFlow() {
         shouldDirty: true,
       });
       step1Form.setValue("zip", address.postalCode || "", {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+      step1Form.setValue("latitude", address.latitude, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+      step1Form.setValue("longitude", address.longitude, {
         shouldValidate: true,
         shouldDirty: true,
       });
@@ -524,6 +722,15 @@ export default function BookingFlow() {
         isValid = await step1Form.trigger();
         if (isValid) {
           const formData = step1Form.getValues();
+          const isStateOutOfArea = formData.state?.trim().toUpperCase() !== "AR";
+          if (isStateOutOfArea) {
+            step1Form.setError("state", {
+              type: "manual",
+              message: "Please request manual review for out-of-area service.",
+            });
+            setOutOfAreaMode((current) => current === "submitted" ? current : "review");
+            return;
+          }
           setStep1Data(formData);
           localStorage.setItem("appointmentFormData", JSON.stringify(formData));
           setCurrentStep(2);
@@ -684,6 +891,8 @@ export default function BookingFlow() {
           state: step1Data.state,
           zip: step1Data.zip || "",
           notes: step1Data.locationNotes,
+          latitude: step1Data.latitude,
+          longitude: step1Data.longitude,
         },
         vehicles: step3Data.vehicles.map((vehicle, index) => ({
           year: parseInt(vehicle.year),
@@ -922,6 +1131,162 @@ export default function BookingFlow() {
                 label="Service Address"
                 placeholder="Search for your service address"
               />
+              {isOutOfAreaAddress && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                  {outOfAreaMode === "submitted" ? (
+                    <div className="flex gap-3">
+                      <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600 dark:text-green-400" />
+                      <div className="space-y-1">
+                        <p className="font-semibold">Request received</p>
+                        <p className="text-sm text-amber-900/80 dark:text-amber-100/80">
+                          We saved your information and will reach out if we can serve this area or when service expands.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex gap-3">
+                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                        <div className="space-y-1">
+                          <p className="font-semibold">Manual review required for this area</p>
+                          <p className="text-sm text-amber-900/80 dark:text-amber-100/80">
+                            We are not regularly serving {watchedState} yet. This trip may be possible with an estimated travel fee of{" "}
+                            <span className="font-semibold">
+                              {travelQuote ? `$${travelQuote.fee.toFixed(2)}` : "calculating"}
+                            </span>
+                            , but we need to review timing before taking payment.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          onClick={() => setOutOfAreaMode("review")}
+                          className="bg-amber-900 text-white hover:bg-amber-800 dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100"
+                        >
+                          Request Review
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setOutOfAreaMode("notify")}
+                          className="border-amber-300 bg-white/70 text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+                        >
+                          Get Notified
+                        </Button>
+                      </div>
+
+                      {outOfAreaMode === "notify" && (
+                        <div className="grid gap-3 rounded-lg border border-amber-200 bg-white/70 p-3 dark:border-amber-900 dark:bg-background/50 sm:grid-cols-[1fr_auto]">
+                          <Input
+                            type="email"
+                            value={notifyEmail}
+                            onChange={(event) => setNotifyEmail(event.target.value)}
+                            placeholder="Email address"
+                            className="bg-background"
+                          />
+                          <Button
+                            type="button"
+                            onClick={handleNotifySubmit}
+                            disabled={isNotifySubmitting}
+                          >
+                            {isNotifySubmitting && (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            Submit
+                          </Button>
+                        </div>
+                      )}
+
+                      {outOfAreaMode === "review" && (
+                        <div className="space-y-4 rounded-lg border border-amber-200 bg-white/70 p-4 dark:border-amber-900 dark:bg-background/50">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-2">
+                              <FormLabel>Name</FormLabel>
+                              <Input
+                                value={reviewContact.name}
+                                onChange={(event) =>
+                                  setReviewContact((current) => ({
+                                    ...current,
+                                    name: event.target.value,
+                                  }))
+                                }
+                                className="bg-background"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <FormLabel>Email</FormLabel>
+                              <Input
+                                type="email"
+                                value={reviewContact.email}
+                                onChange={(event) =>
+                                  setReviewContact((current) => ({
+                                    ...current,
+                                    email: event.target.value,
+                                  }))
+                                }
+                                className="bg-background"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <FormLabel>Phone</FormLabel>
+                              <Input
+                                type="tel"
+                                value={reviewContact.phone}
+                                onChange={(event) =>
+                                  setReviewContact((current) => ({
+                                    ...current,
+                                    phone: event.target.value,
+                                  }))
+                                }
+                                className="bg-background"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
+                              <div>
+                                <FormLabel>SMS updates</FormLabel>
+                                <p className="text-xs text-muted-foreground">Text me about this request</p>
+                              </div>
+                              <Switch
+                                checked={reviewContact.smsOptIn}
+                                onCheckedChange={(checked) =>
+                                  setReviewContact((current) => ({
+                                    ...current,
+                                    smsOptIn: checked,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <VehicleLookupCard
+                            value={reviewVehicle}
+                            onChange={setReviewVehicle}
+                            title="Vehicle"
+                            showColor
+                            showLicensePlate
+                            showPetToggle
+                          />
+
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              onClick={handleOutOfAreaReviewSubmit}
+                              disabled={isReviewSubmitting}
+                            >
+                              {isReviewSubmitting && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              )}
+                              Submit Review Request
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <FormField
                 control={step1Form.control}
                 name="street"
@@ -1456,7 +1821,7 @@ export default function BookingFlow() {
         {/* Step 5: Create Account & Payment */}
         {currentStep === 5 && (() => {
           const vehicleCount = vehiclePricingContexts.length;
-          const depositPerVehicle = 50;
+          const depositPerVehicle = depositSettings?.amountPerVehicle ?? 50;
           const depositTotal = depositPerVehicle * vehicleCount;
           const petFeeForSize = (size: "small" | "medium" | "large") => {
             if (petFeeSettings?.isActive === false) return 0;
@@ -1507,6 +1872,7 @@ export default function BookingFlow() {
           const orderTotal = serviceTotal + petFeeTotal + travelFeeTotal;
 
           const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
+          const remainingBalance = Math.max(0, orderTotal - dueNow);
 
           return (
             <div className="space-y-6">
@@ -1554,6 +1920,18 @@ export default function BookingFlow() {
                   <span className="text-foreground">Total</span>
                   <span className="text-foreground">${orderTotal.toFixed(2)}</span>
                 </div>
+                {paymentOption !== "full" && (
+                  <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
+                    <div className="flex justify-between text-sm font-medium">
+                      <span className="text-muted-foreground">Deposit Due Today</span>
+                      <span className="text-foreground">${dueNow.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-medium">
+                      <span className="text-muted-foreground">Remaining Balance</span>
+                      <span className="text-foreground">${remainingBalance.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Payment Option Selector */}
@@ -1647,7 +2025,7 @@ export default function BookingFlow() {
                 )}
                 {paymentOption === "in_person" && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Remaining balance of ${Math.max(0, orderTotal - depositTotal).toFixed(2)} will be collected in person.
+                    Remaining balance of ${remainingBalance.toFixed(2)} will be collected in person.
                   </p>
                 )}
               </div>

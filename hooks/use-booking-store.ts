@@ -36,6 +36,8 @@ interface Step1Data {
   state: string
   zip?: string
   locationNotes?: string
+  latitude?: number
+  longitude?: number
 }
 
 interface Step2Data {

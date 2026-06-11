@@ -12,6 +12,7 @@ import {
   BarChart3,
   CreditCard,
   LogOut,
+  MapPinned,
   RefreshCw,
   Star,
   FileText,
@@ -69,6 +70,11 @@ const menuItems = [
     href: "/admin/logs",
   },
   {
+    title: "Out-of-Area",
+    icon: MapPinned,
+    href: "/admin/out-of-area",
+  },
+  {
     title: "Subscriptions",
     icon: RefreshCw,
     href: "/admin/subscriptions",
@@ -104,6 +110,7 @@ export default function AdminSidebar() {
   const newReviewsCount = useQuery(api.reviews.getNewReviewsCount) ?? 0;
   const pendingTripLogsCount = useQuery(api.tripLogs.getPendingRequiredCount) ?? 0;
   const subscriptionAlertCount = useQuery(api.subscriptions.getActiveCount) ?? 0;
+  const outOfAreaRequestCount = useQuery(api.bookingDrafts.getOutOfAreaRequestCount) ?? 0;
 
   return (
     <Sidebar>
@@ -148,6 +155,8 @@ export default function AdminSidebar() {
                   count = newReviewsCount;
                 } else if (item.href === "/admin/logs") {
                   count = pendingTripLogsCount;
+                } else if (item.href === "/admin/out-of-area") {
+                  count = outOfAreaRequestCount;
                 } else if (item.href === "/admin/subscriptions") {
                   count = subscriptionAlertCount;
                 }

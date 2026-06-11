@@ -279,6 +279,8 @@ const schema = defineSchema({
       state: v.string(),
       zip: v.string(),
       notes: v.optional(v.string()),
+      latitude: v.optional(v.number()),
+      longitude: v.optional(v.number()),
     }),
     existingVehicleIds: v.array(v.id("vehicles")),
     existingVehicleServices: v.optional(
@@ -678,6 +680,79 @@ const schema = defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_dedupe_key", ["dedupeKey"]),
+
+  outOfAreaLeads: defineTable({
+    email: v.string(),
+    address: v.string(),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+    createdAt: v.number(),
+  }),
+
+  outOfAreaRequests: defineTable({
+    customerName: v.string(),
+    customerEmail: v.string(),
+    customerPhone: v.string(),
+    smsOptIn: v.optional(v.boolean()),
+    address: v.object({
+      street: v.string(),
+      city: v.string(),
+      state: v.string(),
+      zip: v.string(),
+      notes: v.optional(v.string()),
+      latitude: v.optional(v.number()),
+      longitude: v.optional(v.number()),
+    }),
+    scheduledDate: v.optional(v.string()),
+    scheduledTime: v.optional(v.string()),
+    vehicle: v.optional(
+      v.object({
+        year: v.optional(v.number()),
+        make: v.optional(v.string()),
+        model: v.optional(v.string()),
+        size: v.optional(
+          v.union(v.literal("small"), v.literal("medium"), v.literal("large")),
+        ),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
+        vehicleTypeName: v.optional(v.string()),
+        classification: v.optional(
+          v.object({
+            source: v.union(
+              v.literal("fuelEconomy"),
+              v.literal("vpic"),
+              v.literal("manual"),
+              v.literal("fallback"),
+            ),
+            confidence: v.union(
+              v.literal("high"),
+              v.literal("medium"),
+              v.literal("low"),
+            ),
+            rawCategory: v.optional(v.string()),
+            needsAdminReview: v.boolean(),
+          }),
+        ),
+        color: v.optional(v.string()),
+        licensePlate: v.optional(v.string()),
+        hasPet: v.optional(v.boolean()),
+      }),
+    ),
+    estimatedDistanceMiles: v.optional(v.number()),
+    estimatedTravelFee: v.optional(v.number()),
+    status: v.union(
+      v.literal("new"),
+      v.literal("reviewing"),
+      v.literal("contacted"),
+      v.literal("approved"),
+      v.literal("declined"),
+      v.literal("notified"),
+    ),
+    adminNotes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_status", ["status"])
+    .index("by_created_at", ["createdAt"]),
 
   bookingClaims: defineTable({
     token: v.string(),
