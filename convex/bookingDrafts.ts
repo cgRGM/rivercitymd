@@ -20,6 +20,7 @@ import {
 } from "./lib/notificationSettings";
 import { r2 } from "./r2";
 import { calculateTravelFeeForMiles } from "./lib/travelFees";
+import { isArkansasState } from "./lib/address";
 import {
   getEffectivePetFeePrice,
   getEffectiveServicePrice,
@@ -1175,7 +1176,7 @@ export const convertSuccessfulCheckout = internalMutation({
     });
 
     let notes = "Created via checkout conversion";
-    if (draft.address.state.trim().toUpperCase() !== "AR") {
+    if (!isArkansasState(draft.address.state)) {
       notes = `⚠️ OUT-OF-STATE BOOKING: Requires manual admin review. ${notes}`;
     }
 

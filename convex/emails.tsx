@@ -31,6 +31,7 @@ import { render } from "@react-email/render";
 import { components, api, internal } from "./_generated/api";
 import { Resend } from "@convex-dev/resend";
 import type { Id } from "./_generated/dataModel";
+import { isArkansasState } from "./lib/address";
 import { formatTime12h } from "./lib/time";
 import {
   getDefaultAdminEmailRecipients,
@@ -808,7 +809,7 @@ export const sendAdminAppointmentNotification = internalAction({
                   ? "Appointment Started"
                   : "Appointment Completed";
 
-    if (appointment.location.state?.trim().toUpperCase() !== "AR" && args.action === "created") {
+    if (!isArkansasState(appointment.location.state) && args.action === "created") {
       actionText = "⚠️ OUT-OF-STATE Booking (Review Required)";
     }
 

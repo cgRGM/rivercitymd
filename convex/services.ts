@@ -198,6 +198,14 @@ async function getServiceVehiclePricesForPresentation(
   });
 }
 
+async function getServiceCategoryName(ctx: any, service: Doc<"services">) {
+  if (!service.categoryId) {
+    return SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)];
+  }
+  const category = await ctx.db.get(service.categoryId);
+  return category?.name ?? SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)];
+}
+
 function calculateLegacyPrices(
   rows: Array<{
     price: number;
@@ -577,8 +585,7 @@ export const listWithCategories = query({
       services.map(async (service) => ({
         ...service,
         serviceType: normalizeServiceType(service.serviceType),
-        categoryName:
-          SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)],
+        categoryName: await getServiceCategoryName(ctx, service),
         vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
       })),
     );
@@ -593,6 +600,8 @@ export const list = query({
     return await Promise.all(
       services.map(async (service) => ({
         ...service,
+        serviceType: normalizeServiceType(service.serviceType),
+        categoryName: await getServiceCategoryName(ctx, service),
         vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
       })),
     );
@@ -929,6 +938,8 @@ export const getById = query({
     if (!service) return null;
     return {
       ...service,
+      serviceType: normalizeServiceType(service.serviceType),
+      categoryName: await getServiceCategoryName(ctx, service),
       vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
     };
   },
