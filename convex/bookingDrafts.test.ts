@@ -54,4 +54,19 @@ describe("bookingDrafts out-of-area requests", () => {
       },
     });
   });
+
+  test("rate limits repeated out-of-area leads for the same email", async () => {
+    const t = convexTest(schema, modules);
+    const payload = {
+      email: "repeat@example.com",
+      address: "New York, NY",
+    };
+
+    await t.mutation(api.bookingDrafts.saveOutOfAreaLead, payload);
+    await t.mutation(api.bookingDrafts.saveOutOfAreaLead, payload);
+
+    await expect(
+      t.mutation(api.bookingDrafts.saveOutOfAreaLead, payload),
+    ).rejects.toThrow(/RATE_LIMITED|several requests/i);
+  });
 });

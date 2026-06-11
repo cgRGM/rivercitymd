@@ -2,6 +2,7 @@ import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin, isAdmin } from "./auth";
 import { internal } from "./_generated/api";
+import { assertRateLimit } from "./rateLimiter";
 
 function shouldScheduleNotificationJobs(): boolean {
   return process.env.CONVEX_TEST !== "true" && process.env.NODE_ENV !== "test";
@@ -312,6 +313,11 @@ export const submit = mutation({
     isPublic: v.boolean(),
   },
   handler: async (ctx, args) => {
+    await assertRateLimit(ctx, "reviewSubmitByAppointment", {
+      key: String(args.appointmentId),
+      message: "We already received recent review activity for this appointment.",
+    });
+
     const appointment = await ctx.db.get(args.appointmentId);
     if (!appointment) throw new Error("Appointment not found");
 

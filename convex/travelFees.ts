@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { calculateTravelFeeForMiles, calculateHaversineDistance } from "./lib/travelFees";
+import { assertRateLimit, normalizeRateLimitKey } from "./rateLimiter";
 
 const ORIGIN_LAT = 34.752258;
 const ORIGIN_LNG = -92.329768;
@@ -54,7 +55,27 @@ export const calculate = action({
     distanceMiles: v.number(),
     fee: v.number(),
   }),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
+    const addressKey = normalizeRateLimitKey(
+      [
+        args.address.street,
+        args.address.city,
+        args.address.state,
+        args.address.zip,
+        args.address.latitude,
+        args.address.longitude,
+      ]
+        .filter((value) => value !== undefined && value !== "")
+        .join("|"),
+    );
+    await assertRateLimit(ctx, "travelFeeGlobal", {
+      message: "Travel fee estimates are temporarily busy. Please try again shortly.",
+    });
+    await assertRateLimit(ctx, "travelFeeByAddress", {
+      key: addressKey,
+      message: "Please wait a moment before recalculating this address.",
+    });
+
     let lat = args.address.latitude;
     let lng = args.address.longitude;
 

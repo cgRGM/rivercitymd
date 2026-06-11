@@ -12,6 +12,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { stripeClient } from "./stripeClient";
 import { BOOKING_BLOCK_MINUTES } from "./lib/booking";
+import { assertRateLimit, normalizeRateLimitKey } from "./rateLimiter";
 
 const paymentsInternal: any = (internal as any).payments;
 const STRIPE_API_MAX_ATTEMPTS = 3;
@@ -2481,6 +2482,11 @@ export const createBookingCheckout = action({
     token: v.string(),
   }),
   handler: async (ctx, args): Promise<BookingCheckoutResult> => {
+    await assertRateLimit(ctx, "bookingCheckoutByDraft", {
+      key: String(args.draftId),
+      message: "Checkout is temporarily busy for this booking. Please try again shortly.",
+    });
+
     const draft: Doc<"bookingDrafts"> | null = await ctx.runQuery(
       internal.bookingDrafts.getByIdInternal,
       {
@@ -2512,6 +2518,11 @@ export const resumeBookingDraftCheckout = action({
     ctx,
     args,
   ): Promise<ResumeBookingDraftCheckoutResult> => {
+    await assertRateLimit(ctx, "bookingCheckoutByDraft", {
+      key: normalizeRateLimitKey(args.token),
+      message: "Checkout is temporarily busy for this booking. Please try again shortly.",
+    });
+
     const draft: Doc<"bookingDrafts"> | null = await ctx.runQuery(
       internal.bookingDrafts.getByTokenInternal,
       {

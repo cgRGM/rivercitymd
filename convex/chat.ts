@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getUserIdFromIdentity, isAdmin } from "./auth";
+import { assertRateLimit } from "./rateLimiter";
 
 export const list = query({
   args: {
@@ -38,6 +39,11 @@ export const send = mutation({
     if (!isAdminUser && authUserId !== args.userId) {
       throw new Error("Access denied");
     }
+
+    await assertRateLimit(ctx, "chatSendByUser", {
+      key: String(authUserId),
+      message: "You're sending messages too quickly. Please wait a moment.",
+    });
 
     await ctx.db.insert("chatMessages", {
       userId: args.userId,
