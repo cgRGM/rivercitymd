@@ -25,6 +25,13 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   VehiclePricingEditor,
@@ -49,6 +56,7 @@ const formSchema = z
     ),
     features: z.array(z.string()).optional(),
     icon: z.string().optional(),
+    categoryId: z.string().optional(),
     includedServiceIds: z.array(z.string()).optional(),
     isActive: z.boolean(),
   })
@@ -85,6 +93,7 @@ export function ServiceEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [newFeature, setNewFeature] = useState("");
   const allServices = useQuery(api.services.list);
+  const categories = useQuery(api.services.listCategories);
   const service = useQuery(
     api.services.getById,
     mode === "edit" && serviceId ? { serviceId } : "skip",
@@ -105,6 +114,7 @@ export function ServiceEditor({
       vehiclePrices: [] as VehiclePriceFormRow[],
       features: [],
       icon: "",
+      categoryId: "",
       includedServiceIds: [],
       isActive: true,
     },
@@ -125,6 +135,7 @@ export function ServiceEditor({
         })) ?? [],
       features: service.features ?? [],
       icon: service.icon ?? "",
+      categoryId: service.categoryId ?? "",
       includedServiceIds: service.includedServiceIds?.map(String) ?? [],
       isActive: service.isActive,
     });
@@ -175,6 +186,9 @@ export function ServiceEditor({
           vehiclePrices,
           duration: data.duration,
           serviceType,
+          categoryId: data.categoryId
+            ? (data.categoryId as Id<"serviceCategories">)
+            : undefined,
           includedServiceIds: data.includedServiceIds as Id<"services">[],
           features: data.features,
           icon: data.icon,
@@ -191,6 +205,9 @@ export function ServiceEditor({
           vehiclePrices,
           duration: data.duration,
           serviceType,
+          categoryId: data.categoryId
+            ? (data.categoryId as Id<"serviceCategories">)
+            : undefined,
           includedServiceIds: data.includedServiceIds as Id<"services">[],
           features: data.features,
           icon: data.icon,
@@ -296,6 +313,41 @@ export function ServiceEditor({
                           placeholder="Describe what is included and what the customer should expect."
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="categoryId"
+                  render={({ field }) => (
+                    <FormItem className="md:col-span-2">
+                      <FormLabel>Booking category</FormLabel>
+                      <Select
+                        value={field.value || "none"}
+                        onValueChange={(value) =>
+                          field.onChange(value === "none" ? "" : value)
+                        }
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose a booking category" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">No category</SelectItem>
+                          {categories
+                            ?.filter((category) => category.type === serviceType)
+                            .map((category) => (
+                              <SelectItem key={category._id} value={category._id}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Used to group packages in the booking service menu.
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}

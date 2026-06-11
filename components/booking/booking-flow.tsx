@@ -13,6 +13,7 @@ import {
   normalizeServiceType,
   type VehicleSize,
 } from "@/convex/lib/pricing";
+import { isArkansasState, normalizeStateCode } from "@/convex/lib/address";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -251,8 +252,13 @@ export default function BookingFlow() {
   const watchedLocationNotes = step1Form.watch("locationNotes");
   const watchedLatitude = step1Form.watch("latitude");
   const watchedLongitude = step1Form.watch("longitude");
+  const isArkansasAddress = isArkansasState(watchedState);
   const isOutOfAreaAddress =
-    watchedState.trim().length > 0 && watchedState.trim().toUpperCase() !== "AR";
+    watchedState.trim().length > 0 && !isArkansasAddress;
+  const travelFeeEstimate = travelQuote?.fee ?? 0;
+  const hasArkansasTravelFee = isArkansasAddress && travelFeeEstimate > 0;
+  const isExtendedArkansasTrip =
+    hasArkansasTravelFee && (travelQuote?.distanceMiles ?? 0) > 60;
   const selectedAddressLabel = [watchedStreet, watchedCity, watchedState, watchedZip]
     .filter(Boolean)
     .join(", ");
@@ -547,10 +553,10 @@ export default function BookingFlow() {
       if (!currentValues.name || !currentValues.email) {
         const fullName = user.fullName || "";
         const email = user.primaryEmailAddress?.emailAddress || "";
-        
+
         step2Form.setValue("name", fullName);
         step2Form.setValue("email", email);
-        
+
         setStep2Data({
           ...step2Data,
           name: fullName,
@@ -640,7 +646,7 @@ export default function BookingFlow() {
         shouldValidate: true,
         shouldDirty: true,
       });
-      step1Form.setValue("state", address.state || "", {
+      step1Form.setValue("state", normalizeStateCode(address.state), {
         shouldValidate: true,
         shouldDirty: true,
       });
@@ -722,7 +728,7 @@ export default function BookingFlow() {
         isValid = await step1Form.trigger();
         if (isValid) {
           const formData = step1Form.getValues();
-          const isStateOutOfArea = formData.state?.trim().toUpperCase() !== "AR";
+          const isStateOutOfArea = !isArkansasState(formData.state);
           if (isStateOutOfArea) {
             step1Form.setError("state", {
               type: "manual",
@@ -731,8 +737,15 @@ export default function BookingFlow() {
             setOutOfAreaMode((current) => current === "submitted" ? current : "review");
             return;
           }
-          setStep1Data(formData);
-          localStorage.setItem("appointmentFormData", JSON.stringify(formData));
+          const normalizedFormData = {
+            ...formData,
+            state: normalizeStateCode(formData.state),
+          };
+          setStep1Data(normalizedFormData);
+          localStorage.setItem(
+            "appointmentFormData",
+            JSON.stringify(normalizedFormData),
+          );
           setCurrentStep(2);
         }
         break;
@@ -773,7 +786,7 @@ export default function BookingFlow() {
         isValid = await step4Form.trigger();
         if (isValid) {
           const selectedStep4Data = step4Form.getValues();
-          
+
           const serviceDurations: number[] = [];
           const vehicles = step3Data?.vehicles ?? [];
           vehicles.forEach((vehicle, idx) => {
@@ -1107,7 +1120,7 @@ export default function BookingFlow() {
                   <FormItem>
                     <FormLabel className="text-sm font-semibold text-foreground">Preferred Time</FormLabel>
                     <FormControl>
-                      <TimeSlotPicker 
+                      <TimeSlotPicker
                         date={
                           step1Form.watch("scheduledDate") instanceof Date
                             ? step1Form
@@ -1131,6 +1144,34 @@ export default function BookingFlow() {
                 label="Service Address"
                 placeholder="Search for your service address"
               />
+              {hasArkansasTravelFee && (
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-100">
+                  <div className="flex gap-3">
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-sky-600 dark:text-sky-300" />
+                    <div className="space-y-1">
+                      <p className="font-semibold">
+                        {isExtendedArkansasTrip
+                          ? "Arkansas service area confirmed"
+                          : "Travel fee applies"}
+                      </p>
+                      <p className="text-sm text-sky-900/80 dark:text-sky-100/80">
+                        {isExtendedArkansasTrip
+                          ? "We can service this Arkansas address. Because it is farther from Little Rock, an estimated travel fee will be added at checkout."
+                          : "This address is outside the no-fee local zone, so an estimated travel fee will be added at checkout."}{" "}
+                        <span className="font-semibold">
+                          ${travelFeeEstimate.toFixed(2)}
+                        </span>
+                        {travelQuote && (
+                          <span>
+                            {" "}
+                            ({travelQuote.distanceMiles.toFixed(1)} miles)
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
               {isOutOfAreaAddress && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
                   {outOfAreaMode === "submitted" ? (
@@ -1150,7 +1191,7 @@ export default function BookingFlow() {
                         <div className="space-y-1">
                           <p className="font-semibold">Manual review required for this area</p>
                           <p className="text-sm text-amber-900/80 dark:text-amber-100/80">
-                            We are not regularly serving {watchedState} yet. This trip may be possible with an estimated travel fee of{" "}
+                            This address appears to be outside Arkansas. We may still be able to make the trip with an estimated travel fee of{" "}
                             <span className="font-semibold">
                               {travelQuote ? `$${travelQuote.fee.toFixed(2)}` : "calculating"}
                             </span>
@@ -1380,10 +1421,10 @@ export default function BookingFlow() {
                   <FormItem>
                     <FormLabel className="text-sm font-semibold text-foreground">Phone Number</FormLabel>
                     <FormControl>
-                      <Input 
-                        {...field} 
-                        value={field.value || ""} 
-                        type="tel" 
+                      <Input
+                        {...field}
+                        value={field.value || ""}
+                        type="tel"
                         placeholder="123-456-7890"
                         className="bg-background border-border text-foreground"
                       />
@@ -1447,7 +1488,7 @@ export default function BookingFlow() {
                     variant="outline"
                     size="sm"
                     onClick={addVehicle}
-                    disabled={!step3Form.formState.isValid && (step3Form.getValues("vehicles")?.length || 0) > 0} 
+                    disabled={!step3Form.formState.isValid && (step3Form.getValues("vehicles")?.length || 0) > 0}
                   >
                     Add Another Vehicle
                   </Button>
@@ -1483,7 +1524,7 @@ export default function BookingFlow() {
                     Customize the services for each of your vehicles below.
                   </p>
                 </div>
-                
+
                 <FormField
                   control={step4Form.control}
                   name="vehicleServices"
@@ -1494,7 +1535,7 @@ export default function BookingFlow() {
                           {step3Data?.vehicles.map((vehicle, vIdx) => {
                             const vehicleKey = vIdx.toString();
                             const vehicleLabel = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || `Vehicle ${vIdx + 1}`;
-                            
+
                             const vehiclePricingContext = {
                               vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
                               vehicleTypeId: vehicle.vehicleTypeId ?? null,
@@ -1529,6 +1570,17 @@ export default function BookingFlow() {
                             const sortedStandard = getSortedServices(standardServices);
                             const sortedAddons = getSortedServices(addonServices);
                             const sortedSubscriptions = getSortedServices(subscriptionServices);
+                            const standardGroups = sortedStandard.reduce(
+                              (groups, service) => {
+                                const categoryName =
+                                  service.categoryName || "Detail Packages";
+                                const existing = groups.get(categoryName) ?? [];
+                                existing.push(service);
+                                groups.set(categoryName, existing);
+                                return groups;
+                              },
+                              new Map<string, typeof sortedStandard>(),
+                            );
 
                             const currentSelection = field.value?.[vehicleKey] || [];
                             const activeSection = activeServiceSection[vIdx] || "packages";
@@ -1539,7 +1591,7 @@ export default function BookingFlow() {
                             });
                             const selectedPackage = services?.find(s => s._id === selectedPackageId);
 
-                            const selectedAddons = services?.filter(s => 
+                            const selectedAddons = services?.filter(s =>
                               currentSelection.includes(s._id) && normalizeServiceType(s.serviceType) === "addon"
                             ) ?? [];
 
@@ -1616,37 +1668,51 @@ export default function BookingFlow() {
                                         )}
                                       </span>
                                     </button>
-                                    
+
                                     {activeSection === "packages" && (
                                       <div className="p-4 border-t border-border/40 bg-background/5">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                          {sortedStandard.map(service => {
-                                            const isSelected = selectedPackageId === service._id;
-                                            return (
-                                              <ServiceCard
-                                                key={service._id}
-                                                service={service}
-                                                vehicleSize={vehiclePricingContext.vehicleSize}
-                                                vehicleTypeId={vehiclePricingContext.vehicleTypeId}
-                                                isSelected={isSelected}
-                                                onSelect={() => {
-                                                  const otherServices = currentSelection.filter(id => {
-                                                    const s = services?.find(s => s._id === id);
-                                                    return s && normalizeServiceType(s.serviceType) !== "standard";
-                                                  });
-                                                  const nextSelection = [...otherServices, service._id];
-                                                  const nextRecord = {
-                                                    ...field.value,
-                                                    [vehicleKey]: nextSelection,
-                                                  };
-                                                  field.onChange(nextRecord);
-                                                  
-                                                  // Auto close Packages & open Addons
-                                                  setActiveServiceSection(prev => ({ ...prev, [vIdx]: "addons" }));
-                                                }}
-                                              />
-                                            );
-                                          })}
+                                        <div className="space-y-5">
+                                          {Array.from(standardGroups.entries()).map(([categoryName, categoryServices]) => (
+                                            <section key={categoryName} className="space-y-3">
+                                              <div className="flex items-center justify-between gap-3">
+                                                <h4 className="text-sm font-semibold text-foreground">
+                                                  {categoryName}
+                                                </h4>
+                                                <span className="text-xs text-muted-foreground">
+                                                  {categoryServices.length} option{categoryServices.length === 1 ? "" : "s"}
+                                                </span>
+                                              </div>
+                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {categoryServices.map(service => {
+                                                  const isSelected = selectedPackageId === service._id;
+                                                  return (
+                                                    <ServiceCard
+                                                      key={service._id}
+                                                      service={service}
+                                                      vehicleSize={vehiclePricingContext.vehicleSize}
+                                                      vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                      isSelected={isSelected}
+                                                      onSelect={() => {
+                                                        const otherServices = currentSelection.filter(id => {
+                                                          const s = services?.find(s => s._id === id);
+                                                          return s && normalizeServiceType(s.serviceType) !== "standard";
+                                                        });
+                                                        const nextSelection = [...otherServices, service._id];
+                                                        const nextRecord = {
+                                                          ...field.value,
+                                                          [vehicleKey]: nextSelection,
+                                                        };
+                                                        field.onChange(nextRecord);
+
+                                                        // Auto close Packages & open Addons
+                                                        setActiveServiceSection(prev => ({ ...prev, [vIdx]: "addons" }));
+                                                      }}
+                                                    />
+                                                  );
+                                                })}
+                                              </div>
+                                            </section>
+                                          ))}
                                           {sortedStandard.length === 0 && (
                                             <p className="text-sm text-muted-foreground italic col-span-full">No packages available for this vehicle size.</p>
                                           )}
@@ -1676,7 +1742,7 @@ export default function BookingFlow() {
                                         )}
                                       </span>
                                     </button>
-                                    
+
                                     {activeSection === "addons" && (
                                       <div className="p-4 border-t border-border/40 bg-background/5">
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1693,7 +1759,7 @@ export default function BookingFlow() {
                                                   const nextSelection = currentSelection.includes(service._id)
                                                     ? currentSelection.filter(id => id !== service._id)
                                                     : [...currentSelection, service._id];
-                                                  
+
                                                   const nextRecord = {
                                                     ...field.value,
                                                     [vehicleKey]: nextSelection,
@@ -1741,7 +1807,7 @@ export default function BookingFlow() {
                                         )}
                                       </span>
                                     </button>
-                                    
+
                                     {activeSection === "subscriptions" && (
                                       <div className="p-4 border-t border-border/40 bg-background/5">
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1762,7 +1828,7 @@ export default function BookingFlow() {
                                                   const nextSelection = selected
                                                     ? [...otherServices, service._id]
                                                     : otherServices;
-                                                  
+
                                                   const nextRecord = {
                                                     ...field.value,
                                                     [vehicleKey]: nextSelection,
