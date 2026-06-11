@@ -51,6 +51,7 @@ const formSchema = z
     icon: z.string().optional(),
     includedServiceIds: z.array(z.string()).optional(),
     isActive: z.boolean(),
+    showOnLandingPage: z.boolean(),
   })
   .refine(
     (data) =>
@@ -107,6 +108,7 @@ export function ServiceEditor({
       icon: "",
       includedServiceIds: [],
       isActive: true,
+      showOnLandingPage: true,
     },
   });
 
@@ -127,6 +129,7 @@ export function ServiceEditor({
       icon: service.icon ?? "",
       includedServiceIds: service.includedServiceIds?.map(String) ?? [],
       isActive: service.isActive,
+      showOnLandingPage: service.showOnLandingPage ?? true,
     });
   }, [form, service]);
 
@@ -179,6 +182,7 @@ export function ServiceEditor({
           features: data.features,
           icon: data.icon,
           isActive: data.isActive,
+          showOnLandingPage: data.showOnLandingPage,
         });
         toast.success("Service updated");
       } else {
@@ -194,6 +198,7 @@ export function ServiceEditor({
           includedServiceIds: data.includedServiceIds as Id<"services">[],
           features: data.features,
           icon: data.icon,
+          showOnLandingPage: data.showOnLandingPage,
         });
         toast.success(`${TYPE_LABELS[serviceType]} created`);
       }
@@ -357,6 +362,32 @@ export function ServiceEditor({
                     ))}
                   </div>
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="showOnLandingPage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={(checked) =>
+                            field.onChange(checked === true)
+                          }
+                        />
+                        <span>
+                          <span className="text-sm font-medium">
+                            Show in landing page pricing
+                          </span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Include this product in the public pricing cards when
+                            it is available for the selected vehicle type.
+                          </span>
+                        </span>
+                      </label>
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}

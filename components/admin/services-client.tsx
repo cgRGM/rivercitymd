@@ -57,6 +57,7 @@ type ServiceRecord = {
   bookings?: number;
   popularity?: string;
   isActive: boolean;
+  showOnLandingPage?: boolean;
   categoryId?: Id<"serviceCategories">;
   includedServiceIds?: Id<"services">[];
   features?: string[];
@@ -259,6 +260,7 @@ export default function ServicesClient() {
         features: service.features,
         icon: service.icon,
         isActive: !service.isActive,
+        showOnLandingPage: service.showOnLandingPage ?? true,
       });
 
       toast.success(service.isActive ? "Service hidden" : "Service made visible");
@@ -349,9 +351,16 @@ export default function ServicesClient() {
       accessorFn: (row) => (row.isActive ? "active" : "hidden"),
       header: "Visibility",
       cell: ({ row }) => (
-        <Badge variant={row.original.isActive ? "default" : "secondary"}>
-          {row.original.isActive ? "Visible" : "Hidden"}
-        </Badge>
+        <div className="flex flex-wrap gap-1">
+          <Badge variant={row.original.isActive ? "default" : "secondary"}>
+            {row.original.isActive ? "Bookable" : "Hidden"}
+          </Badge>
+          <Badge
+            variant={row.original.showOnLandingPage !== false ? "outline" : "secondary"}
+          >
+            {row.original.showOnLandingPage !== false ? "Landing" : "No landing"}
+          </Badge>
+        </div>
       ),
     },
     {
