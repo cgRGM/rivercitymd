@@ -22,6 +22,7 @@ import {
   normalizeUserNotificationPreferences,
   userNotificationPreferencesValidator,
 } from "./lib/notificationSettings";
+import { assertRateLimit } from "./rateLimiter";
 
 const STRIPE_CUSTOMER_SYNC_RETRY_DELAYS_MS = [
   0,
@@ -581,6 +582,11 @@ export const createUserProfile = mutation({
     if (!identity || !identity.subject) {
       throw new Error("Not authenticated");
     }
+
+    await assertRateLimit(ctx, "userProfileByUser", {
+      key: `user:${identity.subject}`,
+      message: "Too many profile setup attempts. Please try again later.",
+    });
 
     // Get Clerk user ID from identity (needed for user creation and updates)
     const clerkUserId = identity.subject;

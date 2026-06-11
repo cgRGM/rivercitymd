@@ -25,6 +25,7 @@ import {
   getEffectiveServicePrice,
   type VehicleSize,
 } from "./lib/pricing";
+import { assertRateLimit, contactRateLimitKey } from "./rateLimiter";
 
 const HOLD_DURATION_MS = 15 * 60 * 1000;
 const ABANDONED_EMAIL_DELAY_MS = 60 * 60 * 1000;
@@ -734,6 +735,11 @@ export const createOrUpdate = action({
     travelDistanceMiles: number;
     travelFee: number;
   }> => {
+    await assertRateLimit(ctx, "bookingDraftByEmail", {
+      key: contactRateLimitKey({ email: args.email, phone: args.phone }),
+      message: "Too many booking attempts. Please wait a bit and try again.",
+    });
+
     const travel = await ctx.runAction(api.travelFees.calculate, {
       address: args.address,
     });
@@ -758,7 +764,11 @@ export const createBeforePhotoUploadUrl = mutation({
     key: v.string(),
     url: v.string(),
   }),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
+    await assertRateLimit(ctx, "beforePhotoUploadGlobal", {
+      message: "Photo uploads are temporarily busy. Please try again shortly.",
+    });
+
     validateBeforePhotoFile(args.fileName, args.contentType);
     const sanitizedFileName = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const key = `booking-before-photos/${Date.now()}-${crypto.randomUUID()}-${sanitizedFileName}`;
@@ -1546,6 +1556,11 @@ export const saveOutOfAreaLead = mutation({
   },
   returns: v.id("outOfAreaLeads"),
   handler: async (ctx, args) => {
+    await assertRateLimit(ctx, "outOfAreaLeadByEmail", {
+      key: contactRateLimitKey({ email: args.email }),
+      message: "We received several requests for this email. Please try again later.",
+    });
+
     return await ctx.db.insert("outOfAreaLeads", {
       email: args.email,
       address: args.address,
@@ -1571,6 +1586,11 @@ export const saveOutOfAreaRequest = mutation({
   },
   returns: v.id("outOfAreaRequests"),
   handler: async (ctx, args) => {
+    await assertRateLimit(ctx, "outOfAreaRequestByContact", {
+      key: contactRateLimitKey({ email: args.email, phone: args.phone }),
+      message: "We received several review requests from this contact. Please try again later.",
+    });
+
     const now = Date.now();
     const requestId = await ctx.db.insert("outOfAreaRequests", {
       customerName: args.name.trim(),
