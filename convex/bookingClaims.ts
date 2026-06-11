@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { getNormalizedIdentityEmail, getUserIdFromIdentity } from "./auth";
+import { assertRateLimit } from "./rateLimiter";
 
 const BOOKING_CLAIM_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -110,6 +111,11 @@ export const claim = mutation({
     if (!identity?.subject) {
       throw new ConvexError("You need to sign in before claiming this booking.");
     }
+
+    await assertRateLimit(ctx, "bookingClaimByUser", {
+      key: `user:${identity.subject}`,
+      message: "Too many booking claim attempts. Please try again later.",
+    });
 
     const claim = await ctx.db
       .query("bookingClaims")
