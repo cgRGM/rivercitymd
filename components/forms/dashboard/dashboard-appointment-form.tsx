@@ -9,6 +9,7 @@ import {
   getEffectiveServicePricingForVehicle,
   isServiceAvailableForVehicle,
   normalizeServiceType,
+  type ServiceType,
 } from "@/convex/lib/pricing";
 import { calculateSchedulingDuration } from "@/convex/lib/booking";
 import type { VehicleSize } from "@/convex/lib/pricing";
@@ -76,6 +77,41 @@ interface RadarAddress {
   };
 }
 
+type DashboardVehicleOption = {
+  _id: Id<"vehicles">;
+  year: number;
+  make: string;
+  model: string;
+  color?: string;
+  licensePlate?: string;
+  size?: "small" | "medium" | "large";
+  vehicleTypeId?: Id<"vehicleTypes">;
+};
+
+type DashboardServiceOption = {
+  _id: Id<"services">;
+  name: string;
+  description: string;
+  serviceType?: ServiceType;
+  isActive: boolean;
+  basePrice?: number;
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+  duration?: number;
+  durationSmall?: number;
+  durationMedium?: number;
+  durationLarge?: number;
+  vehiclePrices?: Array<{
+    vehicleTypeId: Id<"vehicleTypes">;
+    price: number;
+    isAvailable: boolean;
+    duration?: number;
+  }>;
+  bookableVehicleTypeIds?: Id<"vehicleTypes">[];
+  bookableLegacySizes?: Array<"small" | "medium" | "large">;
+};
+
 export function DashboardAppointmentForm({
   open,
   onOpenChange,
@@ -113,8 +149,12 @@ export function DashboardAppointmentForm({
 
   // Queries
   const currentUser = useQuery(api.users.getCurrentUser);
-  const userVehicles = useQuery(api.vehicles.getMyVehicles);
-  const services = useQuery(api.services.list);
+  const userVehicles = useQuery(api.vehicles.getMyVehicles) as
+    | DashboardVehicleOption[]
+    | undefined;
+  const services = useQuery(api.services.list) as
+    | DashboardServiceOption[]
+    | undefined;
   const petFeeSettings = useQuery(api.petFeeSettings.get);
   const nextBookableDate = useQuery(api.availability.getNextBookableDate, {});
 

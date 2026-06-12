@@ -79,6 +79,35 @@ type ServiceEditorProps = {
   initialType?: ServiceEditorType;
 };
 
+type ServiceEditorRecord = {
+  _id: Id<"services">;
+  name: string;
+  description: string;
+  duration: number;
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+  vehiclePrices?: Array<{
+    vehicleTypeId?: Id<"vehicleTypes">;
+    price: number;
+    duration?: number;
+    isAvailable: boolean;
+  }>;
+  features?: string[];
+  icon?: string;
+  categoryId?: Id<"serviceCategories">;
+  includedServiceIds?: Id<"services">[];
+  isActive: boolean;
+  showOnLandingPage?: boolean;
+  serviceType?: ServiceEditorType;
+};
+
+type ServiceCategoryOption = {
+  _id: Id<"serviceCategories">;
+  name: string;
+  type: ServiceEditorType;
+};
+
 const TYPE_LABELS: Record<ServiceEditorType, string> = {
   standard: "Standard service",
   addon: "Add-on",
@@ -93,12 +122,16 @@ export function ServiceEditor({
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const [newFeature, setNewFeature] = useState("");
-  const allServices = useQuery(api.services.list);
-  const categories = useQuery(api.services.listCategories);
+  const allServices = useQuery(api.services.list) as
+    | ServiceEditorRecord[]
+    | undefined;
+  const categories = useQuery(api.services.listCategories) as
+    | ServiceCategoryOption[]
+    | undefined;
   const service = useQuery(
     api.services.getById,
     mode === "edit" && serviceId ? { serviceId } : "skip",
-  );
+  ) as ServiceEditorRecord | undefined | null;
   const createService = useMutation(api.services.create);
   const updateService = useMutation(api.services.update);
   const serviceType =

@@ -66,6 +66,21 @@ interface Invoice {
   remainingBalance?: number;
 }
 
+type AbandonedDraftRow = {
+  _id: Id<"bookingDrafts">;
+  name: string;
+  email: string;
+  phone?: string;
+  serviceNames: string[];
+  scheduledDate: string;
+  scheduledTime: string;
+  status: string;
+  recovered?: boolean;
+  resumeToken: string;
+  abandonedEmailSentAt?: number;
+  lastActivityAt: number;
+};
+
 type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 
 type InvoiceRecord = Invoice & {
@@ -141,7 +156,7 @@ function InvoicePreview({ invoice }: { invoice: Invoice }) {
           </tr>
         </thead>
         <tbody className="divide-y">
-          {invoice.items.map((item, index) => (
+          {invoice.items.map((item: InvoiceItem, index: number) => (
             <tr key={index}>
               <td className="p-2">{item.serviceName}</td>
               <td className="p-2 text-center">{item.quantity}</td>
@@ -529,7 +544,7 @@ export default function PaymentsClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {abandonedItems.map((draft) => (
+                  {abandonedItems.map((draft: AbandonedDraftRow) => (
                     <tr key={draft._id} className="border-b last:border-b-0">
                       <td className="py-3 pr-4">
                         <div className="font-medium">{draft.name}</div>

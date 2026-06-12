@@ -62,6 +62,11 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
+type IncludedServiceOption = {
+  _id: Id<"services">;
+  name: string;
+};
+
 interface AddServiceFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -78,7 +83,9 @@ export function AddServiceForm({
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
-  const allServices = useQuery(api.services.list);
+  const allServices = useQuery(api.services.list) as
+    | IncludedServiceOption[]
+    | undefined;
   const createService = useMutation(api.services.create);
 
   const form = useForm<FormData>({

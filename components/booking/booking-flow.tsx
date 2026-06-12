@@ -11,6 +11,7 @@ import {
   getEffectiveServicePricingForVehicle,
   isServiceAvailableForVehicle,
   normalizeServiceType,
+  type ServiceType,
   type VehicleSize,
 } from "@/convex/lib/pricing";
 import { isArkansasState, normalizeStateCode } from "@/convex/lib/address";
@@ -76,6 +77,31 @@ interface RadarAddress {
   latitude?: number;
   longitude?: number;
 }
+
+type BookingService = {
+  _id: Id<"services">;
+  name: string;
+  description: string;
+  categoryName?: string;
+  serviceType?: ServiceType;
+  isActive: boolean;
+  basePrice?: number;
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+  duration?: number;
+  durationSmall?: number;
+  durationMedium?: number;
+  durationLarge?: number;
+  vehiclePrices?: Array<{
+    vehicleTypeId: Id<"vehicleTypes">;
+    price: number;
+    isAvailable: boolean;
+    duration?: number;
+  }>;
+  bookableVehicleTypeIds?: Id<"vehicleTypes">[];
+  bookableLegacySizes?: Array<"small" | "medium" | "large">;
+};
 
 const step1Schema = z.object({
   scheduledDate: z.date({
@@ -218,7 +244,7 @@ export default function BookingFlow() {
     },
   });
 
-  const services = useQuery(api.services.list);
+  const services = useQuery(api.services.list) as BookingService[] | undefined;
   const petFeeSettings = useQuery(api.petFeeSettings.get);
   const depositSettings = useQuery(api.depositSettings.get);
   const bookingReadiness = useQuery(api.setupReadiness.getPublicBookingReadiness);

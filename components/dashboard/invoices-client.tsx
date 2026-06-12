@@ -386,7 +386,7 @@ export default function InvoicesClient() {
     );
   }
 
-  const invoices = invoicesQuery ?? [];
+  const invoices = (invoicesQuery ?? []) as Invoice[];
 
   const getStatusBadge = (status: string) => {
     switch (status) {

@@ -38,6 +38,13 @@ type Props = {
   invoiceId: Id<"invoices">;
 };
 
+type InvoiceLineItem = {
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
   sent: "bg-yellow-100 text-yellow-700",
@@ -314,7 +321,7 @@ export default function PaymentDetailClient({ invoiceId }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {invoice.items.map((item, index) => (
+              {invoice.items.map((item: InvoiceLineItem, index: number) => (
                 <tr key={index}>
                   <td className="p-3">{item.serviceName}</td>
                   <td className="p-3 text-center">{item.quantity}</td>

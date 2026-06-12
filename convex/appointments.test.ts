@@ -22,6 +22,141 @@ async function expectConvexErrorCode(
 }
 
 describe("appointments", () => {
+  async function createAdjustmentFixture(
+    t: any,
+    options: { invoiceStatus?: "draft" | "open" | "paid"; depositPaid?: boolean } = {},
+  ) {
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const {
+      adminId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+      cheaperServiceId,
+    } = await t.run(async (ctx: any) => {
+      const adminId = await ctx.db.insert("users", {
+        name: "Adjustment Admin",
+        email: "adjustment-admin@example.com",
+        role: "admin",
+      });
+      const userId = await ctx.db.insert("users", {
+        name: "Adjustment Customer",
+        email: "adjustment-customer@example.com",
+        role: "client",
+        timesServiced: 0,
+        totalSpent: 0,
+        status: "active",
+      });
+      const vehicleId = await ctx.db.insert("vehicles", {
+        userId,
+        year: 2020,
+        make: "Toyota",
+        model: "Camry",
+        size: "medium",
+      });
+      const secondVehicleId = await ctx.db.insert("vehicles", {
+        userId,
+        year: 2024,
+        make: "Honda",
+        model: "Pilot",
+        size: "large",
+      });
+      const baseServiceId = await ctx.db.insert("services", {
+        name: "Level 2 Detail",
+        description: "Base detail",
+        basePrice: 100,
+        basePriceMedium: 100,
+        basePriceLarge: 150,
+        duration: 120,
+        serviceType: "standard",
+        isActive: true,
+      });
+      const addOnServiceId = await ctx.db.insert("services", {
+        name: "Interior Add-On",
+        description: "Added interior work",
+        basePrice: 60,
+        basePriceMedium: 60,
+        basePriceLarge: 80,
+        duration: 45,
+        serviceType: "standard",
+        isActive: true,
+      });
+      const cheaperServiceId = await ctx.db.insert("services", {
+        name: "Quick Wash",
+        description: "Lower priced work",
+        basePrice: 40,
+        basePriceMedium: 40,
+        basePriceLarge: 60,
+        duration: 45,
+        serviceType: "standard",
+        isActive: true,
+      });
+      await ctx.db.insert("petFeeSettings", {
+        basePriceSmall: 25,
+        basePriceMedium: 50,
+        basePriceLarge: 75,
+        timeAddMinutes: 30,
+        isActive: true,
+      });
+      return {
+        adminId,
+        userId,
+        vehicleId,
+        secondVehicleId,
+        baseServiceId,
+        addOnServiceId,
+        cheaperServiceId,
+      };
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "adjustment-admin@example.com",
+    });
+    const { appointmentId, invoiceId } = await asAdmin.mutation(
+      api.appointments.create,
+      {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [baseServiceId],
+        scheduledDate: APPOINTMENT_TEST_DATE,
+        scheduledTime: "10:00",
+        street: "123 Main St",
+        city: "Little Rock",
+        state: "AR",
+        zip: "72205",
+      },
+    );
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(appointmentId, { status: "confirmed" });
+      await ctx.db.patch(invoiceId, {
+        status: options.invoiceStatus ?? "draft",
+        depositPaid: options.depositPaid ?? false,
+        depositAmount: options.depositPaid ? 50 : 0,
+        remainingBalance: options.depositPaid ? 50 : 100,
+      });
+    });
+
+    return {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+      cheaperServiceId,
+    };
+  }
+
   test("appointment details include signed before photo URLs", async () => {
     const t = convexTest(schema, modules);
     const { appointmentId, adminId } = await t.run(async (ctx) => {
@@ -297,7 +432,7 @@ describe("appointments", () => {
       const appointment = await ctx.db.get(appointmentId);
       const invoice = await ctx.db
         .query("invoices")
-        .withIndex("by_appointment", (q) => q.eq("appointmentId", appointmentId))
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
         .unique();
       return { appointment, invoice };
     });
@@ -343,7 +478,7 @@ describe("appointments", () => {
       const appointment = await ctx.db.get(appointmentId);
       const invoice = await ctx.db
         .query("invoices")
-        .withIndex("by_appointment", (q) => q.eq("appointmentId", appointmentId))
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
         .unique();
       return { appointment, invoice };
     });
@@ -359,6 +494,167 @@ describe("appointments", () => {
         totalPrice: 75,
       }),
     ]);
+  });
+
+  test("work adjustment updates an unpaid invoice and records an audit snapshot", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      vehicleId,
+      baseServiceId,
+    } = await createAdjustmentFixture(t);
+
+    const result = await asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId],
+      petFeeVehicleIds: [vehicleId],
+      reason: "Pet hair found on arrival",
+    });
+
+    expect(result.invoiceAction).toBe("updated_open_invoice");
+
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId) as any;
+      const invoice = await ctx.db.get(invoiceId) as any;
+      const adjustments = await ctx.db
+        .query("appointmentAdjustments")
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
+        .collect();
+      return { appointment, invoice, adjustments };
+    });
+
+    expect(updated.appointment?.totalPrice).toBe(150);
+    expect(updated.appointment?.duration).toBe(150);
+    expect(updated.appointment?.petFeeVehicleIds).toEqual([vehicleId]);
+    expect(updated.invoice?.total).toBe(150);
+    expect(updated.invoice?.remainingBalance).toBe(150);
+    expect(updated.invoice?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "pet_fee",
+          totalPrice: 50,
+        }),
+      ]),
+    );
+    expect(updated.adjustments).toHaveLength(1);
+    expect(updated.adjustments[0]).toMatchObject({
+      reason: "Pet hair found on arrival",
+      priceDelta: 50,
+      durationDelta: 30,
+      invoiceAction: "updated_open_invoice",
+    });
+  });
+
+  test("work adjustment can add another saved vehicle", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+    } = await createAdjustmentFixture(t);
+
+    const preview = await asAdmin.query(api.appointments.previewWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId, secondVehicleId],
+      serviceIds: [baseServiceId],
+      petFeeVehicleIds: [],
+      reason: "Second vehicle added",
+    });
+    expect(preview.priceDelta).toBe(150);
+    expect(preview.durationDelta).toBe(120);
+
+    await asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId, secondVehicleId],
+      serviceIds: [baseServiceId],
+      petFeeVehicleIds: [],
+      reason: "Second vehicle added",
+    });
+
+    const appointment = await t.run(
+      async (ctx: any) => (await ctx.db.get(appointmentId)) as any,
+    );
+    expect(appointment?.vehicleIds).toEqual([vehicleId, secondVehicleId]);
+    expect(appointment?.totalPrice).toBe(250);
+    expect(appointment?.duration).toBe(240);
+  });
+
+  test("work adjustment creates a supplemental invoice for paid invoice increases", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      vehicleId,
+      baseServiceId,
+      addOnServiceId,
+    } = await createAdjustmentFixture(t, {
+      invoiceStatus: "paid",
+      depositPaid: true,
+    });
+
+    const result = await asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId, addOnServiceId],
+      petFeeVehicleIds: [],
+      reason: "Customer approved interior add-on",
+    });
+
+    expect(result.invoiceAction).toBe("supplemental_invoice_created");
+    expect(result.supplementalInvoiceId).toBeDefined();
+
+    const invoices = await t.run(async (ctx) =>
+      ctx.db
+        .query("invoices")
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
+        .collect(),
+    );
+
+    expect(invoices).toHaveLength(2);
+    const supplemental = invoices.find((invoice) => invoice._id === result.supplementalInvoiceId);
+    expect(supplemental).toMatchObject({
+      status: "draft",
+      subtotal: 60,
+      total: 60,
+      remainingBalance: 60,
+      depositPaid: true,
+    });
+  });
+
+  test("work adjustment blocks reductions on paid invoices", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      vehicleId,
+      cheaperServiceId,
+    } = await createAdjustmentFixture(t, {
+      invoiceStatus: "paid",
+      depositPaid: true,
+    });
+
+    await expect(
+      asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+        appointmentId,
+        vehicleIds: [vehicleId],
+        serviceIds: [cheaperServiceId],
+        petFeeVehicleIds: [],
+        reason: "Customer downgraded package",
+      }),
+    ).rejects.toThrow("refund or credit");
+
+    const adjustments = await t.run(async (ctx) =>
+      ctx.db
+        .query("appointmentAdjustments")
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
+        .collect(),
+    );
+    expect(adjustments).toHaveLength(0);
   });
 
   test("list appointments", async () => {

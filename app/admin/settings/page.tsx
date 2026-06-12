@@ -38,7 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { buildBusinessHoursForm } from "@/lib/business-hours";
 
 const businessSchema = z.object({
@@ -687,7 +687,7 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground">No upcoming time blocks</p>
           ) : (
             <div className="space-y-3">
-              {timeBlocks.map((block) => (
+              {timeBlocks.map((block: Doc<"timeBlocks">) => (
                 <div
                   key={block._id}
                   className="flex items-center justify-between gap-4 rounded-lg border p-3"

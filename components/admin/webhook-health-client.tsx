@@ -6,6 +6,51 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, ShieldAlert } from "lucide-react";
 
+type WebhookDiagnosticsOverview = {
+  counts: {
+    paidDepositsMissingStripeInvoice: number;
+    paidGuestInvoicesMissingClerkAccount: number;
+    paidInvoicesMissingStripeEvidence: number;
+    usersMissingStripeCustomer: number;
+  };
+  paidGuestInvoicesMissingClerkAccount: Array<{
+    invoiceId: string;
+    customerName: string;
+    customerEmail: string;
+    invoiceNumber: string;
+    appointmentStatus: string;
+    latestSyncAt: number | null;
+    latestSyncResult?: string | null;
+    latestSyncMessage?: string | null;
+  }>;
+  paidDepositsMissingStripeInvoice: Array<{
+    invoiceId: string;
+    customerName: string;
+    invoiceNumber: string;
+    appointmentStatus: string;
+    invoiceGenerationError?: string | null;
+  }>;
+  paidInvoicesMissingStripeEvidence: Array<{
+    invoiceId: string;
+    customerName: string;
+    customerEmail: string;
+    invoiceNumber: string;
+  }>;
+  recentIssues: Array<{
+    id: string;
+    level: "warning" | "error";
+    source: string;
+    eventType: string;
+    message: string;
+    createdAt: number;
+  }>;
+  usersMissingStripeCustomer: Array<{
+    userId: string;
+    customerName: string;
+    customerEmail: string;
+  }>;
+};
+
 function formatEventTime(timestamp: number | null) {
   if (!timestamp) {
     return "No sync recorded";
@@ -14,7 +59,9 @@ function formatEventTime(timestamp: number | null) {
 }
 
 export default function WebhookHealthClient() {
-  const diagnostics = useQuery(api.webhookDiagnostics.getAdminOverview);
+  const diagnostics = useQuery(
+    api.webhookDiagnostics.getAdminOverview,
+  ) as WebhookDiagnosticsOverview | undefined;
 
   if (!diagnostics) {
     return (

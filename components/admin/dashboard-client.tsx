@@ -20,9 +20,19 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { formatTime12h } from "@/lib/time";
+import type { Id } from "@/convex/_generated/dataModel";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type Props = {};
+
+type PendingTripLogCard = {
+  _id: Id<"tripLogs">;
+  logDate: string;
+  appointment?: {
+    customerName?: string;
+    scheduledTime?: string;
+  } | null;
+};
 
 export default function DashboardClient({}: Props) {
   const stats = useQuery(api.analytics.getMonthlyStats) || {
@@ -189,7 +199,7 @@ export default function DashboardClient({}: Props) {
             </div>
           ) : (
             <div className="space-y-3">
-              {pendingTripLogs.map((log) => (
+              {pendingTripLogs.map((log: PendingTripLogCard) => (
                 <div
                   key={log._id}
                   className="flex items-center justify-between p-3 rounded-lg border border-border"

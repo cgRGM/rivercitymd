@@ -38,7 +38,7 @@ export function TimeSlotPicker({
     date: date || "",
     serviceDuration,
     ignoreAppointmentId,
-  });
+  }) as TimeSlot[] | undefined;
 
   // No date selected — show disabled placeholder
   if (!date) {

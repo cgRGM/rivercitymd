@@ -1289,13 +1289,13 @@ export const deleteUser = mutation({
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .collect();
     for (const appointment of appointments) {
-      const invoice = await ctx.db
+      const invoices = await ctx.db
         .query("invoices")
         .withIndex("by_appointment", (q) =>
           q.eq("appointmentId", appointment._id),
         )
-        .unique();
-      if (invoice && invoice.status !== "paid") {
+        .collect();
+      for (const invoice of invoices.filter((item) => item.status !== "paid")) {
         await ctx.db.delete(invoice._id);
       }
       await ctx.db.delete(appointment._id);
