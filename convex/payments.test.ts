@@ -484,18 +484,18 @@ describe("payments", () => {
 
     expect(booking.travelDistanceMiles).toBeGreaterThan(68);
     expect(booking.travelDistanceMiles).toBeLessThan(70);
-    expect(booking.travelFee).toBe(64.32);
-    expect(draft?.totalPrice).toBeCloseTo(184.32, 2);
+    expect(booking.travelFee).toBe(88.2);
+    expect(draft?.totalPrice).toBeCloseTo(208.2, 2);
     expect(draft?.duration).toBe(180);
-    expect(draft?.travelFee).toBe(64.32);
+    expect(draft?.travelFee).toBe(88.2);
     expect(draft?.travelDistanceMiles).toBeGreaterThan(68);
     expect(draft?.travelDistanceMiles).toBeLessThan(70);
     expect(draft?.priceSnapshot).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           itemType: "travel_fee",
-          unitPrice: 64.32,
-          totalPrice: 64.32,
+          unitPrice: 88.2,
+          totalPrice: 88.2,
         }),
       ]),
     );

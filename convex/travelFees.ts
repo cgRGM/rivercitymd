@@ -1,6 +1,12 @@
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
-import { calculateTravelFeeForMiles, calculateHaversineDistance } from "./lib/travelFees";
+import { internal } from "./_generated/api";
+import {
+  calculateTravelBufferMinutesForMiles,
+  calculateTravelFeeForMiles,
+  calculateHaversineDistance,
+  type TravelFeeSettings,
+} from "./lib/travelFees";
 import { assertRateLimit, normalizeRateLimitKey } from "./rateLimiter";
 
 const ORIGIN_LAT = 34.752258;
@@ -54,6 +60,7 @@ export const calculate = action({
   returns: v.object({
     distanceMiles: v.number(),
     fee: v.number(),
+    bufferMinutes: v.number(),
   }),
   handler: async (ctx, args) => {
     const addressKey = normalizeRateLimitKey(
@@ -103,10 +110,15 @@ export const calculate = action({
     }
 
     const distanceMiles = roundMiles(calculateHaversineDistance(ORIGIN_LAT, ORIGIN_LNG, lat, lng));
+    const settings: TravelFeeSettings = await ctx.runQuery(
+      internal.travelFeeSettings.getInternal,
+      {},
+    );
 
     return {
       distanceMiles,
-      fee: calculateTravelFeeForMiles(distanceMiles),
+      fee: calculateTravelFeeForMiles(distanceMiles, settings),
+      bufferMinutes: calculateTravelBufferMinutesForMiles(distanceMiles, settings),
     };
   },
 });

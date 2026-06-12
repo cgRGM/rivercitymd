@@ -20,8 +20,40 @@ describe("travelFees", () => {
     expect(calculateTravelFeeForMiles(35)).toBe(30);
     expect(calculateTravelFeeForMiles(35.1)).toBe(50);
     expect(calculateTravelFeeForMiles(50)).toBe(50);
-    expect(calculateTravelFeeForMiles(50.1)).toBe(50.08);
-    expect(calculateTravelFeeForMiles(100)).toBe(87.5);
+    expect(calculateTravelFeeForMiles(50.1)).toBe(50.2);
+    expect(calculateTravelFeeForMiles(100)).toBe(150);
+  });
+
+  test("uses configurable travel fee settings", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-travel-settings@example.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-travel-settings@example.com",
+    });
+
+    await asAdmin.mutation(api.travelFeeSettings.upsert, {
+      freeRadiusMiles: 20,
+      midRangeMaxMiles: 30,
+      longRangeMaxMiles: 40,
+      midRangeFee: 25,
+      longRangeFee: 45,
+      perMileRateAfterLongRange: 3,
+      midRangeBufferMinutes: 20,
+      longRangeBufferMinutes: 75,
+      isActive: true,
+    });
+
+    const settings = await t.query(api.travelFeeSettings.get, {});
+    expect(calculateTravelFeeForMiles(45, settings)).toBe(60);
+    expect(calculateTravelBufferMinutesForMiles(25, settings)).toBe(20);
+    expect(calculateTravelBufferMinutesForMiles(45, settings)).toBe(75);
   });
 
   test("uses travel buffers for appointment blocking", () => {
@@ -93,6 +125,6 @@ describe("travelFees", () => {
     });
 
     process.env.RADAR_SECRET_KEY = previousKey;
-    expect(result).toEqual({ distanceMiles: 0, fee: 0 });
+    expect(result).toEqual({ distanceMiles: 0, fee: 0, bufferMinutes: 0 });
   });
 });

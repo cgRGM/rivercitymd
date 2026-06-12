@@ -44,6 +44,7 @@ import type * as subscriptions from "../subscriptions.js";
 import type * as testEmails from "../testEmails.js";
 import type * as testFlows from "../testFlows.js";
 import type * as testUtils_bookingSetup from "../testUtils/bookingSetup.js";
+import type * as travelFeeSettings from "../travelFeeSettings.js";
 import type * as travelFees from "../travelFees.js";
 import type * as tripLogs from "../tripLogs.js";
 import type * as users from "../users.js";
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   testEmails: typeof testEmails;
   testFlows: typeof testFlows;
   "testUtils/bookingSetup": typeof testUtils_bookingSetup;
+  travelFeeSettings: typeof travelFeeSettings;
   travelFees: typeof travelFees;
   tripLogs: typeof tripLogs;
   users: typeof users;

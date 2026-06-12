@@ -100,6 +100,20 @@ export default function ServicesClient() {
     timeAddMinutes: DEFAULT_PET_FEE_TIME_MINUTES,
     isActive: true,
   });
+  const travelFeeSettings = useQuery(api.travelFeeSettings.get);
+  const updateTravelFeeSettings = useMutation(api.travelFeeSettings.upsert);
+  const [isEditingTravelFee, setIsEditingTravelFee] = useState(false);
+  const [travelFeeValues, setTravelFeeValues] = useState({
+    freeRadiusMiles: 25,
+    midRangeMaxMiles: 35,
+    longRangeMaxMiles: 50,
+    midRangeFee: 30,
+    longRangeFee: 50,
+    perMileRateAfterLongRange: 2,
+    midRangeBufferMinutes: 30,
+    longRangeBufferMinutes: 60,
+    isActive: true,
+  });
 
   useEffect(() => {
     if (depositSettings) {
@@ -116,6 +130,12 @@ export default function ServicesClient() {
       });
     }
   }, [petFeeSettings]);
+
+  useEffect(() => {
+    if (travelFeeSettings) {
+      setTravelFeeValues(travelFeeSettings);
+    }
+  }, [travelFeeSettings]);
 
   if (servicesQuery === undefined) {
     return (
@@ -206,6 +226,18 @@ export default function ServicesClient() {
     const settings = petFeeSettings ?? petFeePrices;
     if (!settings.isActive) return "Pet fee off";
     return `Pet fee: S $${settings.basePriceSmall.toFixed(0)} • M $${settings.basePriceMedium.toFixed(0)} • L $${settings.basePriceLarge.toFixed(0)} • +${settings.timeAddMinutes ?? DEFAULT_PET_FEE_TIME_MINUTES} min`;
+  };
+
+  const formatTravelFeePricing = () => {
+    const settings = travelFeeSettings ?? travelFeeValues;
+    if (!settings.isActive) return "Travel fees off";
+    return `Travel: <${
+      settings.freeRadiusMiles
+    } mi free • $${settings.midRangeFee.toFixed(0)} to ${
+      settings.midRangeMaxMiles
+    } mi • $${settings.longRangeFee.toFixed(0)} to ${
+      settings.longRangeMaxMiles
+    } mi • $${settings.perMileRateAfterLongRange.toFixed(2)}/mi after`;
   };
 
   const popularityBadgeClass = (popularity?: string) => {
@@ -540,6 +572,81 @@ export default function ServicesClient() {
                 {formatPetFeePricing()}
               </span>
               <Button size="sm" variant="ghost" onClick={() => setIsEditingPetFee(true)}>
+                <Edit className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          {isEditingTravelFee ? (
+            <div className="flex flex-wrap items-end gap-2 rounded-md border p-2">
+              <div className="flex items-center gap-2 pb-2">
+                <Switch
+                  checked={travelFeeValues.isActive}
+                  onCheckedChange={(checked) =>
+                    setTravelFeeValues((current) => ({ ...current, isActive: checked }))
+                  }
+                />
+                <span className="text-sm text-muted-foreground">Travel fee</span>
+              </div>
+              {[
+                ["freeRadiusMiles", "Free under mi", "1"],
+                ["midRangeMaxMiles", "Mid max mi", "1"],
+                ["longRangeMaxMiles", "Long max mi", "1"],
+                ["midRangeFee", "Mid fee", "0.01"],
+                ["longRangeFee", "Long fee", "0.01"],
+                ["perMileRateAfterLongRange", "After long $/mi", "0.01"],
+                ["midRangeBufferMinutes", "Mid min", "5"],
+                ["longRangeBufferMinutes", "Long min", "5"],
+              ].map(([key, label, step]) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs">{label}</Label>
+                  <Input
+                    type="number"
+                    step={step}
+                    value={travelFeeValues[key as keyof typeof travelFeeValues] as number}
+                    onChange={(event) =>
+                      setTravelFeeValues((current) => ({
+                        ...current,
+                        [key]: parseFloat(event.target.value) || 0,
+                      }))
+                    }
+                    className="w-24"
+                  />
+                </div>
+              ))}
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await updateTravelFeeSettings(travelFeeValues);
+                    setIsEditingTravelFee(false);
+                    toast.success("Travel fee settings updated");
+                    router.refresh();
+                  } catch {
+                    toast.error("Failed to update travel fee settings");
+                  }
+                }}
+              >
+                <Save className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setIsEditingTravelFee(false);
+                  if (travelFeeSettings) {
+                    setTravelFeeValues(travelFeeSettings);
+                  }
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {formatTravelFeePricing()}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => setIsEditingTravelFee(true)}>
                 <Edit className="h-4 w-4" />
               </Button>
             </div>

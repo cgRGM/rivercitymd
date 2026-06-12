@@ -22,6 +22,7 @@ import { r2 } from "./r2";
 import {
   calculateTravelBufferMinutesForMiles,
   calculateTravelFeeForMiles,
+  type TravelFeeSettings,
 } from "./lib/travelFees";
 import { isArkansasState } from "./lib/address";
 import {
@@ -33,6 +34,28 @@ import { assertRateLimit, contactRateLimitKey } from "./rateLimiter";
 
 const HOLD_DURATION_MS = 15 * 60 * 1000;
 const ABANDONED_EMAIL_DELAY_MS = 60 * 60 * 1000;
+
+type DraftPriceItem = {
+  itemType: "service" | "pet_fee" | "travel_fee";
+  serviceId?: Id<"services">;
+  vehicleId?: Id<"vehicles">;
+  vehicleLabel?: string;
+  vehicleTypeId?: Id<"vehicleTypes">;
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
+type DraftPricingResult = {
+  services: Doc<"services">[];
+  items: DraftPriceItem[];
+  totalPrice: number;
+  duration: number;
+  depositAmount: number;
+  remainingBalance: number;
+  travelFee: number;
+};
 
 const addressValidator = v.object({
   street: v.string(),
@@ -320,7 +343,7 @@ async function buildDraftPricing(args: {
   existingVehicleServices?: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }>;
   petFeeExistingVehicleIds: Id<"vehicles">[];
   travelDistanceMiles?: number;
-}) {
+}): Promise<DraftPricingResult> {
   // Collect all serviceIds across all vehicles
   const allServiceIdsSet = new Set<Id<"services">>();
   args.serviceIds.forEach((id) => allServiceIdsSet.add(id));
@@ -348,7 +371,7 @@ async function buildDraftPricing(args: {
     })),
   ];
 
-  const items = [];
+  const items: DraftPriceItem[] = [];
   let duration = 0;
   for (const { vehicle, vehicleId, vehicleLabel } of bookingVehicles) {
     let vehicleServiceIds = args.serviceIds;
@@ -425,6 +448,10 @@ async function buildDraftPricing(args: {
   ];
   const activePetFeeSizes: VehicleSize[] =
     petFeeSettings.isActive === false ? [] : petFeeSizes;
+  const travelFeeSettings: TravelFeeSettings = await args.ctx.runQuery(
+    internal.travelFeeSettings.getInternal,
+    {},
+  );
   const petFeeItems = (["small", "medium", "large"] as VehicleSize[])
     .map((size) => {
       const quantity = activePetFeeSizes.filter((petFeeSize) => petFeeSize === size).length;
@@ -439,15 +466,18 @@ async function buildDraftPricing(args: {
     })
     .filter((item) => item.quantity > 0 && item.totalPrice > 0);
 
-  const travelFee =
+  const travelFee: number =
     args.travelDistanceMiles !== undefined
-      ? calculateTravelFeeForMiles(args.travelDistanceMiles)
+      ? calculateTravelFeeForMiles(args.travelDistanceMiles, travelFeeSettings)
       : 0;
   const travelBufferMinutes =
     args.travelDistanceMiles !== undefined
-      ? calculateTravelBufferMinutesForMiles(args.travelDistanceMiles)
+      ? calculateTravelBufferMinutesForMiles(
+          args.travelDistanceMiles,
+          travelFeeSettings,
+        )
       : 0;
-  const travelFeeItems =
+  const travelFeeItems: DraftPriceItem[] =
     travelFee > 0 && args.travelDistanceMiles !== undefined
       ? [
           {
@@ -816,6 +846,7 @@ export const getSchedulingDurationInternal = internalQuery({
 
     const services = await getServicesForDraft(ctx, draft.serviceIds);
     const petFeeSettings = await ctx.db.query("petFeeSettings").first();
+    const travelFeeSettings = await ctx.db.query("travelFeeSettings").first();
     const petFeeExistingVehicleIdSet = new Set(draft.petFeeExistingVehicleIds ?? []);
     const existingVehicles = (
       await Promise.all(
@@ -865,7 +896,10 @@ export const getSchedulingDurationInternal = internalQuery({
       petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
       travelBufferMinutes:
         draft.travelDistanceMiles !== undefined
-          ? calculateTravelBufferMinutesForMiles(draft.travelDistanceMiles)
+          ? calculateTravelBufferMinutesForMiles(
+              draft.travelDistanceMiles,
+              travelFeeSettings ?? undefined,
+            )
           : 0,
     });
   },
