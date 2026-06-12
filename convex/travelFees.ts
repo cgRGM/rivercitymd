@@ -9,9 +9,6 @@ import {
 } from "./lib/travelFees";
 import { assertRateLimit, normalizeRateLimitKey } from "./rateLimiter";
 
-const ORIGIN_LAT = 34.752258;
-const ORIGIN_LNG = -92.329768;
-
 const addressValidator = v.object({
   street: v.string(),
   city: v.string(),
@@ -109,10 +106,17 @@ export const calculate = action({
       lng = destCoords.longitude;
     }
 
-    const distanceMiles = roundMiles(calculateHaversineDistance(ORIGIN_LAT, ORIGIN_LNG, lat, lng));
     const settings: TravelFeeSettings = await ctx.runQuery(
       internal.travelFeeSettings.getInternal,
       {},
+    );
+    const distanceMiles = roundMiles(
+      calculateHaversineDistance(
+        settings.originLatitude,
+        settings.originLongitude,
+        lat,
+        lng,
+      ),
     );
 
     return {

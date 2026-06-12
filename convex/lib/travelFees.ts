@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 
 export const travelFeeSettingsValidator = v.object({
+  originStreet: v.string(),
+  originCity: v.string(),
+  originState: v.string(),
+  originZip: v.string(),
+  originLatitude: v.number(),
+  originLongitude: v.number(),
   freeRadiusMiles: v.number(),
   midRangeMaxMiles: v.number(),
   longRangeMaxMiles: v.number(),
@@ -13,6 +19,12 @@ export const travelFeeSettingsValidator = v.object({
 });
 
 export type TravelFeeSettings = {
+  originStreet: string;
+  originCity: string;
+  originState: string;
+  originZip: string;
+  originLatitude: number;
+  originLongitude: number;
   freeRadiusMiles: number;
   midRangeMaxMiles: number;
   longRangeMaxMiles: number;
@@ -25,6 +37,12 @@ export type TravelFeeSettings = {
 };
 
 export const defaultTravelFeeSettings: TravelFeeSettings = {
+  originStreet: "220 N. Tyler St",
+  originCity: "Little Rock",
+  originState: "AR",
+  originZip: "72205",
+  originLatitude: 34.752258,
+  originLongitude: -92.329768,
   freeRadiusMiles: 25,
   midRangeMaxMiles: 35,
   longRangeMaxMiles: 50,
@@ -48,6 +66,11 @@ function cleanMinutes(value: number | undefined, fallback: number) {
   return Math.max(0, Math.floor(cleanNumber(value, fallback)));
 }
 
+function cleanString(value: string | undefined, fallback: string) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : fallback;
+}
+
 export function normalizeTravelFeeSettings(
   settings: Partial<TravelFeeSettings>,
 ): TravelFeeSettings {
@@ -65,6 +88,24 @@ export function normalizeTravelFeeSettings(
   );
 
   return {
+    originStreet: cleanString(
+      settings.originStreet,
+      defaultTravelFeeSettings.originStreet,
+    ),
+    originCity: cleanString(settings.originCity, defaultTravelFeeSettings.originCity),
+    originState: cleanString(
+      settings.originState,
+      defaultTravelFeeSettings.originState,
+    ),
+    originZip: cleanString(settings.originZip, defaultTravelFeeSettings.originZip),
+    originLatitude: cleanNumber(
+      settings.originLatitude,
+      defaultTravelFeeSettings.originLatitude,
+    ),
+    originLongitude: cleanNumber(
+      settings.originLongitude,
+      defaultTravelFeeSettings.originLongitude,
+    ),
     freeRadiusMiles,
     midRangeMaxMiles,
     longRangeMaxMiles,
