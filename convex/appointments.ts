@@ -27,6 +27,26 @@ interface StripeInvoiceVehicleInput {
   size?: "small" | "medium" | "large";
 }
 
+type InvoiceItem = {
+  itemType?: "service" | "pet_fee" | "travel_fee";
+  serviceId?: Id<"services">;
+  vehicleId?: Id<"vehicles">;
+  vehicleLabel?: string;
+  vehicleTypeId?: Id<"vehicleTypes">;
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
+const workAdjustmentArgs = {
+  appointmentId: v.id("appointments"),
+  vehicleIds: v.array(v.id("vehicles")),
+  serviceIds: v.array(v.id("services")),
+  petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
+  reason: v.string(),
+} as const;
+
 function getVehicleSize(
   vehicles: Array<StripeInvoiceVehicleInput>,
 ): "small" | "medium" | "large" {
@@ -157,6 +177,62 @@ async function buildVehicleServiceItems(
   }
 
   return { items, duration };
+}
+
+async function buildAdjustmentPricing(
+  ctx: any,
+  vehicleIds: Id<"vehicles">[],
+  serviceIds: Id<"services">[],
+  petFeeVehicleIds: Id<"vehicles">[],
+) {
+  if (vehicleIds.length === 0) {
+    throw new ConvexError({
+      code: "SERVICE_NOT_BOOKABLE",
+      message: "Select at least one vehicle.",
+    });
+  }
+  if (serviceIds.length === 0) {
+    throw new ConvexError({
+      code: "SERVICE_NOT_BOOKABLE",
+      message: "Select at least one service.",
+    });
+  }
+
+  const vehicles = (
+    await Promise.all(vehicleIds.map((id) => ctx.db.get(id)))
+  ).filter((vehicle): vehicle is Doc<"vehicles"> => vehicle !== null);
+  if (vehicles.length !== vehicleIds.length) {
+    throw new Error("One or more vehicles not found");
+  }
+
+  const vehicleSize = getVehicleSize(vehicles);
+  const services = (
+    await Promise.all(serviceIds.map((id) => ctx.db.get(id)))
+  ).filter((service): service is Doc<"services"> => service !== null);
+  if (services.length !== serviceIds.length) {
+    throw new Error("One or more services not found");
+  }
+  assertBookableServices(services, serviceIds, vehicleSize);
+
+  const selectedVehicleIdSet = new Set(vehicleIds);
+  if (petFeeVehicleIds.some((vehicleId) => !selectedVehicleIdSet.has(vehicleId))) {
+    throw new ConvexError({
+      code: "SERVICE_NOT_BOOKABLE",
+      message: "Pet fee vehicles must be included in this appointment.",
+    });
+  }
+
+  const servicePricing = await buildVehicleServiceItems(ctx, services, vehicles);
+  const petFee = await buildPetFeeItems(ctx, vehicles, petFeeVehicleIds);
+  const items: InvoiceItem[] = [...servicePricing.items, ...petFee.items];
+  const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const duration = calculateSchedulingDuration({
+    serviceDurations: [servicePricing.duration],
+    petFeeVehicleCount: petFee.petFeeVehicleCount,
+    petFeeTimeMinutes: petFee.petFeeTimeMinutes,
+  });
+
+  return { items, totalPrice, duration, vehicles };
 }
 
 function shouldScheduleNotificationJobs(): boolean {
@@ -330,7 +406,17 @@ export const repairMissingVehicleReferences = mutation({
     unresolved: v.number(),
     dryRun: v.boolean(),
   }),
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    scanned: number;
+    candidates: number;
+    cleanedStaleReferences: number;
+    reattachedAppointments: number;
+    unresolved: number;
+    dryRun: boolean;
+  }> => {
     await requireAdmin(ctx);
 
     const dryRun = args.dryRun ?? true;
@@ -932,7 +1018,7 @@ export const update = mutation({
     const invoice = await ctx.db
       .query("invoices")
       .withIndex("by_appointment", (q) => q.eq("appointmentId", appointmentId))
-      .unique();
+      .first();
 
     if (invoice) {
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -986,6 +1072,254 @@ export const update = mutation({
   },
 });
 
+export const previewWorkAdjustment = query({
+  args: workAdjustmentArgs,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+
+    const oldPetFeeVehicleIds = appointment.petFeeVehicleIds ?? [];
+    const oldPricing = await buildAdjustmentPricing(
+      ctx,
+      appointment.vehicleIds,
+      appointment.serviceIds,
+      oldPetFeeVehicleIds,
+    );
+    const newPricing = await buildAdjustmentPricing(
+      ctx,
+      args.vehicleIds,
+      args.serviceIds,
+      args.petFeeVehicleIds ?? [],
+    );
+    const invoice = await ctx.db
+      .query("invoices")
+      .withIndex("by_appointment", (q) => q.eq("appointmentId", args.appointmentId))
+      .first();
+
+    return {
+      oldTotalPrice: appointment.totalPrice,
+      newTotalPrice: newPricing.totalPrice,
+      priceDelta: newPricing.totalPrice - appointment.totalPrice,
+      oldDuration: appointment.duration,
+      newDuration: newPricing.duration,
+      durationDelta: newPricing.duration - appointment.duration,
+      oldItems: oldPricing.items,
+      newItems: newPricing.items,
+      invoiceStatus: invoice?.status ?? null,
+      invoicePaid: invoice?.status === "paid",
+    };
+  },
+});
+
+export const listAdjustments = query({
+  args: { appointmentId: v.id("appointments") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    return await ctx.db
+      .query("appointmentAdjustments")
+      .withIndex("by_appointment", (q) => q.eq("appointmentId", args.appointmentId))
+      .order("desc")
+      .collect();
+  },
+});
+
+export const applyWorkAdjustment = mutation({
+  args: workAdjustmentArgs,
+  returns: v.object({
+    adjustmentId: v.id("appointmentAdjustments"),
+    invoiceAction: v.union(
+      v.literal("none"),
+      v.literal("updated_open_invoice"),
+      v.literal("supplemental_invoice_created"),
+      v.literal("manual_credit_required"),
+    ),
+    supplementalInvoiceId: v.optional(v.id("invoices")),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    adjustmentId: Id<"appointmentAdjustments">;
+    invoiceAction:
+      | "none"
+      | "updated_open_invoice"
+      | "supplemental_invoice_created"
+      | "manual_credit_required";
+    supplementalInvoiceId?: Id<"invoices">;
+  }> => {
+    await requireAdmin(ctx);
+    const actorId = await getUserIdFromIdentity(ctx);
+    if (!actorId) throw new Error("Not authenticated");
+    const reason = args.reason.trim();
+    if (reason.length < 3) {
+      throw new Error("A short reason is required for work adjustments.");
+    }
+
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) throw new Error("Appointment not found");
+    if (!["confirmed", "in_progress"].includes(appointment.status)) {
+      throw new Error("Only confirmed or in-progress appointments can be adjusted.");
+    }
+
+    const oldPetFeeVehicleIds = appointment.petFeeVehicleIds ?? [];
+    const oldPricing = await buildAdjustmentPricing(
+      ctx,
+      appointment.vehicleIds,
+      appointment.serviceIds,
+      oldPetFeeVehicleIds,
+    );
+    const newPetFeeVehicleIds = args.petFeeVehicleIds ?? [];
+    const newPricing = await buildAdjustmentPricing(
+      ctx,
+      args.vehicleIds,
+      args.serviceIds,
+      newPetFeeVehicleIds,
+    );
+    const priceDelta = Math.round((newPricing.totalPrice - appointment.totalPrice) * 100) / 100;
+    const durationDelta = newPricing.duration - appointment.duration;
+
+    const availability = await ctx.runQuery(api.availability.checkAvailability, {
+      date: appointment.scheduledDate,
+      startTime: appointment.scheduledTime,
+      duration: newPricing.duration,
+      ignoreAppointmentId: args.appointmentId,
+    });
+    if (!availability.available) {
+      throw new ConvexError({
+        code: "TIME_SLOT_UNAVAILABLE",
+        message: availability.reason || "Adjusted work no longer fits this time slot.",
+      });
+    }
+
+    const invoice = await ctx.db
+      .query("invoices")
+      .withIndex("by_appointment", (q) => q.eq("appointmentId", args.appointmentId))
+      .first();
+    let invoiceAction:
+      | "none"
+      | "updated_open_invoice"
+      | "supplemental_invoice_created"
+      | "manual_credit_required" = "none";
+    let supplementalInvoiceId: Id<"invoices"> | undefined;
+
+    if (invoice?.status === "paid") {
+      if (priceDelta < 0) {
+        throw new Error(
+          "This adjustment lowers a paid invoice. Create an explicit refund or credit before changing the work.",
+        );
+      }
+      if (priceDelta > 0) {
+        const invoiceCount = (
+          await ctx.runQuery(internal.invoices.getCountInternal, {})
+        ).count;
+        const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + 30);
+        supplementalInvoiceId = await ctx.db.insert("invoices", {
+          appointmentId: args.appointmentId,
+          userId: appointment.userId,
+          invoiceNumber,
+          items: [
+            {
+              serviceName: `Supplemental work adjustment - ${reason}`,
+              quantity: 1,
+              unitPrice: priceDelta,
+              totalPrice: priceDelta,
+            },
+          ],
+          subtotal: priceDelta,
+          tax: 0,
+          total: priceDelta,
+          status: "draft",
+          dueDate: dueDate.toISOString().split("T")[0],
+          notes: `Supplemental invoice for ${invoice.invoiceNumber}: ${reason}`,
+          depositAmount: 0,
+          depositPaid: true,
+          remainingBalance: priceDelta,
+          paymentOption: "deposit",
+          remainingBalanceCollectionMethod:
+            invoice.remainingBalanceCollectionMethod ?? "send_invoice",
+        });
+        invoiceAction = "supplemental_invoice_created";
+        await ctx.scheduler.runAfter(
+          0,
+          internal.payments.createStripeInvoiceAfterDeposit,
+          {
+            appointmentId: args.appointmentId,
+            invoiceId: supplementalInvoiceId,
+          },
+        );
+      }
+    } else if (invoice) {
+      const subtotal = newPricing.items.reduce(
+        (sum, item) => sum + item.totalPrice,
+        0,
+      );
+      const total = subtotal + invoice.tax;
+      const depositAmount = invoice.depositAmount || 0;
+      await ctx.db.patch(invoice._id, {
+        items: newPricing.items,
+        subtotal,
+        total,
+        remainingBalance: Math.max(0, total - depositAmount),
+        stripeInvoiceId: undefined,
+        stripeInvoiceUrl: undefined,
+        finalPaymentIntentId: undefined,
+        status: invoice.depositPaid ? "draft" : invoice.status,
+        invoiceGenerationError: undefined,
+      });
+      invoiceAction = "updated_open_invoice";
+      if (invoice.depositPaid && (invoice.paymentOption ?? "deposit") === "deposit") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.payments.createStripeInvoiceAfterDeposit,
+          {
+            appointmentId: args.appointmentId,
+            invoiceId: invoice._id,
+          },
+        );
+      }
+    }
+
+    await ctx.db.patch(args.appointmentId, {
+      vehicleIds: args.vehicleIds,
+      serviceIds: args.serviceIds,
+      petFeeVehicleIds: newPetFeeVehicleIds,
+      duration: newPricing.duration,
+      totalPrice: newPricing.totalPrice,
+    });
+
+    const adjustmentId = await ctx.db.insert("appointmentAdjustments", {
+      appointmentId: args.appointmentId,
+      actorId,
+      reason,
+      oldVehicleIds: appointment.vehicleIds,
+      newVehicleIds: args.vehicleIds,
+      oldServiceIds: appointment.serviceIds,
+      newServiceIds: args.serviceIds,
+      oldPetFeeVehicleIds,
+      newPetFeeVehicleIds,
+      oldItems: oldPricing.items,
+      newItems: newPricing.items,
+      priceDelta,
+      durationDelta,
+      invoiceAction,
+      invoiceId: invoice?._id,
+      supplementalInvoiceId,
+      createdAt: Date.now(),
+    });
+
+    return {
+      adjustmentId,
+      invoiceAction,
+      supplementalInvoiceId,
+    };
+  },
+});
+
 // Delete an appointment
 export const deleteAppointment = mutation({
   args: { appointmentId: v.id("appointments") },
@@ -993,14 +1327,14 @@ export const deleteAppointment = mutation({
     const userId = await getUserIdFromIdentity(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const invoice = await ctx.db
+    const invoices = await ctx.db
       .query("invoices")
       .withIndex("by_appointment", (q) =>
         q.eq("appointmentId", args.appointmentId),
       )
-      .unique();
+      .collect();
 
-    if (invoice && invoice.status !== "paid") {
+    for (const invoice of invoices.filter((item) => item.status !== "paid")) {
       await ctx.db.delete(invoice._id);
     }
 

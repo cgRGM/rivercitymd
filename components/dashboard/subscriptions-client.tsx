@@ -15,6 +15,17 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
+import type { Id } from "@/convex/_generated/dataModel";
+
+type SubscriptionCard = {
+  _id: Id<"subscriptions">;
+  serviceNames: string[];
+  vehicleNames: string[];
+  status: string;
+  frequency: "biweekly" | "monthly";
+  totalPrice: number;
+  nextScheduledDate?: string;
+};
 
 function statusVariant(status: string) {
   switch (status) {
@@ -52,7 +63,9 @@ function formatCurrency(amount: number) {
 }
 
 export default function SubscriptionsClient() {
-  const subscriptions = useQuery(api.subscriptions.getByUser);
+  const subscriptions = useQuery(
+    api.subscriptions.getByUser,
+  ) as SubscriptionCard[] | undefined | null;
   const createPortalSession = useAction(api.subscriptions.createCustomerPortalSession);
   const [isLoading, setIsLoading] = useState(false);
 

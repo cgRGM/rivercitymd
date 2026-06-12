@@ -47,6 +47,13 @@ type Props = {
   invoiceId: Id<"invoices">;
 };
 
+type InvoiceLineItem = {
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
 function getStatusBadge(status: string) {
   const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
     draft: "outline",
@@ -417,7 +424,7 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoice.items.map((item, index) => (
+              {invoice.items.map((item: InvoiceLineItem, index: number) => (
                 <TableRow key={index}>
                   <TableCell className="font-medium">{item.serviceName}</TableCell>
                   <TableCell className="text-right">{item.quantity}</TableCell>

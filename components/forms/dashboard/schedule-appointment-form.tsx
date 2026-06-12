@@ -52,6 +52,26 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
+type ScheduleClientOption = {
+  _id: Id<"users">;
+  name?: string;
+  email?: string;
+};
+
+type ScheduleVehicleOption = {
+  _id: Id<"vehicles">;
+  year: number;
+  make: string;
+  model: string;
+};
+
+type ScheduleServiceOption = {
+  _id: Id<"services">;
+  name: string;
+  isActive: boolean;
+  basePrice?: number;
+};
+
 interface AddAppointmentFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -63,8 +83,10 @@ export function ScheduleAppointmentForm({
 }: AddAppointmentFormProps) {
   const [isLoading, setIsLoading] = useState(false);
 
-  const clients = useQuery(api.users.list);
-  const services = useQuery(api.services.list);
+  const clients = useQuery(api.users.list) as ScheduleClientOption[] | undefined;
+  const services = useQuery(api.services.list) as
+    | ScheduleServiceOption[]
+    | undefined;
   const nextBookableDate = useQuery(api.availability.getNextBookableDate, {});
   const createAppointment = useMutation(api.appointments.create);
 
@@ -89,7 +111,7 @@ export function ScheduleAppointmentForm({
   const userVehicles = useQuery(
     api.vehicles.getByUser,
     selectedUserId ? { userId: selectedUserId as Id<"users"> } : "skip",
-  );
+  ) as ScheduleVehicleOption[] | undefined;
 
   useEffect(() => {
     if (!open || !nextBookableDate) {

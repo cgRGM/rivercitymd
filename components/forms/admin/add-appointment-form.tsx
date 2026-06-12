@@ -56,6 +56,39 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
+type ClientOption = {
+  _id: Id<"users">;
+  name?: string;
+  email?: string;
+  role?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+};
+
+type AdminVehicleOption = {
+  _id: Id<"vehicles">;
+  year: number;
+  make: string;
+  model: string;
+  color?: string;
+  size?: string;
+};
+
+type AdminServiceOption = {
+  _id: Id<"services">;
+  name: string;
+  duration?: number;
+  isActive: boolean;
+  basePrice?: number;
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+};
+
 interface AddAppointmentFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -78,8 +111,8 @@ export function AddAppointmentForm({
     notes: "",
   });
 
-  const clients = useQuery(api.users.list);
-  const services = useQuery(api.services.list);
+  const clients = useQuery(api.users.list) as ClientOption[] | undefined;
+  const services = useQuery(api.services.list) as AdminServiceOption[] | undefined;
   const petFeeSettings = useQuery(api.petFeeSettings.get);
   const createAppointment = useMutation(api.appointments.create);
   const createVehicle = useMutation(api.vehicles.create);
@@ -107,7 +140,7 @@ export function AddAppointmentForm({
   const userVehicles = useQuery(
     api.vehicles.getByUser,
     selectedUserId ? { userId: selectedUserId as Id<"users"> } : "skip",
-  );
+  ) as AdminVehicleOption[] | undefined;
 
   const schedulingDuration = useMemo(() => {
     const selectedServices =

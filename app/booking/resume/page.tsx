@@ -29,6 +29,15 @@ function getVehicleTypeFromSize(size?: "small" | "medium" | "large") {
   }
 }
 
+type DraftVehicle = {
+  year: string;
+  make: string;
+  model: string;
+  size?: "small" | "medium" | "large";
+  color?: string;
+  licensePlate?: string;
+};
+
 export default function BookingResumePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -116,8 +125,9 @@ export default function BookingResumePage() {
         smsOptIn: draftContext.smsOptIn,
       },
       step3Data: {
-        vehicles: draftContext.vehicles.map((vehicle) => ({
+        vehicles: draftContext.vehicles.map((vehicle: DraftVehicle) => ({
           ...vehicle,
+          year: String(vehicle.year),
           type: getVehicleTypeFromSize(vehicle.size),
         })),
       },

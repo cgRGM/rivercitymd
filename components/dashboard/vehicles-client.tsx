@@ -47,6 +47,12 @@ type Vehicle = {
   } | null;
 };
 
+type VehicleAppointmentStat = {
+  vehicleIds: Id<"vehicles">[];
+  status: string;
+  scheduledDate: string;
+};
+
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface VehiclesClientProps {}
 
@@ -56,11 +62,12 @@ export default function VehiclesClient({}: VehiclesClientProps) {
   // Always call hooks at the top level - never conditionally
   const vehiclesQuery = useQuery(api.vehicles.getMyVehicles);
   const currentUser = useQuery(api.users.getCurrentUser);
-  const userAppointments =
+  const userAppointments = (
     useQuery(
       api.appointments.getByUser,
       currentUser?._id ? { userId: currentUser._id } : "skip",
-    ) || [];
+    ) || []
+  ) as VehicleAppointmentStat[];
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [bookingVehicleId, setBookingVehicleId] = useState<string | null>(null);

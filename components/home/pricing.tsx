@@ -10,9 +10,30 @@ import { motion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+type LandingPricingService = {
+  _id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  features?: string[];
+  price: number;
+  duration: number;
+};
+
+type LandingPricingGroup = {
+  vehicleType: {
+    _id: string;
+    name: string;
+  };
+  services: LandingPricingService[];
+};
+
 export function PricingSection() {
   const router = useRouter();
-  const pricingQuery = useQuery(api.services.listLandingPagePricing);
+  const pricingQuery = useQuery(api.services.listLandingPagePricing) as
+    | LandingPricingGroup[]
+    | undefined
+    | null;
   const bookingReadiness = useQuery(
     api.setupReadiness.getPublicBookingReadiness,
   );

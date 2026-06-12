@@ -64,6 +64,27 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
+type EditableService = {
+  _id: Id<"services">;
+  name: string;
+  description: string;
+  duration: number;
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+  basePriceLarge?: number;
+  vehiclePrices?: Array<{
+    vehicleTypeId?: Id<"vehicleTypes">;
+    price: number;
+    duration?: number;
+    isAvailable: boolean;
+  }>;
+  features?: string[];
+  icon?: string;
+  includedServiceIds?: Id<"services">[];
+  isActive: boolean;
+  serviceType?: "standard" | "addon" | "subscription";
+};
+
 interface EditServiceFormProps {
   serviceId: Id<"services"> | null;
   open: boolean;
@@ -78,11 +99,11 @@ export function EditServiceForm({
   const [isLoading, setIsLoading] = useState(false);
   const [newFeature, setNewFeature] = useState("");
 
-  const allServices = useQuery(api.services.list);
+  const allServices = useQuery(api.services.list) as EditableService[] | undefined;
   const service = useQuery(
     api.services.getById,
     serviceId ? { serviceId } : "skip",
-  );
+  ) as EditableService | undefined | null;
   const updateService = useMutation(api.services.update);
 
   const form = useForm<FormData>({

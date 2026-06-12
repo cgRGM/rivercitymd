@@ -56,6 +56,15 @@ type RawAppointment = {
   createdBy: Id<"users">;
 };
 
+type UserVehicleCard = {
+  _id: Id<"vehicles">;
+  year: number;
+  make: string;
+  model: string;
+  color?: string;
+  size?: string;
+};
+
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700",
   confirmed: "bg-green-100 text-green-700",
@@ -172,7 +181,7 @@ export default function DashboardClient() {
 
   const upcomingAppointments = (userAppointmentsQuery?.upcoming ?? []) as RawAppointment[];
   const currentUser = currentUserQuery ?? null;
-  const userVehicles = userVehiclesQuery ?? [];
+  const userVehicles = (userVehiclesQuery ?? []) as UserVehicleCard[];
   const completedAppointments = userAppointmentsQuery?.past || [];
   const nextAppointment = upcomingAppointments[0] as RawAppointment | undefined;
   const remainingAppointments = upcomingAppointments.slice(1) as RawAppointment[];

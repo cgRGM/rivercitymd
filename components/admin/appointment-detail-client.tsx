@@ -3,7 +3,7 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
   Card,
   CardContent,
@@ -56,6 +56,18 @@ type Props = {
   appointmentId: Id<"appointments">;
 };
 
+type AppointmentVehicle = Doc<"vehicles"> & {
+  vehicleType?: Doc<"vehicleTypes"> | null;
+};
+
+type AppointmentService = Doc<"services"> & {
+  effectivePrice?: number;
+};
+
+type AppointmentBeforePhoto = NonNullable<Doc<"appointments">["beforePhotos"]>[number] & {
+  signedUrl?: string;
+};
+
 function getStatusColor(status: string) {
   switch (status) {
     case "confirmed":
@@ -80,6 +92,16 @@ function formatCurrency(amount: number) {
   }).format(amount);
 }
 
+function formatMinutes(minutes: number) {
+  const sign = minutes > 0 ? "+" : minutes < 0 ? "-" : "";
+  const absolute = Math.abs(minutes);
+  const hours = Math.floor(absolute / 60);
+  const remainder = absolute % 60;
+  if (hours === 0) return `${sign}${remainder} min`;
+  if (remainder === 0) return `${sign}${hours} hr`;
+  return `${sign}${hours} hr ${remainder} min`;
+}
+
 function getEffectivePrice(
   service: { basePrice?: number; basePriceSmall?: number; basePriceMedium?: number; basePriceLarge?: number },
   size: string,
@@ -101,6 +123,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const allServices = useQuery(api.services.list);
   const updateStatus = useMutation(api.appointments.updateStatus);
   const updateAppointment = useMutation(api.appointments.update);
+  const applyWorkAdjustment = useMutation(api.appointments.applyWorkAdjustment);
   const updateVehicle = useMutation(api.vehicles.updateVehicle);
   const updateBillingSettings = useMutation(api.invoices.updateBillingSettings);
   const reissueStripeInvoice = useAction(api.payments.reissueStripeInvoice);
@@ -130,6 +153,25 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const [editVehicleSizes, setEditVehicleSizes] = useState<Record<string, string>>({});
   const [editVehicleTypeIds, setEditVehicleTypeIds] = useState<Record<string, string>>({});
   const [editPetFeeVehicleIds, setEditPetFeeVehicleIds] = useState<Id<"vehicles">[]>([]);
+  const [adjustingWork, setAdjustingWork] = useState(false);
+  const [adjustVehicleIds, setAdjustVehicleIds] = useState<Id<"vehicles">[]>([]);
+  const [adjustServiceIds, setAdjustServiceIds] = useState<Id<"services">[]>([]);
+  const [adjustPetFeeVehicleIds, setAdjustPetFeeVehicleIds] = useState<Id<"vehicles">[]>([]);
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustLoading, setAdjustLoading] = useState(false);
+  const adjustmentPreview = useQuery(
+    api.appointments.previewWorkAdjustment,
+    adjustingWork && adjustVehicleIds.length > 0 && adjustServiceIds.length > 0
+      ? {
+          appointmentId,
+          vehicleIds: adjustVehicleIds,
+          serviceIds: adjustServiceIds,
+          petFeeVehicleIds: adjustPetFeeVehicleIds,
+          reason: adjustReason || "Preview",
+        }
+      : "skip",
+  );
+  const adjustments = useQuery(api.appointments.listAdjustments, { appointmentId });
 
   useEffect(() => {
     if (!data?.invoice) return;
@@ -174,6 +216,14 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     );
   }
 
+  const typedVehicles = data.vehicles as AppointmentVehicle[];
+  const typedServices = data.services as AppointmentService[];
+  const customerVehicles = (customerVehiclesQuery ?? []) as AppointmentVehicle[];
+  const allServiceOptions = (allServices ?? []) as AppointmentService[];
+  const typedVehicleTypes = (vehicleTypes ?? []) as Doc<"vehicleTypes">[];
+  const typedAdjustments = (adjustments ?? []) as Doc<"appointmentAdjustments">[];
+  const beforePhotos = (data.beforePhotos ?? []) as AppointmentBeforePhoto[];
+
   const handleStatusUpdate = async (
     newStatus: "confirmed" | "in_progress" | "completed" | "cancelled",
   ) => {
@@ -200,16 +250,16 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     setEditNotes(data.notes || "");
     setEditServiceIds(data.serviceIds);
     setEditVehicleIds(
-      data.vehicles.length > 0
-        ? data.vehicles.map((vehicle) => vehicle._id)
-        : (customerVehiclesQuery?.length === 1
-            ? [customerVehiclesQuery[0]._id]
+      typedVehicles.length > 0
+        ? typedVehicles.map((vehicle) => vehicle._id)
+        : (customerVehicles.length === 1
+            ? [customerVehicles[0]._id]
             : []),
     );
     setEditPetFeeVehicleIds(data.petFeeVehicleIds ?? []);
     const sizes: Record<string, string> = {};
     const vehicleTypeIds: Record<string, string> = {};
-    for (const v of customerVehiclesQuery || data.vehicles) {
+    for (const v of customerVehicles.length > 0 ? customerVehicles : typedVehicles) {
       sizes[v._id] = v.size || "medium";
       vehicleTypeIds[v._id] = v.vehicleTypeId || "";
     }
@@ -222,6 +272,73 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     setEditing(false);
   };
 
+  const startWorkAdjustment = () => {
+    setAdjustVehicleIds(data.vehicleIds);
+    setAdjustServiceIds(data.serviceIds);
+    setAdjustPetFeeVehicleIds(data.petFeeVehicleIds ?? []);
+    setAdjustReason("");
+    setAdjustingWork(true);
+  };
+
+  const toggleAdjustVehicle = (vehicleId: Id<"vehicles">, checked: boolean) => {
+    setAdjustVehicleIds((prev) =>
+      checked ? [...new Set([...prev, vehicleId])] : prev.filter((id) => id !== vehicleId),
+    );
+    if (!checked) {
+      setAdjustPetFeeVehicleIds((prev) => prev.filter((id) => id !== vehicleId));
+    }
+  };
+
+  const toggleAdjustService = (serviceId: Id<"services">) => {
+    setAdjustServiceIds((prev) =>
+      prev.includes(serviceId)
+        ? prev.filter((id) => id !== serviceId)
+        : [...prev, serviceId],
+    );
+  };
+
+  const toggleAdjustPetFeeVehicle = (
+    vehicleId: Id<"vehicles">,
+    checked: boolean,
+  ) => {
+    setAdjustPetFeeVehicleIds((prev) =>
+      checked ? [...new Set([...prev, vehicleId])] : prev.filter((id) => id !== vehicleId),
+    );
+  };
+
+  const handleApplyWorkAdjustment = async () => {
+    if (adjustVehicleIds.length === 0) {
+      toast.error("Select at least one vehicle");
+      return;
+    }
+    if (adjustServiceIds.length === 0) {
+      toast.error("Select at least one service");
+      return;
+    }
+    if (adjustReason.trim().length < 3) {
+      toast.error("Add a short reason for the adjustment");
+      return;
+    }
+
+    setAdjustLoading(true);
+    try {
+      const result = await applyWorkAdjustment({
+        appointmentId,
+        vehicleIds: adjustVehicleIds,
+        serviceIds: adjustServiceIds,
+        petFeeVehicleIds: adjustPetFeeVehicleIds,
+        reason: adjustReason,
+      });
+      toast.success(`Work adjusted (${result.invoiceAction.replaceAll("_", " ")})`);
+      setAdjustingWork(false);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to adjust work");
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     if (editVehicleIds.length === 0) {
       toast.error("Select at least one customer vehicle before saving");
@@ -231,7 +348,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     setLoading(true);
     try {
       // Update vehicle sizes first
-      for (const v of customerVehiclesQuery || data.vehicles) {
+      for (const v of customerVehicles.length > 0 ? customerVehicles : typedVehicles) {
         if (!editVehicleIds.includes(v._id)) {
           continue;
         }
@@ -338,11 +455,13 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     }
   };
 
-  const { user, services, vehicles, invoice, tripLog, location } = data;
-  const customerVehicles = customerVehiclesQuery ?? [];
+  const { user, invoice, tripLog, location } = data;
+  const services = typedServices;
+  const vehicles = typedVehicles;
+  const adjustmentVehicles = customerVehicles.length > 0 ? customerVehicles : vehicles;
   const beforePhotoGroups = Object.entries(
-    (data.beforePhotos ?? []).reduce<
-      Record<string, NonNullable<typeof data.beforePhotos>>
+    beforePhotos.reduce<
+      Record<string, AppointmentBeforePhoto[]>
     >((groups, photo) => {
       const label = photo.vehicleLabel || "Unassigned vehicle";
       groups[label] = [...(groups[label] ?? []), photo];
@@ -356,6 +475,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     (invoice.remainingBalance ?? 0) > 0 &&
     invoice.status !== "paid";
   const canReissueBilling = canEditBilling && !!invoice?.stripeInvoiceId;
+  const adjustmentBlockedByCredit =
+    adjustmentPreview?.invoicePaid === true && adjustmentPreview.priceDelta < 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -371,6 +492,12 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
             <Button size="sm" variant="outline" onClick={startEditing}>
               <Pencil className="mr-2 h-4 w-4" />
               Edit
+            </Button>
+          )}
+          {["confirmed", "in_progress"].includes(data.status) && !editing && (
+            <Button size="sm" variant="outline" onClick={startWorkAdjustment}>
+              <Wrench className="mr-2 h-4 w-4" />
+              Adjust Work
             </Button>
           )}
           {editing && (
@@ -602,7 +729,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                                 [v._id]: val === "__legacy__" ? "" : val,
                               }))
                             }
-                            disabled={!checked || !vehicleTypes?.length}
+                            disabled={!checked || typedVehicleTypes.length === 0}
                           >
                             <SelectTrigger className="w-36">
                               <SelectValue />
@@ -611,7 +738,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                               <SelectItem value="__legacy__">
                                 {v.size || "medium"}
                               </SelectItem>
-                              {(vehicleTypes || []).map((vehicleType) => (
+                              {typedVehicleTypes.map((vehicleType) => (
                                 <SelectItem key={vehicleType._id} value={vehicleType._id}>
                                   {vehicleType.name}
                                 </SelectItem>
@@ -675,7 +802,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
           <CardContent>
             {editing ? (
               <div className="space-y-2">
-                {(allServices || [])
+                {allServiceOptions
                   .filter((s) => s.isActive)
                   .map((s) => {
                     const isSelected = editServiceIds.includes(s._id);
@@ -706,7 +833,9 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                       <p className="font-medium text-sm">{s.name}</p>
                       <p className="text-xs text-muted-foreground">{s.duration} min</p>
                     </div>
-                    <span className="text-sm font-medium">{formatCurrency(s.effectivePrice)}</span>
+                    <span className="text-sm font-medium">
+                      {formatCurrency(s.effectivePrice ?? s.basePrice ?? 0)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -926,6 +1055,43 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
         </Card>
       </div>
 
+      {typedAdjustments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Work Adjustments</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {typedAdjustments.map((adjustment) => (
+              <div
+                key={adjustment._id}
+                className="grid gap-3 rounded-md border p-3 md:grid-cols-[1fr_auto]"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium">{adjustment.reason}</p>
+                    <Badge variant="outline" className="capitalize">
+                      {adjustment.invoiceAction.replaceAll("_", " ")}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {new Date(adjustment.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex gap-4 text-sm md:justify-end">
+                  <span className={adjustment.priceDelta >= 0 ? "text-green-700" : "text-red-700"}>
+                    {adjustment.priceDelta >= 0 ? "+" : ""}
+                    {formatCurrency(adjustment.priceDelta)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatMinutes(adjustment.durationDelta)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Notes */}
       {editing ? (
         <Card>
@@ -951,6 +1117,194 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
           </CardContent>
         </Card>
       ) : null}
+
+      <Dialog open={adjustingWork} onOpenChange={setAdjustingWork}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Adjust Work</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <section className="space-y-3">
+              <div>
+                <Label>Vehicles</Label>
+                <p className="text-xs text-muted-foreground">
+                  Add or remove saved customer vehicles for this appointment.
+                </p>
+              </div>
+              {adjustmentVehicles.length === 0 ? (
+                <p className="rounded-md border p-3 text-sm text-muted-foreground">
+                  No customer vehicles are available.
+                </p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {adjustmentVehicles.map((vehicle) => {
+                    const checked = adjustVehicleIds.includes(vehicle._id);
+                    const hasPetFee = adjustPetFeeVehicleIds.includes(vehicle._id);
+                    return (
+                      <div key={vehicle._id} className="rounded-md border p-3">
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(value) =>
+                              toggleAdjustVehicle(vehicle._id, value === true)
+                            }
+                            className="mt-1"
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">
+                              {vehicle.year} {vehicle.make} {vehicle.model}
+                            </p>
+                            <p className="text-xs capitalize text-muted-foreground">
+                              {vehicle.vehicleType?.name ?? vehicle.size ?? "medium"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center gap-2 border-t pt-3">
+                          <Checkbox
+                            checked={hasPetFee}
+                            disabled={!checked}
+                            onCheckedChange={(value) =>
+                              toggleAdjustPetFeeVehicle(vehicle._id, value === true)
+                            }
+                          />
+                          <span className="text-sm">Pet hair fee</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="space-y-3">
+              <div>
+                <Label>Services</Label>
+                <p className="text-xs text-muted-foreground">
+                  Pricing and duration recalculate from the selected vehicles.
+                </p>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {allServiceOptions
+                  .filter((service) => service.isActive)
+                  .map((service) => {
+                    const selected = adjustServiceIds.includes(service._id);
+                    return (
+                      <button
+                        type="button"
+                        key={service._id}
+                        className={`rounded-md border p-3 text-left transition-colors ${
+                          selected ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                        }`}
+                        onClick={() => toggleAdjustService(service._id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium">{service.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {service.duration} min
+                            </p>
+                          </div>
+                          <Checkbox checked={selected} />
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            </section>
+
+            <section className="rounded-md border bg-muted/30 p-4">
+              {adjustVehicleIds.length === 0 || adjustServiceIds.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Select at least one vehicle and one service to preview the change.
+                </p>
+              ) : adjustmentPreview === undefined ? (
+                <p className="text-sm text-muted-foreground">Calculating adjustment...</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Price change</p>
+                      <p className={adjustmentPreview.priceDelta >= 0 ? "font-semibold text-green-700" : "font-semibold text-red-700"}>
+                        {adjustmentPreview.priceDelta >= 0 ? "+" : ""}
+                        {formatCurrency(adjustmentPreview.priceDelta)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Duration change</p>
+                      <p className="font-semibold">
+                        {formatMinutes(adjustmentPreview.durationDelta)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">New total</p>
+                      <p className="font-semibold">
+                        {formatCurrency(adjustmentPreview.newTotalPrice)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {formatCurrency(adjustmentPreview.oldTotalPrice)} to{" "}
+                      {formatCurrency(adjustmentPreview.newTotalPrice)}
+                    </span>
+                    <span>
+                      {adjustmentPreview.oldDuration} min to {adjustmentPreview.newDuration} min
+                    </span>
+                    {adjustmentPreview.invoiceStatus && (
+                      <span>Invoice: {adjustmentPreview.invoiceStatus}</span>
+                    )}
+                  </div>
+                  {adjustmentPreview.invoicePaid && adjustmentPreview.priceDelta > 0 && (
+                    <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                      The paid invoice will stay locked. A supplemental invoice will be created for the added amount.
+                    </div>
+                  )}
+                  {adjustmentBlockedByCredit && (
+                    <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                      This lowers a paid invoice. Use a refund or credit workflow before applying this change.
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <div className="space-y-2">
+              <Label htmlFor="adjustment-reason">Reason</Label>
+              <Textarea
+                id="adjustment-reason"
+                value={adjustReason}
+                onChange={(event) => setAdjustReason(event.target.value)}
+                placeholder="Example: added pet hair and second vehicle on arrival"
+                rows={3}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 border-t pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAdjustingWork(false)}
+                disabled={adjustLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleApplyWorkAdjustment()}
+                disabled={
+                  adjustLoading ||
+                  adjustmentBlockedByCredit ||
+                  adjustVehicleIds.length === 0 ||
+                  adjustServiceIds.length === 0
+                }
+              >
+                {adjustLoading ? "Applying..." : "Apply Adjustment"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!previewPhoto}

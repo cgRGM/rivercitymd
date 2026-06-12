@@ -30,6 +30,11 @@ type FormWithVehiclePrices = {
   vehiclePrices: VehiclePriceFormRow[];
 };
 
+type VehicleTypeOption = {
+  _id: string;
+  name: string;
+};
+
 interface VehiclePricingEditorProps<TForm extends FormWithVehiclePrices> {
   form: UseFormReturn<TForm>;
   defaultDuration: number;
@@ -39,7 +44,9 @@ export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
   form,
   defaultDuration,
 }: VehiclePricingEditorProps<TForm>) {
-  const vehicleTypes = useQuery(api.vehicleTypes.list, {});
+  const vehicleTypes = useQuery(api.vehicleTypes.list, {}) as
+    | VehicleTypeOption[]
+    | undefined;
   const ensureDefaults = useMutation(api.vehicleTypes.ensureDefaults);
   const createVehicleType = useMutation(api.vehicleTypes.create);
   const [newTypeNameByRow, setNewTypeNameByRow] = useState<Record<number, string>>({});

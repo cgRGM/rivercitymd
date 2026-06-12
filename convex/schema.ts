@@ -287,6 +287,69 @@ const schema = defineSchema({
     .index("by_date", ["scheduledDate"])
     .index("by_status", ["status"]),
 
+  appointmentAdjustments: defineTable({
+    appointmentId: v.id("appointments"),
+    actorId: v.id("users"),
+    reason: v.string(),
+    oldVehicleIds: v.array(v.id("vehicles")),
+    newVehicleIds: v.array(v.id("vehicles")),
+    oldServiceIds: v.array(v.id("services")),
+    newServiceIds: v.array(v.id("services")),
+    oldPetFeeVehicleIds: v.array(v.id("vehicles")),
+    newPetFeeVehicleIds: v.array(v.id("vehicles")),
+    oldItems: v.array(
+      v.object({
+        itemType: v.optional(
+          v.union(
+            v.literal("service"),
+            v.literal("pet_fee"),
+            v.literal("travel_fee"),
+          ),
+        ),
+        serviceId: v.optional(v.id("services")),
+        vehicleId: v.optional(v.id("vehicles")),
+        vehicleLabel: v.optional(v.string()),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
+        serviceName: v.string(),
+        quantity: v.number(),
+        unitPrice: v.number(),
+        totalPrice: v.number(),
+      }),
+    ),
+    newItems: v.array(
+      v.object({
+        itemType: v.optional(
+          v.union(
+            v.literal("service"),
+            v.literal("pet_fee"),
+            v.literal("travel_fee"),
+          ),
+        ),
+        serviceId: v.optional(v.id("services")),
+        vehicleId: v.optional(v.id("vehicles")),
+        vehicleLabel: v.optional(v.string()),
+        vehicleTypeId: v.optional(v.id("vehicleTypes")),
+        serviceName: v.string(),
+        quantity: v.number(),
+        unitPrice: v.number(),
+        totalPrice: v.number(),
+      }),
+    ),
+    priceDelta: v.number(),
+    durationDelta: v.number(),
+    invoiceAction: v.union(
+      v.literal("none"),
+      v.literal("updated_open_invoice"),
+      v.literal("supplemental_invoice_created"),
+      v.literal("manual_credit_required"),
+    ),
+    invoiceId: v.optional(v.id("invoices")),
+    supplementalInvoiceId: v.optional(v.id("invoices")),
+    createdAt: v.number(),
+  })
+    .index("by_appointment", ["appointmentId"])
+    .index("by_actor", ["actorId"]),
+
   bookingDrafts: defineTable({
     sourceUserId: v.optional(v.id("users")),
     customerName: v.string(),

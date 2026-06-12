@@ -106,6 +106,16 @@ type CustomerVehicle = {
   size?: "small" | "medium" | "large";
 };
 
+type SubscriptionServiceOption = {
+  _id: Id<"services">;
+  name: string;
+  isActive: boolean;
+  serviceType?: string;
+  basePrice?: number;
+  basePriceSmall?: number;
+  basePriceMedium?: number;
+};
+
 function statusVariant(status: string) {
   switch (status) {
     case "active":
@@ -426,7 +436,7 @@ function CreateSubscriptionForm({ onSuccess }: { onSuccess: () => void }) {
   const customers = useQuery(api.users.listWithStats) as
     | CustomerOption[]
     | undefined;
-  const services = useQuery(api.services.list);
+  const services = useQuery(api.services.list) as SubscriptionServiceOption[] | undefined;
   const createSubscription = useMutation(api.subscriptions.create);
 
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
