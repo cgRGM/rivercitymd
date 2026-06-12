@@ -19,7 +19,10 @@ import {
   normalizeUserNotificationPreferences,
 } from "./lib/notificationSettings";
 import { r2 } from "./r2";
-import { calculateTravelFeeForMiles } from "./lib/travelFees";
+import {
+  calculateTravelBufferMinutesForMiles,
+  calculateTravelFeeForMiles,
+} from "./lib/travelFees";
 import { isArkansasState } from "./lib/address";
 import {
   getEffectivePetFeePrice,
@@ -440,6 +443,10 @@ async function buildDraftPricing(args: {
     args.travelDistanceMiles !== undefined
       ? calculateTravelFeeForMiles(args.travelDistanceMiles)
       : 0;
+  const travelBufferMinutes =
+    args.travelDistanceMiles !== undefined
+      ? calculateTravelBufferMinutesForMiles(args.travelDistanceMiles)
+      : 0;
   const travelFeeItems =
     travelFee > 0 && args.travelDistanceMiles !== undefined
       ? [
@@ -459,6 +466,7 @@ async function buildDraftPricing(args: {
     serviceDurations: [duration],
     petFeeVehicleCount: activePetFeeSizes.length,
     petFeeTimeMinutes: petFeeSettings.timeAddMinutes,
+    travelBufferMinutes,
   });
   const depositSettings = await args.ctx.runQuery(
     internal.depositSettings.getInternal,
@@ -855,6 +863,10 @@ export const getSchedulingDurationInternal = internalQuery({
       serviceDurations,
       petFeeVehicleCount,
       petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+      travelBufferMinutes:
+        draft.travelDistanceMiles !== undefined
+          ? calculateTravelBufferMinutesForMiles(draft.travelDistanceMiles)
+          : 0,
     });
   },
 });

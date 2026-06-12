@@ -448,7 +448,7 @@ describe("payments", () => {
         description: "Service with travel fee",
         basePrice: 120,
         basePriceMedium: 120,
-        duration: 60,
+        duration: 120,
         serviceType: "standard",
         isActive: true,
       });
@@ -484,17 +484,18 @@ describe("payments", () => {
 
     expect(booking.travelDistanceMiles).toBeGreaterThan(68);
     expect(booking.travelDistanceMiles).toBeLessThan(70);
-    expect(booking.travelFee).toBe(51.83);
-    expect(draft?.totalPrice).toBeCloseTo(171.83, 2);
-    expect(draft?.travelFee).toBe(51.83);
+    expect(booking.travelFee).toBe(64.32);
+    expect(draft?.totalPrice).toBeCloseTo(184.32, 2);
+    expect(draft?.duration).toBe(180);
+    expect(draft?.travelFee).toBe(64.32);
     expect(draft?.travelDistanceMiles).toBeGreaterThan(68);
     expect(draft?.travelDistanceMiles).toBeLessThan(70);
     expect(draft?.priceSnapshot).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           itemType: "travel_fee",
-          unitPrice: 51.83,
-          totalPrice: 51.83,
+          unitPrice: 64.32,
+          totalPrice: 64.32,
         }),
       ]),
     );

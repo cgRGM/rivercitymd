@@ -21,6 +21,12 @@ export function calculateTravelFeeForMiles(distanceMiles: number) {
   if (distanceMiles < 25) return 0;
   if (distanceMiles <= 35) return 30;
   if (distanceMiles <= 50) return 50;
-  const fee = distanceMiles * 0.75;
+  const fee = 50 + (distanceMiles - 50) * 0.75;
   return Math.round(fee * 100) / 100;
+}
+
+export function calculateTravelBufferMinutesForMiles(distanceMiles: number) {
+  if (distanceMiles < 25) return 0;
+  if (distanceMiles <= 35) return 30;
+  return 60;
 }

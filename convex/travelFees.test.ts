@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import {
   calculateHaversineDistance,
+  calculateTravelBufferMinutesForMiles,
   calculateTravelFeeForMiles,
 } from "./lib/travelFees";
 import schema from "./schema";
@@ -19,8 +20,17 @@ describe("travelFees", () => {
     expect(calculateTravelFeeForMiles(35)).toBe(30);
     expect(calculateTravelFeeForMiles(35.1)).toBe(50);
     expect(calculateTravelFeeForMiles(50)).toBe(50);
-    expect(calculateTravelFeeForMiles(50.1)).toBe(37.58);
-    expect(calculateTravelFeeForMiles(100)).toBe(75);
+    expect(calculateTravelFeeForMiles(50.1)).toBe(50.08);
+    expect(calculateTravelFeeForMiles(100)).toBe(87.5);
+  });
+
+  test("uses travel buffers for appointment blocking", () => {
+    expect(calculateTravelBufferMinutesForMiles(24.9)).toBe(0);
+    expect(calculateTravelBufferMinutesForMiles(25)).toBe(30);
+    expect(calculateTravelBufferMinutesForMiles(35)).toBe(30);
+    expect(calculateTravelBufferMinutesForMiles(35.1)).toBe(60);
+    expect(calculateTravelBufferMinutesForMiles(50)).toBe(60);
+    expect(calculateTravelBufferMinutesForMiles(50.1)).toBe(60);
   });
 
   test("calculates haversine distance in miles", () => {
