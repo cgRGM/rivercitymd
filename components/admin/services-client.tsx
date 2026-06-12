@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
@@ -101,9 +101,15 @@ export default function ServicesClient() {
     isActive: true,
   });
   const travelFeeSettings = useQuery(api.travelFeeSettings.get);
-  const updateTravelFeeSettings = useMutation(api.travelFeeSettings.upsert);
+  const updateTravelFeeSettings = useAction(api.travelFeeSettings.validateOriginAndUpsert);
   const [isEditingTravelFee, setIsEditingTravelFee] = useState(false);
   const [travelFeeValues, setTravelFeeValues] = useState({
+    originStreet: "220 N. Tyler St",
+    originCity: "Little Rock",
+    originState: "AR",
+    originZip: "72205",
+    originLatitude: 34.752258,
+    originLongitude: -92.329768,
     freeRadiusMiles: 25,
     midRangeMaxMiles: 35,
     longRangeMaxMiles: 50,
@@ -588,6 +594,26 @@ export default function ServicesClient() {
                 <span className="text-sm text-muted-foreground">Travel fee</span>
               </div>
               {[
+                ["originStreet", "Origin street"],
+                ["originCity", "Origin city"],
+                ["originState", "State"],
+                ["originZip", "ZIP"],
+              ].map(([key, label]) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs">{label}</Label>
+                  <Input
+                    value={travelFeeValues[key as keyof typeof travelFeeValues] as string}
+                    onChange={(event) =>
+                      setTravelFeeValues((current) => ({
+                        ...current,
+                        [key]: event.target.value,
+                      }))
+                    }
+                    className={key === "originStreet" ? "w-44" : "w-24"}
+                  />
+                </div>
+              ))}
+              {[
                 ["freeRadiusMiles", "Free under mi", "1"],
                 ["midRangeMaxMiles", "Mid max mi", "1"],
                 ["longRangeMaxMiles", "Long max mi", "1"],
@@ -617,7 +643,22 @@ export default function ServicesClient() {
                 size="sm"
                 onClick={async () => {
                   try {
-                    await updateTravelFeeSettings(travelFeeValues);
+                    await updateTravelFeeSettings({
+                      originStreet: travelFeeValues.originStreet,
+                      originCity: travelFeeValues.originCity,
+                      originState: travelFeeValues.originState,
+                      originZip: travelFeeValues.originZip,
+                      freeRadiusMiles: travelFeeValues.freeRadiusMiles,
+                      midRangeMaxMiles: travelFeeValues.midRangeMaxMiles,
+                      longRangeMaxMiles: travelFeeValues.longRangeMaxMiles,
+                      midRangeFee: travelFeeValues.midRangeFee,
+                      longRangeFee: travelFeeValues.longRangeFee,
+                      perMileRateAfterLongRange:
+                        travelFeeValues.perMileRateAfterLongRange,
+                      midRangeBufferMinutes: travelFeeValues.midRangeBufferMinutes,
+                      longRangeBufferMinutes: travelFeeValues.longRangeBufferMinutes,
+                      isActive: travelFeeValues.isActive,
+                    });
                     setIsEditingTravelFee(false);
                     toast.success("Travel fee settings updated");
                     router.refresh();

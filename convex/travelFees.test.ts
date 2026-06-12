@@ -39,6 +39,12 @@ describe("travelFees", () => {
     });
 
     await asAdmin.mutation(api.travelFeeSettings.upsert, {
+      originStreet: "220 N. Tyler St",
+      originCity: "Little Rock",
+      originState: "AR",
+      originZip: "72205",
+      originLatitude: 34.752258,
+      originLongitude: -92.329768,
       freeRadiusMiles: 20,
       midRangeMaxMiles: 30,
       longRangeMaxMiles: 40,
@@ -54,6 +60,105 @@ describe("travelFees", () => {
     expect(calculateTravelFeeForMiles(45, settings)).toBe(60);
     expect(calculateTravelBufferMinutesForMiles(25, settings)).toBe(20);
     expect(calculateTravelBufferMinutesForMiles(45, settings)).toBe(75);
+  });
+
+  test("uses a custom configured origin for travel estimates", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-origin-settings@example.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-origin-settings@example.com",
+    });
+
+    await asAdmin.mutation(api.travelFeeSettings.upsert, {
+      originStreet: "100 Origin Rd",
+      originCity: "Fayetteville",
+      originState: "AR",
+      originZip: "72701",
+      originLatitude: 36.06258,
+      originLongitude: -94.15743,
+      freeRadiusMiles: 25,
+      midRangeMaxMiles: 35,
+      longRangeMaxMiles: 50,
+      midRangeFee: 30,
+      longRangeFee: 50,
+      perMileRateAfterLongRange: 2,
+      midRangeBufferMinutes: 30,
+      longRangeBufferMinutes: 60,
+      isActive: true,
+    });
+
+    const result = await t.action(api.travelFees.calculate, {
+      address: {
+        street: "100 Destination Rd",
+        city: "Fayetteville",
+        state: "AR",
+        zip: "72701",
+        latitude: 36.16258,
+        longitude: -94.15743,
+      },
+    });
+
+    expect(result.distanceMiles).toBeGreaterThan(6);
+    expect(result.distanceMiles).toBeLessThan(8);
+    expect(result.fee).toBe(0);
+    expect(result.bufferMinutes).toBe(0);
+  });
+
+  test("geocodes and stores the admin origin address when settings are saved", async () => {
+    const previousKey = process.env.RADAR_SECRET_KEY;
+    process.env.RADAR_SECRET_KEY = "test_radar_key";
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-geocode-origin@example.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-geocode-origin@example.com",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        if (String(url).includes("/geocode/forward")) {
+          return Response.json({
+            addresses: [{ latitude: 36.06258, longitude: -94.15743 }],
+          });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    await asAdmin.action(api.travelFeeSettings.validateOriginAndUpsert, {
+      originStreet: "100 Origin Rd",
+      originCity: "Fayetteville",
+      originState: "AR",
+      originZip: "72701",
+      freeRadiusMiles: 25,
+      midRangeMaxMiles: 35,
+      longRangeMaxMiles: 50,
+      midRangeFee: 30,
+      longRangeFee: 50,
+      perMileRateAfterLongRange: 2,
+      midRangeBufferMinutes: 30,
+      longRangeBufferMinutes: 60,
+      isActive: true,
+    });
+
+    process.env.RADAR_SECRET_KEY = previousKey;
+    const settings = await t.query(api.travelFeeSettings.get, {});
+    expect(settings.originStreet).toBe("100 Origin Rd");
+    expect(settings.originLatitude).toBe(36.06258);
+    expect(settings.originLongitude).toBe(-94.15743);
   });
 
   test("uses travel buffers for appointment blocking", () => {

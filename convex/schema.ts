@@ -150,6 +150,12 @@ const schema = defineSchema({
 
   // Travel Fee Settings
   travelFeeSettings: defineTable({
+    originStreet: v.optional(v.string()),
+    originCity: v.optional(v.string()),
+    originState: v.optional(v.string()),
+    originZip: v.optional(v.string()),
+    originLatitude: v.optional(v.number()),
+    originLongitude: v.optional(v.number()),
     freeRadiusMiles: v.number(),
     midRangeMaxMiles: v.number(),
     longRangeMaxMiles: v.number(),
