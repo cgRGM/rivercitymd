@@ -6,6 +6,7 @@ export function calculateSchedulingDuration(args: {
   serviceDurations: number[];
   petFeeVehicleCount?: number;
   petFeeTimeMinutes?: number;
+  travelBufferMinutes?: number;
 }): number {
   const serviceDuration = args.serviceDurations.reduce(
     (sum, duration) => sum + Math.max(0, duration || 0),
@@ -14,7 +15,8 @@ export function calculateSchedulingDuration(args: {
   const petFeeDuration =
     Math.max(0, args.petFeeVehicleCount ?? 0) *
     Math.max(0, args.petFeeTimeMinutes ?? DEFAULT_PET_FEE_TIME_MINUTES);
-  const computedDuration = serviceDuration + petFeeDuration;
+  const travelDuration = Math.max(0, args.travelBufferMinutes ?? 0);
+  const computedDuration = serviceDuration + petFeeDuration + travelDuration;
 
   return Math.max(computedDuration, BOOKING_BLOCK_MINUTES);
 }

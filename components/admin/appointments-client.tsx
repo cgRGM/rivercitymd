@@ -20,6 +20,7 @@ import {
   AlertCircle,
   MoreHorizontal,
   ArrowUpDown,
+  Images,
 } from "lucide-react";
 import {
   Dialog,
@@ -52,6 +53,7 @@ type AppointmentRecord = {
   user: { name?: string; email?: string } | null;
   services: Array<{ _id: Id<"services">; name: string }>;
   vehicles: Array<{ _id: Id<"vehicles">; year: number; make: string; model: string; color?: string }>;
+  beforePhotos?: Array<{ key: string; fileName: string }>;
   tripLogStatus: "required" | "draft" | "completed" | null;
   tripLogId?: Id<"tripLogs">;
   tripLogRequiredReason?: "completed_without_log";
@@ -248,10 +250,17 @@ export default function AppointmentsClient({}: Props) {
       },
       cell: ({ row }) => {
         const user = row.original.user;
+        const photoCount = row.original.beforePhotos?.length ?? 0;
         return (
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-1">
             <span className="font-medium">{user?.name || "Unknown"}</span>
             <span className="text-xs text-muted-foreground">{user?.email}</span>
+            {photoCount > 0 && (
+              <Badge variant="secondary" className="w-fit gap-1 text-[10px]">
+                <Images className="h-3 w-3" />
+                {photoCount} photo{photoCount === 1 ? "" : "s"}
+              </Badge>
+            )}
           </div>
         );
       },
