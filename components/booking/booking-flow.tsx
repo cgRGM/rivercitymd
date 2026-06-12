@@ -173,6 +173,7 @@ export default function BookingFlow() {
   const [travelQuote, setTravelQuote] = useState<{
     distanceMiles: number;
     fee: number;
+    bufferMinutes: number;
   } | null>(null);
   const { user, isLoaded, isSignedIn } = useUser();
   const [expandedVehicleIndex, setExpandedVehicleIndex] = useState<number>(0);
@@ -449,6 +450,7 @@ export default function BookingFlow() {
       serviceDurations,
       petFeeVehicleCount,
       petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+      travelBufferMinutes: travelQuote?.bufferMinutes,
     });
   }, [
     petFeeSettings?.isActive,
@@ -457,6 +459,7 @@ export default function BookingFlow() {
     step3Data?.vehicles,
     step4Data?.serviceIds,
     step4Data?.vehicleServices,
+    travelQuote?.bufferMinutes,
   ]);
 
   const step2Form = useForm<Step2Data>({
@@ -811,6 +814,7 @@ export default function BookingFlow() {
             serviceDurations,
             petFeeVehicleCount,
             petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+            travelBufferMinutes: travelQuote?.bufferMinutes,
           });
           const scheduledDateValue = step1Data?.scheduledDate;
           const scheduledDate =
@@ -930,7 +934,11 @@ export default function BookingFlow() {
         paymentOption,
       });
       setResumeToken(nextResumeToken);
-      setTravelQuote({ distanceMiles: travelDistanceMiles, fee: travelFee });
+      setTravelQuote({
+        distanceMiles: travelDistanceMiles,
+        fee: travelFee,
+        bufferMinutes: travelQuote?.bufferMinutes ?? 0,
+      });
 
       const { url } = await createBookingCheckout({
         draftId,

@@ -148,6 +148,19 @@ const schema = defineSchema({
     isActive: v.boolean(),
   }),
 
+  // Travel Fee Settings
+  travelFeeSettings: defineTable({
+    freeRadiusMiles: v.number(),
+    midRangeMaxMiles: v.number(),
+    longRangeMaxMiles: v.number(),
+    midRangeFee: v.number(),
+    longRangeFee: v.number(),
+    perMileRateAfterLongRange: v.number(),
+    midRangeBufferMinutes: v.number(),
+    longRangeBufferMinutes: v.number(),
+    isActive: v.boolean(),
+  }),
+
   // Services and Subscriptions
   services: defineTable({
     name: v.string(),

@@ -108,6 +108,7 @@ export function DashboardAppointmentForm({
   const [travelQuote, setTravelQuote] = useState<{
     distanceMiles: number;
     fee: number;
+    bufferMinutes: number;
   } | null>(null);
 
   // Queries
@@ -350,12 +351,14 @@ export function DashboardAppointmentForm({
         petFeeVehicleCount:
           hasPetFee && petFeeSettings?.isActive !== false ? 1 : 0,
         petFeeTimeMinutes: petFeeSettings?.timeAddMinutes,
+        travelBufferMinutes: travelQuote?.bufferMinutes,
       }),
     [
       hasPetFee,
       petFeeSettings?.isActive,
       petFeeSettings?.timeAddMinutes,
       selectedServicesData,
+      travelQuote?.bufferMinutes,
       vehiclePricingContext,
     ],
   );

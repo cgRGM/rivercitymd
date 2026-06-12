@@ -1,3 +1,94 @@
+import { v } from "convex/values";
+
+export const travelFeeSettingsValidator = v.object({
+  freeRadiusMiles: v.number(),
+  midRangeMaxMiles: v.number(),
+  longRangeMaxMiles: v.number(),
+  midRangeFee: v.number(),
+  longRangeFee: v.number(),
+  perMileRateAfterLongRange: v.number(),
+  midRangeBufferMinutes: v.number(),
+  longRangeBufferMinutes: v.number(),
+  isActive: v.boolean(),
+});
+
+export type TravelFeeSettings = {
+  freeRadiusMiles: number;
+  midRangeMaxMiles: number;
+  longRangeMaxMiles: number;
+  midRangeFee: number;
+  longRangeFee: number;
+  perMileRateAfterLongRange: number;
+  midRangeBufferMinutes: number;
+  longRangeBufferMinutes: number;
+  isActive: boolean;
+};
+
+export const defaultTravelFeeSettings: TravelFeeSettings = {
+  freeRadiusMiles: 25,
+  midRangeMaxMiles: 35,
+  longRangeMaxMiles: 50,
+  midRangeFee: 30,
+  longRangeFee: 50,
+  perMileRateAfterLongRange: 2,
+  midRangeBufferMinutes: 30,
+  longRangeBufferMinutes: 60,
+  isActive: true,
+};
+
+function cleanNumber(value: number | undefined, fallback: number) {
+  return Number.isFinite(value) ? Number(value) : fallback;
+}
+
+function cleanMoney(value: number | undefined, fallback: number) {
+  return Math.max(0, cleanNumber(value, fallback));
+}
+
+function cleanMinutes(value: number | undefined, fallback: number) {
+  return Math.max(0, Math.floor(cleanNumber(value, fallback)));
+}
+
+export function normalizeTravelFeeSettings(
+  settings: Partial<TravelFeeSettings>,
+): TravelFeeSettings {
+  const freeRadiusMiles = cleanNumber(
+    settings.freeRadiusMiles,
+    defaultTravelFeeSettings.freeRadiusMiles,
+  );
+  const midRangeMaxMiles = Math.max(
+    freeRadiusMiles,
+    cleanNumber(settings.midRangeMaxMiles, defaultTravelFeeSettings.midRangeMaxMiles),
+  );
+  const longRangeMaxMiles = Math.max(
+    midRangeMaxMiles,
+    cleanNumber(settings.longRangeMaxMiles, defaultTravelFeeSettings.longRangeMaxMiles),
+  );
+
+  return {
+    freeRadiusMiles,
+    midRangeMaxMiles,
+    longRangeMaxMiles,
+    midRangeFee: cleanMoney(settings.midRangeFee, defaultTravelFeeSettings.midRangeFee),
+    longRangeFee: cleanMoney(
+      settings.longRangeFee,
+      defaultTravelFeeSettings.longRangeFee,
+    ),
+    perMileRateAfterLongRange: cleanMoney(
+      settings.perMileRateAfterLongRange,
+      defaultTravelFeeSettings.perMileRateAfterLongRange,
+    ),
+    midRangeBufferMinutes: cleanMinutes(
+      settings.midRangeBufferMinutes,
+      defaultTravelFeeSettings.midRangeBufferMinutes,
+    ),
+    longRangeBufferMinutes: cleanMinutes(
+      settings.longRangeBufferMinutes,
+      defaultTravelFeeSettings.longRangeBufferMinutes,
+    ),
+    isActive: settings.isActive ?? defaultTravelFeeSettings.isActive,
+  };
+}
+
 export function calculateHaversineDistance(
   lat1: number,
   lon1: number,
@@ -17,16 +108,31 @@ export function calculateHaversineDistance(
   return R * c;
 }
 
-export function calculateTravelFeeForMiles(distanceMiles: number) {
-  if (distanceMiles < 25) return 0;
-  if (distanceMiles <= 35) return 30;
-  if (distanceMiles <= 50) return 50;
-  const fee = 50 + (distanceMiles - 50) * 0.75;
+export function calculateTravelFeeForMiles(
+  distanceMiles: number,
+  settingsInput: Partial<TravelFeeSettings> = defaultTravelFeeSettings,
+) {
+  const settings = normalizeTravelFeeSettings(settingsInput);
+  if (!settings.isActive) return 0;
+  if (distanceMiles < settings.freeRadiusMiles) return 0;
+  if (distanceMiles <= settings.midRangeMaxMiles) return settings.midRangeFee;
+  if (distanceMiles <= settings.longRangeMaxMiles) return settings.longRangeFee;
+  const fee =
+    settings.longRangeFee +
+    (distanceMiles - settings.longRangeMaxMiles) *
+      settings.perMileRateAfterLongRange;
   return Math.round(fee * 100) / 100;
 }
 
-export function calculateTravelBufferMinutesForMiles(distanceMiles: number) {
-  if (distanceMiles < 25) return 0;
-  if (distanceMiles <= 35) return 30;
-  return 60;
+export function calculateTravelBufferMinutesForMiles(
+  distanceMiles: number,
+  settingsInput: Partial<TravelFeeSettings> = defaultTravelFeeSettings,
+) {
+  const settings = normalizeTravelFeeSettings(settingsInput);
+  if (!settings.isActive) return 0;
+  if (distanceMiles < settings.freeRadiusMiles) return 0;
+  if (distanceMiles <= settings.midRangeMaxMiles) {
+    return settings.midRangeBufferMinutes;
+  }
+  return settings.longRangeBufferMinutes;
 }
