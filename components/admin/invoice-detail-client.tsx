@@ -39,6 +39,7 @@ import {
   Calendar,
   FileText,
   RefreshCw,
+  Tag,
 } from "lucide-react";
 import Link from "next/link";
 import { formatDateString } from "@/lib/time";
@@ -99,12 +100,70 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
   const retryInvoiceGeneration = useMutation(api.appointments.retryInvoiceGeneration);
   const updateBillingSettings = useMutation(api.invoices.updateBillingSettings);
   const reissueStripeInvoice = useAction(api.payments.reissueStripeInvoice);
+  const applyCouponToInvoice = useAction(api.payments.applyCouponToInvoice);
+  const removeDiscountFromInvoice = useAction(api.payments.removeDiscountFromInvoice);
   const [isRetrying, setIsRetrying] = useState(false);
   const [billingDueDate, setBillingDueDate] = useState("");
   const [billingMethod, setBillingMethod] = useState<
     "send_invoice" | "charge_automatically"
   >("send_invoice");
   const [isSavingBilling, setIsSavingBilling] = useState(false);
+
+  // Discount / Coupon state
+  const [couponCode, setCouponCode] = useState("");
+  const [discountType, setDiscountType] = useState<"percent" | "amount">("percent");
+  const [discountValue, setDiscountValue] = useState<number | "">("");
+  const [isApplyingDiscount, setIsApplyingDiscount] = useState(false);
+
+  const handleApplyDiscount = async () => {
+    if (!invoice) return;
+    if (!couponCode.trim()) {
+      toast.error("Please enter a coupon code");
+      return;
+    }
+    if (discountValue === "" || discountValue <= 0) {
+      toast.error("Please enter a valid discount value");
+      return;
+    }
+
+    setIsApplyingDiscount(true);
+    try {
+      await applyCouponToInvoice({
+        invoiceId: invoice._id,
+        couponCode: couponCode.trim().toUpperCase(),
+        discountType,
+        discountValue: Number(discountValue),
+      });
+      toast.success("Discount applied successfully");
+      setCouponCode("");
+      setDiscountValue("");
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to apply discount"
+      );
+    } finally {
+      setIsApplyingDiscount(false);
+    }
+  };
+
+  const handleRemoveDiscount = async () => {
+    if (!invoice) return;
+    setIsApplyingDiscount(true);
+    try {
+      await removeDiscountFromInvoice({
+        invoiceId: invoice._id,
+      });
+      toast.success("Discount removed successfully");
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to remove discount"
+      );
+    } finally {
+      setIsApplyingDiscount(false);
+    }
+  };
 
   useEffect(() => {
     if (!invoice) return;
@@ -344,6 +403,143 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
         </Card>
       )}
 
+      {invoice.status !== "paid" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Tag className="w-5 h-5" />
+              Apply Discount / Coupon
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {invoice.couponCode ? (
+              <div className="flex items-center justify-between p-3 border rounded-md bg-primary/5">
+                <div>
+                  <p className="font-semibold text-primary">Active Discount: {invoice.couponCode}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Amount off: {formatCurrency(invoice.discountAmount || 0)}
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleRemoveDiscount}
+                  disabled={isApplyingDiscount}
+                >
+                  Remove Discount
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="coupon-code">Coupon / Promo Code</Label>
+                    <Input
+                      id="coupon-code"
+                      placeholder="e.g. SAVE20"
+                      value={couponCode}
+                      onChange={(e) => setCouponCode(e.target.value)}
+                      className="uppercase"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="discount-type">Discount Type</Label>
+                    <Select
+                      value={discountType}
+                      onValueChange={(val) => setDiscountType(val as "percent" | "amount")}
+                    >
+                      <SelectTrigger id="discount-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percent">Percentage Off (%)</SelectItem>
+                        <SelectItem value="amount">Fixed Amount Off ($)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="discount-value">Discount Value</Label>
+                  <div className="flex gap-3">
+                    <Input
+                      id="discount-value"
+                      type="number"
+                      placeholder={discountType === "percent" ? "e.g. 20 for 20%" : "e.g. 15 for $15"}
+                      value={discountValue}
+                      onChange={(e) => setDiscountValue(e.target.value === "" ? "" : Number(e.target.value))}
+                      min={1}
+                    />
+                    <Button
+                      onClick={handleApplyDiscount}
+                      disabled={isApplyingDiscount}
+                      className="whitespace-nowrap"
+                    >
+                      {isApplyingDiscount ? "Applying..." : "Apply Discount"}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2 border-t">
+                  <span className="text-xs text-muted-foreground w-full font-medium">Quick Presets:</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    className="text-xs h-7"
+                    onClick={() => {
+                      setCouponCode("10PERCENT");
+                      setDiscountType("percent");
+                      setDiscountValue(10);
+                    }}
+                  >
+                    10% Off
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    className="text-xs h-7"
+                    onClick={() => {
+                      setCouponCode("20PERCENT");
+                      setDiscountType("percent");
+                      setDiscountValue(20);
+                    }}
+                  >
+                    20% Off
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    className="text-xs h-7"
+                    onClick={() => {
+                      setCouponCode("25OFF");
+                      setDiscountType("amount");
+                      setDiscountValue(25);
+                    }}
+                  >
+                    $25 Off
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    className="text-xs h-7"
+                    onClick={() => {
+                      setCouponCode("50OFF");
+                      setDiscountType("amount");
+                      setDiscountValue(50);
+                    }}
+                  >
+                    $50 Off
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -438,6 +634,17 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                 </TableCell>
                 <TableCell className="text-right">{formatCurrency(invoice.subtotal)}</TableCell>
               </TableRow>
+              {invoice.couponCode && (
+                <TableRow className="text-primary bg-primary/5">
+                  <TableCell colSpan={3} className="text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      <Tag className="w-3.5 h-3.5" />
+                      Discount ({invoice.couponCode})
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">-{formatCurrency(invoice.discountAmount || 0)}</TableCell>
+                </TableRow>
+              )}
               <TableRow>
                 <TableCell colSpan={3} className="text-right font-medium">
                   Tax

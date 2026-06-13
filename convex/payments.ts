@@ -647,6 +647,9 @@ async function createStripeInvoiceAfterDepositImpl(
   if (collectionMethod === "send_invoice") {
     invoiceParams.append("due_date", toStripeDueDateTimestamp(invoice.dueDate));
   }
+  if (invoice.couponCode) {
+    invoiceParams.append("discounts[0][coupon]", invoice.couponCode);
+  }
   appendMetadata(invoiceParams, {
     invoiceId: String(args.invoiceId),
     appointmentId: String(args.appointmentId),
@@ -1739,6 +1742,179 @@ export const reissueStripeInvoice = action({
   },
 });
 
+export const applyCouponToInvoice = action({
+  args: {
+    invoiceId: v.id("invoices"),
+    couponCode: v.string(),
+    discountType: v.union(v.literal("percent"), v.literal("amount")),
+    discountValue: v.number(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    discountAmount: v.number(),
+    newTotal: v.number(),
+    newRemainingBalance: v.number(),
+    stripeInvoiceId: v.optional(v.string()),
+    stripeInvoiceUrl: v.optional(v.string()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    success: boolean;
+    discountAmount: number;
+    newTotal: number;
+    newRemainingBalance: number;
+    stripeInvoiceId?: string;
+    stripeInvoiceUrl?: string;
+  }> => {
+    await requireAdminRole(ctx);
+
+    const invoice: any = await ctx.runQuery(internal.invoices.getByIdInternal, {
+      invoiceId: args.invoiceId,
+    });
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+    if (invoice.status === "paid") {
+      throw new Error("Paid invoices cannot be modified");
+    }
+
+    // 1. Check if Coupon exists in Stripe. If not, create it.
+    let couponExists = false;
+    try {
+      await stripeApiCall(`coupons/${encodeURIComponent(args.couponCode)}`, {
+        method: "GET",
+      });
+      couponExists = true;
+    } catch {
+      console.log(`[payments] Coupon ${args.couponCode} not found in Stripe, will attempt to create it.`);
+    }
+
+    if (!couponExists) {
+      const bodyParams = new URLSearchParams({
+        id: args.couponCode,
+        name: args.couponCode,
+        duration: "once",
+      });
+      if (args.discountType === "percent") {
+        bodyParams.append("percent_off", args.discountValue.toString());
+      } else {
+        bodyParams.append("amount_off", Math.round(args.discountValue * 100).toString());
+        bodyParams.append("currency", "usd");
+      }
+      await stripeApiCall("coupons", {
+        method: "POST",
+        body: bodyParams,
+      });
+      console.log(`[payments] Successfully created Stripe coupon ${args.couponCode}`);
+    }
+
+    // 2. Calculate local discount values
+    let discountAmount = 0;
+    if (args.discountType === "percent") {
+      discountAmount = parseFloat((invoice.subtotal * (args.discountValue / 100)).toFixed(2));
+    } else {
+      discountAmount = Math.min(args.discountValue, invoice.subtotal);
+    }
+
+    const newTotal = parseFloat((invoice.subtotal + invoice.tax - discountAmount).toFixed(2));
+    const newRemainingBalance = Math.max(0, parseFloat((newTotal - (invoice.depositAmount || 0)).toFixed(2)));
+
+    // 3. If there is an existing Stripe invoice, void/retire it first
+    if (invoice.stripeInvoiceId) {
+      try {
+        await retireStripeInvoice(invoice.stripeInvoiceId);
+      } catch (err) {
+        console.warn(`[payments] Failed to retire Stripe invoice ${invoice.stripeInvoiceId}`, err);
+      }
+    }
+
+    // 4. Update the local invoice in Convex
+    await ctx.runMutation(internal.invoices.updateDiscount, {
+      invoiceId: args.invoiceId,
+      couponCode: args.couponCode,
+      discountAmount,
+      total: newTotal,
+      remainingBalance: newRemainingBalance,
+    });
+
+    // 5. If deposit is paid and it's a deposit invoice, recreate the Stripe invoice immediately
+    let stripeInvoiceId: string | undefined;
+    let stripeInvoiceUrl: string | undefined;
+    if (invoice.depositPaid && (invoice.paymentOption ?? "deposit") === "deposit") {
+      try {
+        const stripeInvoice = await createStripeInvoiceAfterDepositImpl(ctx, {
+          invoiceId: args.invoiceId,
+          appointmentId: invoice.appointmentId,
+          forceRecreate: true,
+        });
+        stripeInvoiceId = stripeInvoice.stripeInvoiceId;
+        stripeInvoiceUrl = stripeInvoice.stripeInvoiceUrl;
+      } catch (error) {
+        console.error(`[payments] Failed to automatically recreate Stripe invoice for ${args.invoiceId}`, error);
+      }
+    }
+
+    return {
+      success: true,
+      discountAmount,
+      newTotal,
+      newRemainingBalance,
+      stripeInvoiceId,
+      stripeInvoiceUrl,
+    };
+  },
+});
+
+export const removeDiscountFromInvoice = action({
+  args: {
+    invoiceId: v.id("invoices"),
+  },
+  returns: v.object({
+    success: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{ success: boolean }> => {
+    await requireAdminRole(ctx);
+
+    const invoice: any = await ctx.runQuery(internal.invoices.getByIdInternal, {
+      invoiceId: args.invoiceId,
+    });
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+    if (invoice.status === "paid") {
+      throw new Error("Paid invoices cannot be modified");
+    }
+
+    if (invoice.stripeInvoiceId) {
+      try {
+        await retireStripeInvoice(invoice.stripeInvoiceId);
+      } catch (err) {
+        console.warn(`[payments] Failed to retire Stripe invoice ${invoice.stripeInvoiceId}`, err);
+      }
+    }
+
+    await ctx.runMutation(internal.invoices.removeDiscount, {
+      invoiceId: args.invoiceId,
+    });
+
+    if (invoice.depositPaid && (invoice.paymentOption ?? "deposit") === "deposit") {
+      try {
+        await createStripeInvoiceAfterDepositImpl(ctx, {
+          invoiceId: args.invoiceId,
+          appointmentId: invoice.appointmentId,
+          forceRecreate: true,
+        });
+      } catch (error) {
+        console.error(`[payments] Failed to automatically recreate Stripe invoice for ${args.invoiceId}`, error);
+      }
+    }
+
+    return { success: true };
+  },
+});
+
 // === Legacy Webhook Handler ===
 //
 // Production Stripe webhooks are handled in convex/http.ts via registerRoutes(...)
@@ -2667,5 +2843,95 @@ export const sendAbandonedBookingRecoveryEmail = internalAction({
     });
 
     return true;
+  },
+});
+
+export const listStripeCoupons = action({
+  args: {},
+  returns: v.array(
+    v.object({
+      id: v.string(),
+      name: v.union(v.string(), v.null()),
+      percent_off: v.union(v.number(), v.null()),
+      amount_off: v.union(v.number(), v.null()),
+      currency: v.union(v.string(), v.null()),
+      duration: v.string(),
+      max_redemptions: v.union(v.number(), v.null()),
+      times_redeemed: v.number(),
+      valid: v.boolean(),
+    })
+  ),
+  handler: async (ctx): Promise<any[]> => {
+    await requireAdminRole(ctx);
+    const response = await stripeApiCall("coupons?limit=100", {
+      method: "GET",
+    });
+    
+    return (response.data || []).map((coupon: any) => ({
+      id: coupon.id,
+      name: coupon.name || null,
+      percent_off: coupon.percent_off !== undefined ? coupon.percent_off : null,
+      amount_off: coupon.amount_off !== undefined ? coupon.amount_off / 100 : null,
+      currency: coupon.currency || null,
+      duration: coupon.duration,
+      max_redemptions: coupon.max_redemptions !== undefined ? coupon.max_redemptions : null,
+      times_redeemed: coupon.times_redeemed || 0,
+      valid: coupon.valid,
+    }));
+  },
+});
+
+export const createStripeCoupon = action({
+  args: {
+    couponCode: v.string(),
+    discountType: v.union(v.literal("percent"), v.literal("amount")),
+    discountValue: v.number(),
+    duration: v.union(v.literal("once"), v.literal("forever")),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    id: v.string(),
+  }),
+  handler: async (ctx, args): Promise<{ success: boolean; id: string }> => {
+    await requireAdminRole(ctx);
+
+    const bodyParams = new URLSearchParams({
+      id: args.couponCode.trim().toUpperCase(),
+      name: args.couponCode.trim().toUpperCase(),
+      duration: args.duration,
+    });
+
+    if (args.discountType === "percent") {
+      bodyParams.append("percent_off", args.discountValue.toString());
+    } else {
+      bodyParams.append("amount_off", Math.round(args.discountValue * 100).toString());
+      bodyParams.append("currency", "usd");
+    }
+
+    const response = await stripeApiCall("coupons", {
+      method: "POST",
+      body: bodyParams,
+    });
+
+    return {
+      success: true,
+      id: response.id,
+    };
+  },
+});
+
+export const deleteStripeCoupon = action({
+  args: {
+    couponId: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{ success: boolean }> => {
+    await requireAdminRole(ctx);
+    await stripeApiCall(`coupons/${encodeURIComponent(args.couponId)}`, {
+      method: "DELETE",
+    });
+    return { success: true };
   },
 });

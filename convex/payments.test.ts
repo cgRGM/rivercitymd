@@ -2634,4 +2634,134 @@ describe("payments", () => {
       "https://stripe.test/invoices/in_backfill_missing_final_123",
     );
   });
+
+  test("applyCouponToInvoice and removeDiscountFromInvoice", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { appointmentId, invoiceId } = await createTestAppointmentWithInvoice(
+      t,
+      userId,
+      adminId,
+    );
+
+    // Mock fetch for Stripe calls
+    const calledUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        calledUrls.push(urlString);
+
+        if (urlString.includes("/coupons/")) {
+          if (urlString.includes("COUPON404")) {
+            return {
+              ok: false,
+              status: 404,
+              text: async () => "Not found",
+            } as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ id: "SAVE20", valid: true }),
+          } as Response;
+        }
+
+        if (urlString.endsWith("/coupons") && options?.method === "POST") {
+          return {
+            ok: true,
+            json: async () => ({ id: "SAVE20" }),
+          } as Response;
+        }
+
+        if (urlString.includes("/invoices/") && urlString.endsWith("/void")) {
+          return { ok: true, json: async () => ({ id: "voided" }) } as Response;
+        }
+
+        if (urlString.includes("/customers/")) {
+          return {
+            ok: true,
+            json: async () => ({ id: "cus_test_123", email: "test@example.com" }),
+          } as Response;
+        }
+
+        if (urlString.includes("/invoiceitems")) {
+          return { ok: true, json: async () => ({ id: "ii_test_123" }) } as Response;
+        }
+
+        if (urlString.endsWith("/invoices") && options?.method === "POST") {
+          return {
+            ok: true,
+            json: async () => ({ id: "in_coupon_123", status: "draft" }),
+          } as Response;
+        }
+
+        if (urlString.includes("/invoices/in_coupon_123/finalize")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "in_coupon_123",
+              status: "open",
+              hosted_invoice_url: "https://stripe.test/invoices/in_coupon_123",
+            }),
+          } as Response;
+        }
+
+        return { ok: true, json: async () => ({ id: "stripe_test_123" }) } as Response;
+      }),
+    );
+
+    // Apply deposit paid first so it triggers Stripe invoice creation when coupon applied
+    await t.mutation(internal.invoices.updateDepositStatusInternal, {
+      invoiceId,
+      depositPaid: true,
+      depositPaymentIntentId: "pi_deposit_test_123",
+      status: "draft",
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
+
+    // 1. Apply a coupon
+    const applyResult = await asAdmin.action(api.payments.applyCouponToInvoice, {
+      invoiceId,
+      couponCode: "SAVE20",
+      discountType: "percent",
+      discountValue: 20,
+    });
+
+    expect(applyResult.success).toBe(true);
+    expect(applyResult.discountAmount).toBe(20); // 20% of 100 (subtotal) = 20
+    expect(applyResult.newTotal).toBe(80); // 100 - 20 = 80
+    expect(applyResult.newRemainingBalance).toBe(30); // 80 - 50 (deposit) = 30
+
+    // Verify database was updated
+    let invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
+    expect(invoice?.couponCode).toBe("SAVE20");
+    expect(invoice?.discountAmount).toBe(20);
+    expect(invoice?.total).toBe(80);
+    expect(invoice?.remainingBalance).toBe(30);
+    expect(invoice?.stripeInvoiceId).toBe("in_coupon_123");
+
+    // 2. Remove coupon
+    const removeResult = await asAdmin.action(api.payments.removeDiscountFromInvoice, {
+      invoiceId,
+    });
+    expect(removeResult.success).toBe(true);
+
+    invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
+    expect(invoice?.couponCode).toBeUndefined();
+    expect(invoice?.discountAmount).toBeUndefined();
+    expect(invoice?.total).toBe(100);
+    expect(invoice?.remainingBalance).toBe(50);
+  });
 });

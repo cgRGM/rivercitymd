@@ -46,6 +46,7 @@ import {
   Save,
   X,
   Images,
+  Tag,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -127,6 +128,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const updateVehicle = useMutation(api.vehicles.updateVehicle);
   const updateBillingSettings = useMutation(api.invoices.updateBillingSettings);
   const reissueStripeInvoice = useAction(api.payments.reissueStripeInvoice);
+  const applyCouponToInvoice = useAction(api.payments.applyCouponToInvoice);
+  const removeDiscountFromInvoice = useAction(api.payments.removeDiscountFromInvoice);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [billingDueDate, setBillingDueDate] = useState("");
@@ -138,6 +141,62 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     url: string;
     fileName: string;
   } | null>(null);
+
+  // Discount / Coupon state
+  const [couponCode, setCouponCode] = useState("");
+  const [discountType, setDiscountType] = useState<"percent" | "amount">("percent");
+  const [discountValue, setDiscountValue] = useState<number | "">("");
+  const [isApplyingDiscount, setIsApplyingDiscount] = useState(false);
+
+  const handleApplyDiscount = async () => {
+    if (!invoice) return;
+    if (!couponCode.trim()) {
+      toast.error("Please enter a coupon code");
+      return;
+    }
+    if (discountValue === "" || discountValue <= 0) {
+      toast.error("Please enter a valid discount value");
+      return;
+    }
+
+    setIsApplyingDiscount(true);
+    try {
+      await applyCouponToInvoice({
+        invoiceId: invoice._id,
+        couponCode: couponCode.trim().toUpperCase(),
+        discountType,
+        discountValue: Number(discountValue),
+      });
+      toast.success("Discount applied successfully");
+      setCouponCode("");
+      setDiscountValue("");
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to apply discount"
+      );
+    } finally {
+      setIsApplyingDiscount(false);
+    }
+  };
+
+  const handleRemoveDiscount = async () => {
+    if (!invoice) return;
+    setIsApplyingDiscount(true);
+    try {
+      await removeDiscountFromInvoice({
+        invoiceId: invoice._id,
+      });
+      toast.success("Discount removed successfully");
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to remove discount"
+      );
+    } finally {
+      setIsApplyingDiscount(false);
+    }
+  };
 
   // Edit form state
   const [editDate, setEditDate] = useState("");
@@ -914,12 +973,32 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Total</span>
-              <span className="text-lg font-bold">{formatCurrency(data.totalPrice)}</span>
+              <span className="text-sm text-muted-foreground">Subtotal</span>
+              <span className="text-sm font-semibold">
+                {formatCurrency(invoice ? invoice.subtotal : data.totalPrice)}
+              </span>
             </div>
+
+            {invoice && invoice.couponCode && (
+              <div className="flex items-center justify-between text-sm bg-primary/5 rounded px-2 py-1">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Tag className="h-3.5 w-3.5 text-primary" />
+                  Discount ({invoice.couponCode})
+                </span>
+                <span className="font-semibold text-primary">-{formatCurrency(invoice.discountAmount || 0)}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between border-t pt-2">
+              <span className="text-sm font-medium">Total</span>
+              <span className="text-lg font-bold">
+                {formatCurrency(invoice ? invoice.total : data.totalPrice)}
+              </span>
+            </div>
+
             {invoice && (
               <>
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center justify-between text-sm border-t pt-2">
                   <span className="text-muted-foreground">Invoice</span>
                   <Badge variant="outline">{invoice.status}</Badge>
                 </div>
@@ -932,7 +1011,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                 {invoice.remainingBalance != null && invoice.remainingBalance > 0 && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Remaining</span>
-                    <span>{formatCurrency(invoice.remainingBalance)}</span>
+                    <span className="font-semibold">{formatCurrency(invoice.remainingBalance)}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between text-sm">
@@ -969,7 +1048,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                     <Select
                       value={billingMethod}
                       onValueChange={(value) =>
-                        setBillingMethod(
+                         setBillingMethod(
                           value as "send_invoice" | "charge_automatically",
                         )
                       }
@@ -1012,6 +1091,140 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                     </Button>
                   )}
                 </div>
+              </div>
+            )}
+
+            {invoice && invoice.status !== "paid" && (
+              <div className="space-y-3 rounded-md border p-3 bg-muted/20 mt-4">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <Tag className="h-3 w-3" />
+                  Discount / Promo Code
+                </h4>
+
+                {invoice.couponCode ? (
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary truncate">
+                        {invoice.couponCode}
+                      </Badge>
+                      <span className="text-muted-foreground text-xs truncate">
+                        ({formatCurrency(invoice.discountAmount || 0)} off)
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2 font-normal"
+                      onClick={handleRemoveDiscount}
+                      disabled={isApplyingDiscount}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid gap-2 grid-cols-3">
+                      <div className="col-span-2">
+                        <Input
+                          placeholder="Code (e.g. SAVE20)"
+                          value={couponCode}
+                          onChange={(e) => setCouponCode(e.target.value)}
+                          className="h-8 text-xs uppercase"
+                        />
+                      </div>
+                      <div>
+                        <Select
+                          value={discountType}
+                          onValueChange={(val) => setDiscountType(val as "percent" | "amount")}
+                        >
+                          <SelectTrigger className="h-8 text-xs px-2">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="percent" className="text-xs">% Off</SelectItem>
+                            <SelectItem value="amount" className="text-xs">$ Off</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <div className="flex-1">
+                        <Input
+                          type="number"
+                          placeholder={discountType === "percent" ? "Percentage (e.g. 20)" : "Amount (e.g. 15)"}
+                          value={discountValue}
+                          onChange={(e) => setDiscountValue(e.target.value === "" ? "" : Number(e.target.value))}
+                          className="h-8 text-xs"
+                          min={1}
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={handleApplyDiscount}
+                        disabled={isApplyingDiscount}
+                      >
+                        {isApplyingDiscount ? "Applying..." : "Apply"}
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 pt-2 border-t mt-2">
+                      <span className="text-[10px] text-muted-foreground w-full font-medium">Quick Presets:</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        className="text-[10px] h-6 px-1.5"
+                        onClick={() => {
+                          setCouponCode("10PERCENT");
+                          setDiscountType("percent");
+                          setDiscountValue(10);
+                        }}
+                      >
+                        10% Off
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        className="text-[10px] h-6 px-1.5"
+                        onClick={() => {
+                          setCouponCode("20PERCENT");
+                          setDiscountType("percent");
+                          setDiscountValue(20);
+                        }}
+                      >
+                        20% Off
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        className="text-[10px] h-6 px-1.5"
+                        onClick={() => {
+                          setCouponCode("25OFF");
+                          setDiscountType("amount");
+                          setDiscountValue(25);
+                        }}
+                      >
+                        $25 Off
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        className="text-[10px] h-6 px-1.5"
+                        onClick={() => {
+                          setCouponCode("50OFF");
+                          setDiscountType("amount");
+                          setDiscountValue(50);
+                        }}
+                      >
+                        $50 Off
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

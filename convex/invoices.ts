@@ -61,6 +61,8 @@ const invoiceCreateArgs = {
   remainingBalanceCollectionMethod: v.optional(
     remainingBalanceCollectionMethodValidator,
   ),
+  couponCode: v.optional(v.string()),
+  discountAmount: v.optional(v.number()),
 } as const;
 
 async function requireInvoiceReadAccess(
@@ -723,5 +725,62 @@ export const getSummaryStats = query({
       pending,
       completed,
     };
+  },
+});
+
+export const updateDiscount = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+    couponCode: v.string(),
+    discountAmount: v.number(),
+    total: v.number(),
+    remainingBalance: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const invoice = await ctx.db.get(args.invoiceId);
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+    if (invoice.status === "paid") {
+      throw new Error("Paid invoices cannot be edited");
+    }
+    await ctx.db.patch(args.invoiceId, {
+      couponCode: args.couponCode,
+      discountAmount: args.discountAmount,
+      total: args.total,
+      remainingBalance: args.remainingBalance,
+      stripeInvoiceId: undefined,
+      stripeInvoiceUrl: undefined,
+      finalPaymentIntentId: undefined,
+      status: invoice.depositPaid ? "draft" : invoice.status,
+    });
+  },
+});
+
+export const removeDiscount = internalMutation({
+  args: {
+    invoiceId: v.id("invoices"),
+  },
+  handler: async (ctx, args) => {
+    const invoice = await ctx.db.get(args.invoiceId);
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+    if (invoice.status === "paid") {
+      throw new Error("Paid invoices cannot be edited");
+    }
+    const originalTotal = invoice.subtotal + invoice.tax;
+    const newRemainingBalance = Math.max(0, originalTotal - (invoice.depositAmount || 0));
+
+    await ctx.db.patch(args.invoiceId, {
+      couponCode: undefined,
+      discountAmount: undefined,
+      total: originalTotal,
+      remainingBalance: newRemainingBalance,
+      stripeInvoiceId: undefined,
+      stripeInvoiceUrl: undefined,
+      finalPaymentIntentId: undefined,
+      status: invoice.depositPaid ? "draft" : invoice.status,
+    });
   },
 });

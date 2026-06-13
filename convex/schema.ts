@@ -548,6 +548,8 @@ const schema = defineSchema({
     remainingBalanceCollectionMethod: v.optional(
       v.union(v.literal("send_invoice"), v.literal("charge_automatically")),
     ),
+    couponCode: v.optional(v.string()),
+    discountAmount: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_appointment", ["appointmentId"])
