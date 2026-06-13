@@ -1,58 +1,86 @@
 # Changelog
 
-All notable changes to River City Mobile Detailing are documented in this file.
+All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
-## Unreleased
+---
 
-### Changed
-
-- Filter booking services, add-ons, and subscriptions by the selected vehicle type across marketing-site and dashboard booking flows.
-- Calculate multi-vehicle booking totals and appointment duration from each selected service per vehicle, including vehicle-type pricing rows and pet-fee time.
-
-### Fixed
-
-- Kept draft checkout duration recalculation aligned with multi-vehicle service duration blocking.
-
-## [0.1.1] - 2026-06-04
-
-### Changed
-
-- Upgraded checkout, pnpm setup, and Node setup GitHub Actions to Node.js 24-native releases.
-
-### Fixed
-
-- Removed the GitHub Actions Node.js 20 deprecation warning ahead of the June 16, 2026 default-runtime change.
-
-## [0.1.0] - 2026-06-04
-
+## [v1.0.0] - 2026-06-13
 ### Added
+- **Coupon Dashboard**: Built a coupons administration panel (`/admin/coupons`) with stats summaries (total coupons, active coupons, and total redemptions) and a dialog to create/delete coupons on Stripe.
+- **On-the-Fly Coupon Creation**: Added a "Quick Discount" selector in Invoice/Appointment details, supporting automatic creation of Stripe coupons on application if they don't exist.
+- **Navigation Integration**: Linked the Coupons dashboard in both desktop and mobile sidebars (using Lucide's ticket icon).
+- **Contiguous Travel Sliders**: Integrated interactive double-thumb range sliders directly inside Tier 1 and Tier 2 travel fee cards.
+- **Smart Range Validation**: Added real-time contiguous validation checks inside travel rules to prevent saving if gaps or overlaps exist between tiers.
+- **Appointments Pricing Sync**: Updated appointments list view to show invoice-specific discounted totals and render cancelled appointments as `$0.00` in red alongside crossed-out original prices.
+- **Test Coverage**: Added comprehensive integration test suites for coupon voiding, reissuing, and db updates.
 
-- Added admin-managed vehicle types with inline creation from service pricing.
-- Added per-vehicle-type pricing, availability, and appointment duration for services, subscriptions, and add-ons.
-- Added vehicle search and classification using FuelEconomy.gov with NHTSA vPIC fallback.
-- Added reusable vehicle autocomplete across onboarding and booking flows.
-- Added optional customer before-photo uploads backed by Cloudflare R2.
-- Added an admin before-photo gallery grouped by vehicle with full-size previews.
-- Added before-photo counts and direct appointment links to admin booking email and SMS notifications.
-- Added Radar-backed address selection and server-verified travel fee calculation.
-- Added travel fees that begin at $40 for 25 miles and increase by $40 for each additional 50-mile band.
-- Added a 12-hour minimum booking lead time and duration-aware 30-minute travel buffers between appointments.
-- Added dedicated pages for creating and editing services.
+---
 
-### Changed
+## [v0.8.0] - 2026-05-15 to 2026-06-12
+### Added
+- **In-Progress Adjustments**: Supported adjusting services, vehicles, and prices on appointments already marked "in-progress" before invoicing.
+- **Booking Photo Previews**: Surfaced vehicle "before" photos and counts directly inside the admin appointment list rows.
+- **Trip Log Automation**: Added automated backfills of required trip logs for completed appointments.
+- **Isolated Service Editing**: Moved service editing panels to dedicated sub-routes instead of inline modals.
 
-- Refactored product creation from fixed Small, Medium, and Large pricing fields to a vehicle-type pricing editor.
-- Updated booking totals and durations to use the selected vehicle, service pricing matrix, add-ons, pet fees, and travel fees.
-- Updated onboarding to collect personal information, Radar-verified service address, and searchable vehicles in a shorter flow.
-- Updated dashboard appointment booking to default to the customer's saved address while allowing a new Radar-verified address.
-- Kept legacy Small, Medium, and Large pricing fields populated for landing-page and rollout compatibility.
-- Upgraded Convex from 1.31.2 to 1.40.0.
+---
 
-### Fixed
+## [v0.7.0] - 2026-04-10 to 2026-05-14
+### Added
+- **Configurable Travel Origin**: Allowed admins to change coordinates and starting addresses for travel calculations.
+- **Configurable Travel Rates**: Enabled per-mile rate configuration fields for travel pricing.
+- **Travel Buffers**: Added travel buffer times dynamically for long-distance bookings.
+- **Out-of-Area Workflow**: Built review workflows and deposit detail reviews for booking drafts outside the service radius.
 
-- Prevented low-confidence vehicle classifications from silently receiving Car pricing.
-- Prevented appointment slots from overlapping when service duration, pet-fee time, and travel buffers are considered.
-- Fixed vehicle autocomplete so searches work without entering a year first and results close after selection.
-- Fixed onboarding authentication and redirect loops.
-- Fixed dashboard invoice queries running before Convex authentication is ready.
-- Improved preview authentication and deployment stability.
+---
+
+## [v0.6.0] - 2026-03-01 to 2026-04-09
+### Added
+- **Booking Flow Relocation**: Moved scheduling flow to a clean, public `/book` route.
+- **Clerk Public Routes**: Configured middleware to allow unauthenticated access to the booking funnel.
+- **Accordion Selection**: Redesigned the vehicles and services selection step into collapsible accordions.
+- **Vehicle Suggestion Cleanup**: Removed redundant EPA/NHTSA classification tags from vehicle search suggestions.
+
+---
+
+## [v0.5.0] - 2026-01-24 to 2026-02-28
+### Added
+- **Vehicle-Size Pricing**: Implemented SUV/Truck/Car pricing tiers for detailing packages and add-ons.
+- **Vehicle Filtering**: Filtered available booking products based on selected vehicle types.
+- **UI Polish**: Clamped service description lengths in admin lists and resolved duration sync issues.
+
+---
+
+## [v0.4.0] - 2026-01-01 to 2026-01-23
+### Added
+- **Clerk Auth Migration**: Migrated from custom `@convex-dev/auth` schema to Clerk authentication.
+- **Clerk Onboarding**: Set up onboarding redirect layouts and mapped user role permissions to Clerk `publicMetadata`.
+- **Role Assignment**: Created organization-based role checking middleware to redirect authenticated users.
+- **Webhook Sync**: Added Clerk webhook handlers to create, update, and delete corresponding Convex user records.
+
+---
+
+## [v0.3.0] - 2025-12-08 to 2025-12-31
+### Added
+- **Radar address autocomplete**: Integrated Radar SDK address selection inside booking modals.
+- **Post-Deposit Stripe Invoices**: Automated Stripe invoice creation after deposit payment completes.
+- **Integration Test Setup**: Added compatibility mocks for Response objects and fetch endpoints in vitest suites.
+- **Unified Address Fields**: Standardized address forms across customer dashboard.
+
+---
+
+## [v0.2.0] - 2025-11-07 to 2025-12-07
+### Added
+- **Resend Email Integration**: Configured Resend email infrastructure for customer confirmations.
+- **Email Testing**: Created localhost mock email delivery tools.
+- **Time Slot Blocking**: Implemented 2-hour slot blocking rules for 90-minute services.
+- **Business Hours Setup**: Created admin configuration pages for business availability settings.
+
+---
+
+## [v0.1.0] - 2025-10-09 to 2025-11-06
+### Added
+- **Platform Base**: Initial repository setup and Convex table structures.
+- **Booking Funnel**: Developed multi-step booking forms (replacing external cal.com embedding).
+- **Stripe Mappings**: Mapped user sign-ups to Stripe customer registration profiles.
+- **Admin CRUD**: Built initial user and service management views.
