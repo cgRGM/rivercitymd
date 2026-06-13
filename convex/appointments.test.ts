@@ -24,7 +24,11 @@ async function expectConvexErrorCode(
 describe("appointments", () => {
   async function createAdjustmentFixture(
     t: any,
-    options: { invoiceStatus?: "draft" | "open" | "paid"; depositPaid?: boolean } = {},
+    options: {
+      appointmentStatus?: "pending" | "confirmed" | "in_progress" | "completed";
+      invoiceStatus?: "draft" | "sent" | "paid" | "overdue";
+      depositPaid?: boolean;
+    } = {},
   ) {
     await seedBookingSetup(t, {
       includeBookableService: false,
@@ -135,7 +139,9 @@ describe("appointments", () => {
     );
 
     await t.run(async (ctx: any) => {
-      await ctx.db.patch(appointmentId, { status: "confirmed" });
+      await ctx.db.patch(appointmentId, {
+        status: options.appointmentStatus ?? "confirmed",
+      });
       await ctx.db.patch(invoiceId, {
         status: options.invoiceStatus ?? "draft",
         depositPaid: options.depositPaid ?? false,
@@ -546,6 +552,35 @@ describe("appointments", () => {
       durationDelta: 30,
       invoiceAction: "updated_open_invoice",
     });
+  });
+
+  test("work adjustment is available before an appointment is confirmed", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      vehicleId,
+      baseServiceId,
+    } = await createAdjustmentFixture(t, { appointmentStatus: "pending" });
+
+    const result = await asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId],
+      petFeeVehicleIds: [vehicleId],
+      reason: "Pet hair added before confirmation",
+    });
+
+    expect(result.invoiceAction).toBe("updated_open_invoice");
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db.get(invoiceId);
+      return { appointment, invoice };
+    });
+    expect(updated.appointment?.status).toBe("pending");
+    expect(updated.appointment?.totalPrice).toBe(150);
+    expect(updated.invoice?.total).toBe(150);
   });
 
   test("work adjustment can add another saved vehicle", async () => {
