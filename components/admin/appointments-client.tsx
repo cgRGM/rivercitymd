@@ -57,6 +57,7 @@ type AppointmentRecord = {
   tripLogStatus: "required" | "draft" | "completed" | null;
   tripLogId?: Id<"tripLogs">;
   tripLogRequiredReason?: "completed_without_log";
+  invoiceTotal?: number;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -372,11 +373,36 @@ export default function AppointmentsClient({}: Props) {
         );
       },
       cell: ({ row }) => {
-        const formatted = new Intl.NumberFormat("en-US", {
+        const appointment = row.original;
+        const priceToDisplay = appointment.invoiceTotal !== undefined ? appointment.invoiceTotal : appointment.totalPrice;
+        const isCancelled = appointment.status === "cancelled";
+
+        const formattedActual = new Intl.NumberFormat("en-US", {
           style: "currency",
           currency: "USD",
-        }).format(row.original.totalPrice);
-        return <div className="text-right font-medium">{formatted}</div>;
+        }).format(isCancelled ? 0 : priceToDisplay);
+
+        const formattedOriginal = new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(priceToDisplay);
+
+        return (
+          <div className="text-right font-medium">
+            {isCancelled ? (
+              <div className="flex flex-col items-end">
+                <span className="text-muted-foreground line-through text-xs font-normal">
+                  {formattedOriginal}
+                </span>
+                <span className="text-destructive font-semibold">
+                  {formattedActual}
+                </span>
+              </div>
+            ) : (
+              <span>{formattedActual}</span>
+            )}
+          </div>
+        );
       },
     },
     {

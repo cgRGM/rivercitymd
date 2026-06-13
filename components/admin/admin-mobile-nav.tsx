@@ -16,6 +16,7 @@ import {
   Settings,
   Star,
   Users,
+  Ticket,
 } from "lucide-react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -69,6 +70,11 @@ const navItems = [
     title: "Payments",
     icon: CreditCard,
     href: "/admin/payments",
+  },
+  {
+    title: "Coupons",
+    icon: Ticket,
+    href: "/admin/coupons",
   },
   {
     title: "Reviews",

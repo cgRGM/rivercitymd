@@ -2389,6 +2389,10 @@ export const listWithDetails = query({
           .query("tripLogs")
           .withIndex("by_appointment", (q) => q.eq("appointmentId", apt._id))
           .first();
+        const invoice = await ctx.db
+          .query("invoices")
+          .withIndex("by_appointment", (q) => q.eq("appointmentId", apt._id))
+          .first();
 
         return {
           ...apt,
@@ -2405,6 +2409,7 @@ export const listWithDetails = query({
               ? "completed_without_log"
               : undefined,
           tripLogId: linkedLog?._id,
+          invoiceTotal: invoice?.total,
         };
       }),
     );

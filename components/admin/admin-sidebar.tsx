@@ -17,6 +17,7 @@ import {
   Star,
   FileText,
   FlaskConical,
+  Ticket,
 } from "lucide-react";
 import { SignOutButton } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
@@ -83,6 +84,11 @@ const menuItems = [
     title: "Payments",
     icon: CreditCard,
     href: "/admin/payments",
+  },
+  {
+    title: "Coupons",
+    icon: Ticket,
+    href: "/admin/coupons",
   },
   {
     title: "Reviews",
