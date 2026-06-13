@@ -32,6 +32,7 @@ import {
   Percent,
   Ticket,
 } from "lucide-react";
+import { normalizeStripeCouponCode } from "@/convex/lib/coupons";
 
 interface StripeCoupon {
   id: string;
@@ -85,7 +86,8 @@ export default function CouponsClient() {
 
   const handleCreateCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!couponCode.trim()) {
+    const normalizedCouponCode = normalizeStripeCouponCode(couponCode);
+    if (!normalizedCouponCode) {
       toast.error("Coupon code is required");
       return;
     }
@@ -96,13 +98,13 @@ export default function CouponsClient() {
 
     setIsSubmitting(true);
     try {
-      await createCoupon({
-        couponCode: couponCode.trim().toUpperCase(),
+      const result = await createCoupon({
+        couponCode: normalizedCouponCode,
         discountType,
         discountValue: Number(discountValue),
         duration,
       });
-      toast.success(`Coupon ${couponCode.toUpperCase()} created successfully`);
+      toast.success(`Coupon ${result.id} created successfully`);
       setShowCreateDialog(false);
       
       // Reset form
@@ -150,6 +152,7 @@ export default function CouponsClient() {
   const totalCoupons = coupons?.length || 0;
   const activeCouponsCount = coupons?.filter((c) => c.valid).length || 0;
   const totalRedemptions = coupons?.reduce((sum, c) => sum + (c.times_redeemed || 0), 0) || 0;
+  const normalizedCouponPreview = normalizeStripeCouponCode(couponCode);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -335,7 +338,11 @@ export default function CouponsClient() {
                 required
               />
               <p className="text-[10px] text-muted-foreground">
-                This is the code your customers will use and must be unique.
+                Spaces and symbols are saved as underscores. Customers will use{" "}
+                <span className="font-mono font-medium">
+                  {normalizedCouponPreview || "THIS_FORMAT"}
+                </span>
+                .
               </p>
             </div>
 

@@ -2635,6 +2635,56 @@ describe("payments", () => {
     );
   });
 
+  test("createStripeCoupon normalizes spaces for Stripe coupon ids", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-coupon@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-coupon@test.com",
+    });
+    const couponBodies: string[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        const body =
+          options?.body instanceof URLSearchParams
+            ? options.body.toString()
+            : typeof options?.body === "string"
+              ? options.body
+              : "";
+
+        if (urlString.endsWith("/coupons") && options?.method === "POST") {
+          couponBodies.push(body);
+          return {
+            ok: true,
+            json: async () => ({ id: "25_REVIEW" }),
+          } as Response;
+        }
+
+        return { ok: true, json: async () => ({ id: "stripe_test_123" }) } as Response;
+      }),
+    );
+
+    const result = await asAdmin.action(api.payments.createStripeCoupon, {
+      couponCode: "25 REVIEW",
+      discountType: "amount",
+      discountValue: 25,
+      duration: "once",
+    });
+
+    expect(result).toEqual({ success: true, id: "25_REVIEW" });
+    expect(couponBodies[0]).toContain("id=25_REVIEW");
+    expect(couponBodies[0]).toContain("amount_off=2500");
+  });
+
   test("applyCouponToInvoice and removeDiscountFromInvoice", async () => {
     const t = convexTest(schema, modules);
     const userId = await createTestUser(t, true);
@@ -2734,7 +2784,7 @@ describe("payments", () => {
     // 1. Apply a coupon
     const applyResult = await asAdmin.action(api.payments.applyCouponToInvoice, {
       invoiceId,
-      couponCode: "SAVE20",
+      couponCode: "25 REVIEW",
       discountType: "percent",
       discountValue: 20,
     });
@@ -2746,7 +2796,7 @@ describe("payments", () => {
 
     // Verify database was updated
     let invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
-    expect(invoice?.couponCode).toBe("SAVE20");
+    expect(invoice?.couponCode).toBe("25_REVIEW");
     expect(invoice?.discountAmount).toBe(20);
     expect(invoice?.total).toBe(80);
     expect(invoice?.remainingBalance).toBe(30);

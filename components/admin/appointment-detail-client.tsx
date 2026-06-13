@@ -52,6 +52,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { formatDateStringLong } from "@/lib/time";
+import { normalizeStripeCouponCode } from "@/convex/lib/coupons";
 
 type Props = {
   appointmentId: Id<"appointments">;
@@ -150,7 +151,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
 
   const handleApplyDiscount = async () => {
     if (!invoice) return;
-    if (!couponCode.trim()) {
+    const normalizedCouponCode = normalizeStripeCouponCode(couponCode);
+    if (!normalizedCouponCode) {
       toast.error("Please enter a coupon code");
       return;
     }
@@ -163,7 +165,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     try {
       await applyCouponToInvoice({
         invoiceId: invoice._id,
-        couponCode: couponCode.trim().toUpperCase(),
+        couponCode: normalizedCouponCode,
         discountType,
         discountValue: Number(discountValue),
       });
@@ -518,6 +520,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const services = typedServices;
   const vehicles = typedVehicles;
   const adjustmentVehicles = customerVehicles.length > 0 ? customerVehicles : vehicles;
+  const normalizedCouponPreview = normalizeStripeCouponCode(couponCode);
   const beforePhotoGroups = Object.entries(
     beforePhotos.reduce<
       Record<string, AppointmentBeforePhoto[]>
@@ -624,6 +627,15 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
           </p>
         </div>
       )}
+      {["confirmed", "in_progress"].includes(data.status) &&
+        invoice &&
+        invoice.status !== "paid" && (
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-100">
+            Apply discounts or work changes before marking this appointment complete.
+            Completing the appointment can trigger final balance collection and locks
+            paid invoices for tax/payment accuracy.
+          </div>
+        )}
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Customer Info */}
@@ -1131,6 +1143,14 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                           onChange={(e) => setCouponCode(e.target.value)}
                           className="h-8 text-xs uppercase"
                         />
+                        {couponCode.trim() && (
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            Saves as{" "}
+                            <span className="font-mono">
+                              {normalizedCouponPreview || "COUPON"}
+                            </span>
+                          </p>
+                        )}
                       </div>
                       <div>
                         <Select

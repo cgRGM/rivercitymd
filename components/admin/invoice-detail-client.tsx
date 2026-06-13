@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { formatDateString } from "@/lib/time";
+import { normalizeStripeCouponCode } from "@/convex/lib/coupons";
 
 type Props = {
   invoiceId: Id<"invoices">;
@@ -117,7 +118,8 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
 
   const handleApplyDiscount = async () => {
     if (!invoice) return;
-    if (!couponCode.trim()) {
+    const normalizedCouponCode = normalizeStripeCouponCode(couponCode);
+    if (!normalizedCouponCode) {
       toast.error("Please enter a coupon code");
       return;
     }
@@ -130,7 +132,7 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
     try {
       await applyCouponToInvoice({
         invoiceId: invoice._id,
-        couponCode: couponCode.trim().toUpperCase(),
+        couponCode: normalizedCouponCode,
         discountType,
         discountValue: Number(discountValue),
       });
@@ -164,6 +166,7 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
       setIsApplyingDiscount(false);
     }
   };
+  const normalizedCouponPreview = normalizeStripeCouponCode(couponCode);
 
   useEffect(() => {
     if (!invoice) return;
@@ -441,6 +444,14 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                       onChange={(e) => setCouponCode(e.target.value)}
                       className="uppercase"
                     />
+                    {couponCode.trim() && (
+                      <p className="text-xs text-muted-foreground">
+                        Saves as{" "}
+                        <span className="font-mono">
+                          {normalizedCouponPreview || "COUPON"}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="discount-type">Discount Type</Label>
