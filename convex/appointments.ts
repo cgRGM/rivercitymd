@@ -1160,8 +1160,10 @@ export const applyWorkAdjustment = mutation({
 
     const appointment = await ctx.db.get(args.appointmentId);
     if (!appointment) throw new Error("Appointment not found");
-    if (!["confirmed", "in_progress"].includes(appointment.status)) {
-      throw new Error("Only confirmed or in-progress appointments can be adjusted.");
+    if (!["pending", "confirmed", "in_progress"].includes(appointment.status)) {
+      throw new Error(
+        "Only pending, confirmed, or in-progress appointments can be adjusted.",
+      );
     }
 
     const oldPetFeeVehicleIds = appointment.petFeeVehicleIds ?? [];

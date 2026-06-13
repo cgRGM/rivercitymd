@@ -530,7 +530,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       return groups;
     }, {}),
   );
-  const canEdit = data.status === "pending" || data.status === "confirmed";
+  const canEdit = ["pending", "confirmed", "in_progress"].includes(data.status);
   const canEditBilling =
     !!invoice &&
     (invoice.paymentOption ?? "deposit") === "deposit" &&
@@ -556,7 +556,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
               Edit
             </Button>
           )}
-          {["confirmed", "in_progress"].includes(data.status) && !editing && (
+          {canEdit && !editing && (
             <Button size="sm" variant="outline" onClick={startWorkAdjustment}>
               <Wrench className="mr-2 h-4 w-4" />
               Adjust Work
@@ -623,17 +623,20 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       {data.status === "pending" && invoice?.depositPaid && (
         <div className="rounded-md border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-800 p-4">
           <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">
-            Deposit paid — review details and confirm to generate the Stripe invoice for the remaining balance.
+            Deposit paid — you can still edit the appointment, adjust work, or
+            apply discounts before completion. Confirming keeps the job moving
+            and generates the Stripe invoice for the remaining balance.
           </p>
         </div>
       )}
-      {["confirmed", "in_progress"].includes(data.status) &&
+      {canEdit &&
         invoice &&
         invoice.status !== "paid" && (
           <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-100">
-            Apply discounts or work changes before marking this appointment complete.
-            Completing the appointment can trigger final balance collection and locks
-            paid invoices for tax/payment accuracy.
+            You can edit appointment details, adjust work, and apply discounts
+            until completion. Complete only after the invoice reflects the final
+            work, because completion can trigger final balance collection and
+            locks paid invoices for tax/payment accuracy.
           </div>
         )}
 
