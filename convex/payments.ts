@@ -12,6 +12,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { stripeClient } from "./stripeClient";
 import { BOOKING_BLOCK_MINUTES } from "./lib/booking";
+import { validateCouponInput } from "./lib/coupons";
 import { assertRateLimit, normalizeRateLimitKey } from "./rateLimiter";
 
 const paymentsInternal: any = (internal as any).payments;
@@ -50,10 +51,17 @@ async function stripeApiCall(endpoint: string, options: RequestInit = {}) {
 
       if (!response.ok) {
         const error = await response.text();
+        let stripeMessage = error;
+        try {
+          const parsed = JSON.parse(error);
+          stripeMessage = parsed?.error?.message || error;
+        } catch {
+          // Keep the raw Stripe body when it is not JSON.
+        }
         const shouldRetry =
           response.status === 429 || response.status >= 500;
         const stripeError = new Error(
-          `Stripe API error: ${response.status} ${error}`,
+          `Stripe API error: ${response.status} ${stripeMessage}`,
         );
 
         if (!shouldRetry || attempt === STRIPE_API_MAX_ATTEMPTS) {
@@ -1769,6 +1777,7 @@ export const applyCouponToInvoice = action({
     stripeInvoiceUrl?: string;
   }> => {
     await requireAdminRole(ctx);
+    const couponInput = validateCouponInput(args);
 
     const invoice: any = await ctx.runQuery(internal.invoices.getByIdInternal, {
       invoiceId: args.invoiceId,
@@ -1783,39 +1792,39 @@ export const applyCouponToInvoice = action({
     // 1. Check if Coupon exists in Stripe. If not, create it.
     let couponExists = false;
     try {
-      await stripeApiCall(`coupons/${encodeURIComponent(args.couponCode)}`, {
+      await stripeApiCall(`coupons/${encodeURIComponent(couponInput.couponCode)}`, {
         method: "GET",
       });
       couponExists = true;
     } catch {
-      console.log(`[payments] Coupon ${args.couponCode} not found in Stripe, will attempt to create it.`);
+      console.log(`[payments] Coupon ${couponInput.couponCode} not found in Stripe, will attempt to create it.`);
     }
 
     if (!couponExists) {
       const bodyParams = new URLSearchParams({
-        id: args.couponCode,
-        name: args.couponCode,
+        id: couponInput.couponCode,
+        name: couponInput.couponCode,
         duration: "once",
       });
       if (args.discountType === "percent") {
-        bodyParams.append("percent_off", args.discountValue.toString());
+        bodyParams.append("percent_off", couponInput.discountValue.toString());
       } else {
-        bodyParams.append("amount_off", Math.round(args.discountValue * 100).toString());
+        bodyParams.append("amount_off", Math.round(couponInput.discountValue * 100).toString());
         bodyParams.append("currency", "usd");
       }
       await stripeApiCall("coupons", {
         method: "POST",
         body: bodyParams,
       });
-      console.log(`[payments] Successfully created Stripe coupon ${args.couponCode}`);
+      console.log(`[payments] Successfully created Stripe coupon ${couponInput.couponCode}`);
     }
 
     // 2. Calculate local discount values
     let discountAmount = 0;
     if (args.discountType === "percent") {
-      discountAmount = parseFloat((invoice.subtotal * (args.discountValue / 100)).toFixed(2));
+      discountAmount = parseFloat((invoice.subtotal * (couponInput.discountValue / 100)).toFixed(2));
     } else {
-      discountAmount = Math.min(args.discountValue, invoice.subtotal);
+      discountAmount = Math.min(couponInput.discountValue, invoice.subtotal);
     }
 
     const newTotal = parseFloat((invoice.subtotal + invoice.tax - discountAmount).toFixed(2));
@@ -1833,7 +1842,7 @@ export const applyCouponToInvoice = action({
     // 4. Update the local invoice in Convex
     await ctx.runMutation(internal.invoices.updateDiscount, {
       invoiceId: args.invoiceId,
-      couponCode: args.couponCode,
+      couponCode: couponInput.couponCode,
       discountAmount,
       total: newTotal,
       remainingBalance: newRemainingBalance,
@@ -2894,17 +2903,18 @@ export const createStripeCoupon = action({
   }),
   handler: async (ctx, args): Promise<{ success: boolean; id: string }> => {
     await requireAdminRole(ctx);
+    const couponInput = validateCouponInput(args);
 
     const bodyParams = new URLSearchParams({
-      id: args.couponCode.trim().toUpperCase(),
-      name: args.couponCode.trim().toUpperCase(),
+      id: couponInput.couponCode,
+      name: couponInput.couponCode,
       duration: args.duration,
     });
 
     if (args.discountType === "percent") {
-      bodyParams.append("percent_off", args.discountValue.toString());
+      bodyParams.append("percent_off", couponInput.discountValue.toString());
     } else {
-      bodyParams.append("amount_off", Math.round(args.discountValue * 100).toString());
+      bodyParams.append("amount_off", Math.round(couponInput.discountValue * 100).toString());
       bodyParams.append("currency", "usd");
     }
 
