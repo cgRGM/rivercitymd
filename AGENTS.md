@@ -1,3 +1,13 @@
+<!-- intent-skills:start -->
+## Skill Loading
+
+Before substantial work:
+- Skill check: run `pnpm dlx @tanstack/intent@latest list`, or use skills already listed in context.
+- Skill guidance: if one local skill clearly matches the task, run `pnpm dlx @tanstack/intent@latest load <package>#<skill>` and follow the returned `SKILL.md`.
+- Monorepos: when working across packages, run the skill check from the workspace root and prefer the local skill for the package being changed.
+- Multiple matches: prefer the most specific local skill for the package or concern you are changing; load additional skills only when the task spans multiple packages or concerns.
+<!-- intent-skills:end -->
+
 ---
 applyTo: "**/*.{ts,tsx,js,jsx}"
 ---
@@ -344,24 +354,72 @@ Avoid unrelated refactors.
 
 Changes must stay focused on the Issue.
 
----
-
 # Agent Skill Routing
 
-Agents should inspect `.agents/skills` before implementing work.
+Before implementing any work, agents must inspect `.agents/skills` to check if a specific guideline matches their task. Below is a categorized directory of available workspace skills:
 
-| Domain                      | Path                                         | Purpose                          |
-| --------------------------- | -------------------------------------------- | -------------------------------- |
-| Copywriting                 | `.agents/skills/copywriting`                 | Marketing copy frameworks        |
-| Programmatic SEO            | `.agents/skills/programmatic-seo`            | SEO page generation              |
-| SEO Audit                   | `.agents/skills/seo-audit`                   | Technical SEO diagnostics        |
-| Email Best Practices        | `.agents/skills/email-best-practices`        | Deliverability & compliance      |
-| Frontend Design             | `.agents/skills/frontend-design`             | UI design guidance               |
-| Vercel Composition Patterns | `.agents/skills/vercel-composition-patterns` | React composition                |
-| Vercel React Best Practices | `.agents/skills/vercel-react-best-practices` | Next.js performance              |
-| Workflow                    | `.agents/skills/workflow`                    | Reserved for workflow automation |
+### 🗄️ Backend & Database (Convex)
+*   **Convex Routing**: `.agents/skills/convex` — Umbrella skill for all database logic.
+*   **Zen of Convex**: `.agents/skills/convex-best-practices` — Architectural guidelines.
+*   **Functions & Endpoints**: `.agents/skills/convex-functions` — Queries, mutations, and actions.
+*   **Schema & Validations**: `.agents/skills/convex-schema-validator` — Types and DB index rules.
+*   **Realtime Queries**: `.agents/skills/convex-realtime` — Paginated and reactive queries.
+*   **Database Migrations**: `.agents/skills/convex-migrations` — Schema updates and database backfills.
+*   **Background Jobs**: `.agents/skills/convex-cron-jobs` — Cron scheduler and queue parameters.
+*   **Security & Audit**: `.agents/skills/convex-security-check` and `/convex-security-audit` — RLS permissions and API limits.
+*   **Convex Agents**: `.agents/skills/convex-agents` — Thread managers and tool mappings.
+*   **File Storage**: `.agents/skills/convex-file-storage` — Media/image uploads.
+*   **Reusables**: `.agents/skills/convex-component-authoring` — Creating self-contained elements.
+*   **Webhooks**: `.agents/skills/convex-http-actions` — Third-party webhook handling.
 
-Agents must inspect the relevant skill's `SKILL.md` before implementing code.
+### 🎨 Frontend & Styling (Next.js, React, UI)
+*   **Visual Aesthetics**: `.agents/skills/frontend-design` — Designing premium, modern interfaces (avoid generic plain styles).
+*   **W3C/Responsive Audits**: `.agents/skills/web-design-guidelines` — Accessibility guidelines.
+*   **Component Architecture**: `.agents/skills/vercel-composition-patterns` — Compounds and render props.
+*   **Core Performance**: `.agents/skills/vercel-react-best-practices` — Next.js routing and hydration rules.
+*   **Mobile Frameworks**: `.agents/skills/vercel-react-native-skills` — React Native guidelines.
+
+### ✉️ Email & Communication (Resend, React Email)
+*   **Resend Delivery**: `.agents/skills/resend` and `/resend-design-skills` — Transmitting and styling emails.
+*   **HTML Templates**: `.agents/skills/react-email` — Styling responsive layouts with React.
+*   **Sequences**: `.agents/skills/emails` and `/email-best-practices` — Lifecycle and transactional emails.
+*   **Cold Outreach**: `.agents/skills/cold-email` — B2B SDR prospecting sequences.
+
+### 📈 Product Growth & Monetization (SaaS Metrics)
+*   **Pricing Plans**: `.agents/skills/pricing` — Packaging and tier decisions.
+*   **Upgrade Screens**: `.agents/skills/paywalls` — Modals and limits conversions.
+*   **Offboarding**: `.agents/skills/churn-prevention` — Cancel flows.
+*   **Affiliate Loops**: `.agents/skills/referrals` — Partner recommendations.
+*   **Activation Funnels**: `.agents/skills/onboarding` — User activation checklists.
+*   **Scope Restriction**: `.agents/skills/avoid-feature-creep` — Preventing MVP bloat.
+
+### 📣 Marketing & SEO
+*   **ICP & Positioning**: `.agents/skills/product-marketing` — Audience definition and messaging.
+*   **Ad Copy**: `.agents/skills/copywriting` and `/copy-editing` — High-converting landing copy.
+*   **Traditional SEO**: `.agents/skills/seo-audit` — Crawl diagnostics and site speed.
+*   **pSEO Scale**: `.agents/skills/programmatic-seo` — Landing page templates.
+*   **AI Engine Optimization**: `.agents/skills/ai-seo` — Citations in ChatGPT/Claude/Gemini.
+*   **Lead Capture**: `.agents/skills/lead-magnets` — Opt-in PDFs.
+*   **SDR Sourcing**: `.agents/skills/prospecting` — Account qualification.
+*   **Content Channels**: `.agents/skills/social` and `/video` — LinkedIn/X feeds and script generation.
+*   **Sales collateral**: `.agents/skills/sales-enablement` — One-pagers and decks.
+*   **Revenue Pipeline**: `.agents/skills/revops` — Leads scoring.
+*   **Tracking**: `.agents/skills/analytics` — Event tracking.
+
+### 🛠️ Monorepos & Discovery
+*   **Monorepo Tasks**: `.agents/skills/turborepo` — Cache pipelines.
+*   **Finding Skills**: `.agents/skills/find-skills` — Custom extension searches.
+
+Agents must inspect the relevant skill's `SKILL.md` before writing code.
+
+---
+
+# Changelog Update Rule
+
+Whenever any feature, bug fix, or configuration update is merged to `master`, the agent must update `CHANGELOG.md` in the root of the project:
+1. **Group logical changes**: Place changes under semantic release versions (e.g. `v1.0.0` or incremental patch bumps).
+2. **Standard Headers**: Segment updates under `Added`, `Fixed`, or `Changed`.
+3. **Format**: Maintain concise, dated, bulleted items.
 
 ---
 
