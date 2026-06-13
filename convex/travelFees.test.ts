@@ -15,9 +15,9 @@ describe("travelFees", () => {
   });
 
   test("uses tiered fees for estimated travel distance", () => {
-    expect(calculateTravelFeeForMiles(24.9)).toBe(0);
-    expect(calculateTravelFeeForMiles(25)).toBe(30);
-    expect(calculateTravelFeeForMiles(35)).toBe(30);
+    expect(calculateTravelFeeForMiles(20)).toBe(0);
+    expect(calculateTravelFeeForMiles(20.1)).toBe(25);
+    expect(calculateTravelFeeForMiles(35)).toBe(25);
     expect(calculateTravelFeeForMiles(35.1)).toBe(50);
     expect(calculateTravelFeeForMiles(50)).toBe(50);
     expect(calculateTravelFeeForMiles(50.1)).toBe(50.2);
@@ -83,10 +83,10 @@ describe("travelFees", () => {
       originZip: "72701",
       originLatitude: 36.06258,
       originLongitude: -94.15743,
-      freeRadiusMiles: 25,
+      freeRadiusMiles: 20,
       midRangeMaxMiles: 35,
       longRangeMaxMiles: 50,
-      midRangeFee: 30,
+      midRangeFee: 25,
       longRangeFee: 50,
       perMileRateAfterLongRange: 2,
       midRangeBufferMinutes: 30,
@@ -143,10 +143,10 @@ describe("travelFees", () => {
       originCity: "Fayetteville",
       originState: "AR",
       originZip: "72701",
-      freeRadiusMiles: 25,
+      freeRadiusMiles: 20,
       midRangeMaxMiles: 35,
       longRangeMaxMiles: 50,
-      midRangeFee: 30,
+      midRangeFee: 25,
       longRangeFee: 50,
       perMileRateAfterLongRange: 2,
       midRangeBufferMinutes: 30,
@@ -161,9 +161,89 @@ describe("travelFees", () => {
     expect(settings.originLongitude).toBe(-94.15743);
   });
 
+  test("updates fee rules without changing the validated origin", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-update-travel-rules@example.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-update-travel-rules@example.com",
+    });
+
+    await asAdmin.mutation(api.travelFeeSettings.upsert, {
+      originStreet: "100 Origin Rd",
+      originCity: "Fayetteville",
+      originState: "AR",
+      originZip: "72701",
+      originLatitude: 36.06258,
+      originLongitude: -94.15743,
+      freeRadiusMiles: 20,
+      midRangeMaxMiles: 35,
+      longRangeMaxMiles: 50,
+      midRangeFee: 25,
+      longRangeFee: 50,
+      perMileRateAfterLongRange: 2,
+      midRangeBufferMinutes: 30,
+      longRangeBufferMinutes: 60,
+      isActive: true,
+    });
+
+    await asAdmin.mutation(api.travelFeeSettings.updateRules, {
+      freeRadiusMiles: 18,
+      midRangeMaxMiles: 32,
+      longRangeMaxMiles: 52,
+      midRangeFee: 25,
+      longRangeFee: 50,
+      perMileRateAfterLongRange: 2,
+      midRangeBufferMinutes: 30,
+      longRangeBufferMinutes: 60,
+      isActive: true,
+    });
+
+    const settings = await t.query(api.travelFeeSettings.get, {});
+    expect(settings.originStreet).toBe("100 Origin Rd");
+    expect(settings.originLatitude).toBe(36.06258);
+    expect(settings.freeRadiusMiles).toBe(18);
+    expect(settings.midRangeFee).toBe(25);
+  });
+
+  test("rejects overlapping travel fee tiers", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-invalid-travel-rules@example.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-invalid-travel-rules@example.com",
+    });
+
+    await expect(
+      asAdmin.mutation(api.travelFeeSettings.updateRules, {
+        freeRadiusMiles: 20,
+        midRangeMaxMiles: 20,
+        longRangeMaxMiles: 50,
+        midRangeFee: 25,
+        longRangeFee: 50,
+        perMileRateAfterLongRange: 2,
+        midRangeBufferMinutes: 30,
+        longRangeBufferMinutes: 60,
+        isActive: true,
+      }),
+    ).rejects.toThrow("Tier 1 must end");
+  });
+
   test("uses travel buffers for appointment blocking", () => {
-    expect(calculateTravelBufferMinutesForMiles(24.9)).toBe(0);
-    expect(calculateTravelBufferMinutesForMiles(25)).toBe(30);
+    expect(calculateTravelBufferMinutesForMiles(20)).toBe(0);
+    expect(calculateTravelBufferMinutesForMiles(20.1)).toBe(30);
     expect(calculateTravelBufferMinutesForMiles(35)).toBe(30);
     expect(calculateTravelBufferMinutesForMiles(35.1)).toBe(60);
     expect(calculateTravelBufferMinutesForMiles(50)).toBe(60);

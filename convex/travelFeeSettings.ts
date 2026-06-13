@@ -32,11 +32,72 @@ const travelFeeSettingsArgs = {
   isActive: v.boolean(),
 };
 
+const travelFeeRuleArgs = {
+  freeRadiusMiles: v.number(),
+  midRangeMaxMiles: v.number(),
+  longRangeMaxMiles: v.number(),
+  midRangeFee: v.number(),
+  longRangeFee: v.number(),
+  perMileRateAfterLongRange: v.number(),
+  midRangeBufferMinutes: v.number(),
+  longRangeBufferMinutes: v.number(),
+  isActive: v.boolean(),
+};
+
 const travelFeeSettingsWithOriginArgs = {
   ...travelFeeSettingsArgs,
   originLatitude: v.number(),
   originLongitude: v.number(),
 };
+
+type TravelFeeRuleValues = Pick<
+  TravelFeeSettings,
+  | "freeRadiusMiles"
+  | "midRangeMaxMiles"
+  | "longRangeMaxMiles"
+  | "midRangeFee"
+  | "longRangeFee"
+  | "perMileRateAfterLongRange"
+  | "midRangeBufferMinutes"
+  | "longRangeBufferMinutes"
+>;
+
+function assertValidTravelFeeRules(settings: TravelFeeRuleValues) {
+  const numericFields: Array<[keyof TravelFeeRuleValues, string]> = [
+    ["freeRadiusMiles", "Default service cutoff"],
+    ["midRangeMaxMiles", "Tier 1 max miles"],
+    ["longRangeMaxMiles", "Tier 2 max miles"],
+    ["midRangeFee", "Tier 1 fee"],
+    ["longRangeFee", "Tier 2 fee"],
+    ["perMileRateAfterLongRange", "Overage per-mile rate"],
+    ["midRangeBufferMinutes", "Tier 1 travel time"],
+    ["longRangeBufferMinutes", "Tier 2 travel time"],
+  ];
+
+  for (const [field, label] of numericFields) {
+    const value = settings[field];
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      throw new ConvexError({
+        code: "INVALID_TRAVEL_FEE_SETTINGS",
+        message: `${label} must be zero or greater.`,
+      });
+    }
+  }
+
+  if (settings.midRangeMaxMiles < settings.freeRadiusMiles + 1) {
+    throw new ConvexError({
+      code: "INVALID_TRAVEL_FEE_SETTINGS",
+      message: "Tier 1 must end at least 1 mile after the free service cutoff.",
+    });
+  }
+
+  if (settings.longRangeMaxMiles < settings.midRangeMaxMiles + 1) {
+    throw new ConvexError({
+      code: "INVALID_TRAVEL_FEE_SETTINGS",
+      message: "Tier 2 must end at least 1 mile after Tier 1.",
+    });
+  }
+}
 
 async function geocodeOriginAddress(args: {
   originStreet: string;
@@ -111,7 +172,30 @@ export const upsert = mutation({
     await requireAdmin(ctx);
 
     const existing = await ctx.db.query("travelFeeSettings").first();
+    assertValidTravelFeeRules(args);
     const settings = normalizeTravelFeeSettings(args);
+
+    if (existing) {
+      await ctx.db.patch(existing._id, settings);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("travelFeeSettings", settings);
+  },
+});
+
+export const updateRules = mutation({
+  args: travelFeeRuleArgs,
+  returns: v.id("travelFeeSettings"),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const existing = await ctx.db.query("travelFeeSettings").first();
+    assertValidTravelFeeRules(args);
+    const current = normalizeTravelFeeSettings(
+      existing ?? defaultTravelFeeSettings,
+    );
+    const settings = normalizeTravelFeeSettings({ ...current, ...args });
 
     if (existing) {
       await ctx.db.patch(existing._id, settings);
@@ -144,6 +228,7 @@ export const validateOriginAndUpsert = action({
   handler: async (ctx, args): Promise<Id<"travelFeeSettings">> => {
     await requireAdmin(ctx);
 
+    assertValidTravelFeeRules(args);
     const normalized = normalizeTravelFeeSettings(args);
     const coords = await geocodeOriginAddress(normalized);
     const settings: TravelFeeSettings = {

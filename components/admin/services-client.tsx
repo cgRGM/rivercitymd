@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import {
   Dialog,
   DialogContent,
@@ -33,14 +34,21 @@ import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowUpDown,
+  CheckCircle2,
+  Clock,
   Edit,
+  MapPin,
   MoreHorizontal,
   Plus,
+  Route,
   Save,
   Trash2,
   X,
 } from "lucide-react";
 import { DEFAULT_PET_FEE_TIME_MINUTES } from "@/convex/lib/booking";
+import RadarAddressField, {
+  type RadarLocationValue,
+} from "@/components/ui/radar-address-field";
 
 type ServiceRecord = {
   _id: Id<"services">;
@@ -101,8 +109,14 @@ export default function ServicesClient() {
     isActive: true,
   });
   const travelFeeSettings = useQuery(api.travelFeeSettings.get);
-  const updateTravelFeeSettings = useAction(api.travelFeeSettings.validateOriginAndUpsert);
+  const validateTravelFeeOrigin = useAction(
+    api.travelFeeSettings.validateOriginAndUpsert,
+  );
+  const updateTravelFeeRules = useMutation(api.travelFeeSettings.updateRules);
   const [isEditingTravelFee, setIsEditingTravelFee] = useState(false);
+  const [isReplacingTravelOrigin, setIsReplacingTravelOrigin] = useState(false);
+  const [pendingTravelOrigin, setPendingTravelOrigin] =
+    useState<RadarLocationValue | null>(null);
   const [travelFeeValues, setTravelFeeValues] = useState({
     originStreet: "220 N. Tyler St",
     originCity: "Little Rock",
@@ -110,10 +124,10 @@ export default function ServicesClient() {
     originZip: "72205",
     originLatitude: 34.752258,
     originLongitude: -92.329768,
-    freeRadiusMiles: 25,
+    freeRadiusMiles: 20,
     midRangeMaxMiles: 35,
     longRangeMaxMiles: 50,
-    midRangeFee: 30,
+    midRangeFee: 25,
     longRangeFee: 50,
     perMileRateAfterLongRange: 2,
     midRangeBufferMinutes: 30,
@@ -142,6 +156,72 @@ export default function ServicesClient() {
       setTravelFeeValues(travelFeeSettings);
     }
   }, [travelFeeSettings]);
+
+  const travelFeeValidationMessage = useMemo(() => {
+    const requiredNumbers = [
+      travelFeeValues.freeRadiusMiles,
+      travelFeeValues.midRangeMaxMiles,
+      travelFeeValues.longRangeMaxMiles,
+      travelFeeValues.midRangeFee,
+      travelFeeValues.longRangeFee,
+      travelFeeValues.perMileRateAfterLongRange,
+      travelFeeValues.midRangeBufferMinutes,
+      travelFeeValues.longRangeBufferMinutes,
+    ];
+
+    if (requiredNumbers.some((value) => !Number.isFinite(value) || value < 0)) {
+      return "All mile, fee, and travel-time values must be zero or greater.";
+    }
+    if (travelFeeValues.midRangeMaxMiles < travelFeeValues.freeRadiusMiles + 1) {
+      return "Tier 1 must end at least 1 mile after the free service cutoff.";
+    }
+    if (
+      travelFeeValues.longRangeMaxMiles <
+      travelFeeValues.midRangeMaxMiles + 1
+    ) {
+      return "Tier 2 must end at least 1 mile after Tier 1.";
+    }
+    return "";
+  }, [travelFeeValues]);
+
+  const updateTravelNumber = (
+    key:
+      | "freeRadiusMiles"
+      | "midRangeMaxMiles"
+      | "longRangeMaxMiles"
+      | "midRangeFee"
+      | "longRangeFee"
+      | "perMileRateAfterLongRange"
+      | "midRangeBufferMinutes"
+      | "longRangeBufferMinutes",
+    value: number,
+  ) => {
+    setTravelFeeValues((current) => {
+      const next = { ...current, [key]: Number.isFinite(value) ? value : 0 };
+      if (
+        key === "freeRadiusMiles" &&
+        next.midRangeMaxMiles < next.freeRadiusMiles + 1
+      ) {
+        next.midRangeMaxMiles = next.freeRadiusMiles + 1;
+      }
+      if (
+        (key === "freeRadiusMiles" || key === "midRangeMaxMiles") &&
+        next.longRangeMaxMiles < next.midRangeMaxMiles + 1
+      ) {
+        next.longRangeMaxMiles = next.midRangeMaxMiles + 1;
+      }
+      return next;
+    });
+  };
+
+  const resetTravelFeeEditing = () => {
+    setIsEditingTravelFee(false);
+    setIsReplacingTravelOrigin(false);
+    setPendingTravelOrigin(null);
+    if (travelFeeSettings) {
+      setTravelFeeValues(travelFeeSettings);
+    }
+  };
 
   if (servicesQuery === undefined) {
     return (
@@ -237,13 +317,101 @@ export default function ServicesClient() {
   const formatTravelFeePricing = () => {
     const settings = travelFeeSettings ?? travelFeeValues;
     if (!settings.isActive) return "Travel fees off";
-    return `Travel: <${
+    return `Travel: 0-${
       settings.freeRadiusMiles
-    } mi free • $${settings.midRangeFee.toFixed(0)} to ${
+    } mi free • ${settings.freeRadiusMiles + 1}-${
       settings.midRangeMaxMiles
-    } mi • $${settings.longRangeFee.toFixed(0)} to ${
+    } mi $${settings.midRangeFee.toFixed(0)} • ${
+      settings.midRangeMaxMiles + 1
+    }-${
       settings.longRangeMaxMiles
-    } mi • $${settings.perMileRateAfterLongRange.toFixed(2)}/mi after`;
+    } mi $${settings.longRangeFee.toFixed(0)} • $${settings.perMileRateAfterLongRange.toFixed(2)}/mi after`;
+  };
+
+  const travelOriginLabel = [
+    travelFeeValues.originStreet,
+    travelFeeValues.originCity,
+    travelFeeValues.originState,
+    travelFeeValues.originZip,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const pendingOriginParts = () => {
+    const addressLabel = pendingTravelOrigin?.addressLabel ?? "";
+    return {
+      originStreet:
+        pendingTravelOrigin?.street || addressLabel.split(",")[0]?.trim() || "",
+      originCity: pendingTravelOrigin?.city || "",
+      originState: pendingTravelOrigin?.state || "",
+      originZip: pendingTravelOrigin?.postalCode || "",
+    };
+  };
+
+  const travelRulePayload = {
+    freeRadiusMiles: travelFeeValues.freeRadiusMiles,
+    midRangeMaxMiles: travelFeeValues.midRangeMaxMiles,
+    longRangeMaxMiles: travelFeeValues.longRangeMaxMiles,
+    midRangeFee: travelFeeValues.midRangeFee,
+    longRangeFee: travelFeeValues.longRangeFee,
+    perMileRateAfterLongRange: travelFeeValues.perMileRateAfterLongRange,
+    midRangeBufferMinutes: travelFeeValues.midRangeBufferMinutes,
+    longRangeBufferMinutes: travelFeeValues.longRangeBufferMinutes,
+    isActive: travelFeeValues.isActive,
+  };
+
+  const saveTravelFeeRules = async () => {
+    if (travelFeeValidationMessage) {
+      toast.error(travelFeeValidationMessage);
+      return;
+    }
+
+    try {
+      await updateTravelFeeRules(travelRulePayload);
+      setIsEditingTravelFee(false);
+      setIsReplacingTravelOrigin(false);
+      setPendingTravelOrigin(null);
+      toast.success("Travel fee settings updated");
+      router.refresh();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to update travel fee settings";
+      toast.error(message);
+    }
+  };
+
+  const saveTravelOrigin = async () => {
+    if (travelFeeValidationMessage) {
+      toast.error(travelFeeValidationMessage);
+      return;
+    }
+
+    const origin = pendingOriginParts();
+    if (
+      !pendingTravelOrigin ||
+      !origin.originStreet ||
+      !origin.originCity ||
+      !origin.originState ||
+      !origin.originZip
+    ) {
+      toast.error("Select a validated origin address before saving.");
+      return;
+    }
+
+    try {
+      await validateTravelFeeOrigin({
+        ...origin,
+        ...travelRulePayload,
+      });
+      setIsReplacingTravelOrigin(false);
+      setPendingTravelOrigin(null);
+      toast.success("Travel origin validated and saved");
+      router.refresh();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to validate travel origin";
+      toast.error(message);
+    }
   };
 
   const popularityBadgeClass = (popularity?: string) => {
@@ -583,104 +751,339 @@ export default function ServicesClient() {
             </div>
           )}
           {isEditingTravelFee ? (
-            <div className="flex flex-wrap items-end gap-2 rounded-md border p-2">
-              <div className="flex items-center gap-2 pb-2">
-                <Switch
-                  checked={travelFeeValues.isActive}
-                  onCheckedChange={(checked) =>
-                    setTravelFeeValues((current) => ({ ...current, isActive: checked }))
-                  }
-                />
-                <span className="text-sm text-muted-foreground">Travel fee</span>
+            <div className="w-full space-y-4 rounded-md border bg-background p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={travelFeeValues.isActive}
+                      onCheckedChange={(checked) =>
+                        setTravelFeeValues((current) => ({
+                          ...current,
+                          isActive: checked,
+                        }))
+                      }
+                    />
+                    <h3 className="text-sm font-semibold">Travel fee rules</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {formatTravelFeePricing()}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={saveTravelFeeRules}
+                    disabled={Boolean(travelFeeValidationMessage)}
+                  >
+                    <Save className="h-4 w-4" />
+                    Save rules
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={resetTravelFeeEditing}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              {[
-                ["originStreet", "Origin street"],
-                ["originCity", "Origin city"],
-                ["originState", "State"],
-                ["originZip", "ZIP"],
-              ].map(([key, label]) => (
-                <div key={key} className="space-y-1">
-                  <Label className="text-xs">{label}</Label>
-                  <Input
-                    value={travelFeeValues[key as keyof typeof travelFeeValues] as string}
-                    onChange={(event) =>
-                      setTravelFeeValues((current) => ({
-                        ...current,
-                        [key]: event.target.value,
-                      }))
-                    }
-                    className={key === "originStreet" ? "w-44" : "w-24"}
-                  />
+
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                <div className="rounded-md border p-3">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div>
+                        <p className="text-sm font-medium">Validated service origin</p>
+                        <p className="break-words text-sm text-muted-foreground">
+                          {travelOriginLabel}
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="gap-1">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Coordinates saved
+                      </Badge>
+                      {isReplacingTravelOrigin ? (
+                        <div className="space-y-3 pt-1">
+                          <RadarAddressField
+                            label="New origin address"
+                            placeholder="Search for the new starting point"
+                            value={pendingTravelOrigin}
+                            onSelect={setPendingTravelOrigin}
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              onClick={saveTravelOrigin}
+                              disabled={!pendingTravelOrigin}
+                            >
+                              <Save className="h-4 w-4" />
+                              Validate origin
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setIsReplacingTravelOrigin(false);
+                                setPendingTravelOrigin(null);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setIsReplacingTravelOrigin(true)}
+                        >
+                          Replace origin
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              ))}
-              {[
-                ["freeRadiusMiles", "Free under mi", "1"],
-                ["midRangeMaxMiles", "Mid max mi", "1"],
-                ["longRangeMaxMiles", "Long max mi", "1"],
-                ["midRangeFee", "Mid fee", "0.01"],
-                ["longRangeFee", "Long fee", "0.01"],
-                ["perMileRateAfterLongRange", "After long $/mi", "0.01"],
-                ["midRangeBufferMinutes", "Mid min", "5"],
-                ["longRangeBufferMinutes", "Long min", "5"],
-              ].map(([key, label, step]) => (
-                <div key={key} className="space-y-1">
-                  <Label className="text-xs">{label}</Label>
-                  <Input
-                    type="number"
-                    step={step}
-                    value={travelFeeValues[key as keyof typeof travelFeeValues] as number}
-                    onChange={(event) =>
-                      setTravelFeeValues((current) => ({
-                        ...current,
-                        [key]: parseFloat(event.target.value) || 0,
-                      }))
-                    }
-                    className="w-24"
-                  />
+
+                <div className="rounded-md border p-3">
+                  <div className="flex items-start gap-2">
+                    <Route className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                    <div className="min-w-0 flex-1 space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem] sm:items-end">
+                        <div>
+                          <p className="text-sm font-medium">Default service cutoff</p>
+                          <p className="text-xs text-muted-foreground">
+                            0-{travelFeeValues.freeRadiusMiles} miles has no travel fee.
+                            Tier 1 starts at {travelFeeValues.freeRadiusMiles + 1} miles.
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Free through mi</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={travelFeeValues.freeRadiusMiles}
+                            onChange={(event) =>
+                              updateTravelNumber(
+                                "freeRadiusMiles",
+                                Math.floor(Number.parseFloat(event.target.value) || 0),
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                          <span>{travelFeeValues.freeRadiusMiles + 1} mi</span>
+                          <span>{travelFeeValues.midRangeMaxMiles} mi</span>
+                          <span>{travelFeeValues.longRangeMaxMiles} mi</span>
+                        </div>
+                        <Slider
+                          min={travelFeeValues.freeRadiusMiles + 1}
+                          max={Math.max(75, travelFeeValues.longRangeMaxMiles + 10)}
+                          step={1}
+                          minStepsBetweenThumbs={1}
+                          value={[
+                            travelFeeValues.midRangeMaxMiles,
+                            travelFeeValues.longRangeMaxMiles,
+                          ]}
+                          onValueChange={(value) => {
+                            const mid = Math.max(
+                              travelFeeValues.freeRadiusMiles + 1,
+                              Math.round(value[0] ?? travelFeeValues.midRangeMaxMiles),
+                            );
+                            const long = Math.max(
+                              mid + 1,
+                              Math.round(value[1] ?? travelFeeValues.longRangeMaxMiles),
+                            );
+                            setTravelFeeValues((current) => ({
+                              ...current,
+                              midRangeMaxMiles: mid,
+                              longRangeMaxMiles: long,
+                            }));
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              ))}
-              <Button
-                size="sm"
-                onClick={async () => {
-                  try {
-                    await updateTravelFeeSettings({
-                      originStreet: travelFeeValues.originStreet,
-                      originCity: travelFeeValues.originCity,
-                      originState: travelFeeValues.originState,
-                      originZip: travelFeeValues.originZip,
-                      freeRadiusMiles: travelFeeValues.freeRadiusMiles,
-                      midRangeMaxMiles: travelFeeValues.midRangeMaxMiles,
-                      longRangeMaxMiles: travelFeeValues.longRangeMaxMiles,
-                      midRangeFee: travelFeeValues.midRangeFee,
-                      longRangeFee: travelFeeValues.longRangeFee,
-                      perMileRateAfterLongRange:
-                        travelFeeValues.perMileRateAfterLongRange,
-                      midRangeBufferMinutes: travelFeeValues.midRangeBufferMinutes,
-                      longRangeBufferMinutes: travelFeeValues.longRangeBufferMinutes,
-                      isActive: travelFeeValues.isActive,
-                    });
-                    setIsEditingTravelFee(false);
-                    toast.success("Travel fee settings updated");
-                    router.refresh();
-                  } catch {
-                    toast.error("Failed to update travel fee settings");
-                  }
-                }}
-              >
-                <Save className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setIsEditingTravelFee(false);
-                  if (travelFeeSettings) {
-                    setTravelFeeValues(travelFeeSettings);
-                  }
-                }}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-3">
+                <div className="rounded-md border p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Tier 1</p>
+                      <p className="text-xs text-muted-foreground">
+                        {travelFeeValues.freeRadiusMiles + 1}-
+                        {travelFeeValues.midRangeMaxMiles} miles
+                      </p>
+                    </div>
+                    <Badge variant="secondary">
+                      +{travelFeeValues.midRangeBufferMinutes} min
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Ends mi</Label>
+                      <Input
+                        type="number"
+                        min={travelFeeValues.freeRadiusMiles + 1}
+                        step="1"
+                        value={travelFeeValues.midRangeMaxMiles}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "midRangeMaxMiles",
+                            Math.floor(Number.parseFloat(event.target.value) || 0),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Fee</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={travelFeeValues.midRangeFee}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "midRangeFee",
+                            Number.parseFloat(event.target.value) || 0,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Min</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="5"
+                        value={travelFeeValues.midRangeBufferMinutes}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "midRangeBufferMinutes",
+                            Math.floor(Number.parseFloat(event.target.value) || 0),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Tier 2</p>
+                      <p className="text-xs text-muted-foreground">
+                        {travelFeeValues.midRangeMaxMiles + 1}-
+                        {travelFeeValues.longRangeMaxMiles} miles
+                      </p>
+                    </div>
+                    <Badge variant="secondary">
+                      +{travelFeeValues.longRangeBufferMinutes} min
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Ends mi</Label>
+                      <Input
+                        type="number"
+                        min={travelFeeValues.midRangeMaxMiles + 1}
+                        step="1"
+                        value={travelFeeValues.longRangeMaxMiles}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "longRangeMaxMiles",
+                            Math.floor(Number.parseFloat(event.target.value) || 0),
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Fee</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={travelFeeValues.longRangeFee}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "longRangeFee",
+                            Number.parseFloat(event.target.value) || 0,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Min</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="5"
+                        value={travelFeeValues.longRangeBufferMinutes}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "longRangeBufferMinutes",
+                            Math.floor(Number.parseFloat(event.target.value) || 0),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-3">
+                  <div className="mb-3 flex items-start gap-2">
+                    <Clock className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Over Tier 2</p>
+                      <p className="text-xs text-muted-foreground">
+                        After {travelFeeValues.longRangeMaxMiles} miles, charge Tier 2
+                        plus a per-mile rate.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Base fee</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={travelFeeValues.longRangeFee}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "longRangeFee",
+                            Number.parseFloat(event.target.value) || 0,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">$/mi after</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={travelFeeValues.perMileRateAfterLongRange}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "perMileRateAfterLongRange",
+                            Number.parseFloat(event.target.value) || 0,
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {travelFeeValidationMessage && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {travelFeeValidationMessage}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2">
