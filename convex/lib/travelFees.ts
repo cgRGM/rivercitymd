@@ -43,10 +43,10 @@ export const defaultTravelFeeSettings: TravelFeeSettings = {
   originZip: "72205",
   originLatitude: 34.752258,
   originLongitude: -92.329768,
-  freeRadiusMiles: 25,
+  freeRadiusMiles: 20,
   midRangeMaxMiles: 35,
   longRangeMaxMiles: 50,
-  midRangeFee: 30,
+  midRangeFee: 25,
   longRangeFee: 50,
   perMileRateAfterLongRange: 2,
   midRangeBufferMinutes: 30,
@@ -79,11 +79,11 @@ export function normalizeTravelFeeSettings(
     defaultTravelFeeSettings.freeRadiusMiles,
   );
   const midRangeMaxMiles = Math.max(
-    freeRadiusMiles,
+    freeRadiusMiles + 1,
     cleanNumber(settings.midRangeMaxMiles, defaultTravelFeeSettings.midRangeMaxMiles),
   );
   const longRangeMaxMiles = Math.max(
-    midRangeMaxMiles,
+    midRangeMaxMiles + 1,
     cleanNumber(settings.longRangeMaxMiles, defaultTravelFeeSettings.longRangeMaxMiles),
   );
 
@@ -155,7 +155,7 @@ export function calculateTravelFeeForMiles(
 ) {
   const settings = normalizeTravelFeeSettings(settingsInput);
   if (!settings.isActive) return 0;
-  if (distanceMiles < settings.freeRadiusMiles) return 0;
+  if (distanceMiles <= settings.freeRadiusMiles) return 0;
   if (distanceMiles <= settings.midRangeMaxMiles) return settings.midRangeFee;
   if (distanceMiles <= settings.longRangeMaxMiles) return settings.longRangeFee;
   const fee =
@@ -171,7 +171,7 @@ export function calculateTravelBufferMinutesForMiles(
 ) {
   const settings = normalizeTravelFeeSettings(settingsInput);
   if (!settings.isActive) return 0;
-  if (distanceMiles < settings.freeRadiusMiles) return 0;
+  if (distanceMiles <= settings.freeRadiusMiles) return 0;
   if (distanceMiles <= settings.midRangeMaxMiles) {
     return settings.midRangeBufferMinutes;
   }
