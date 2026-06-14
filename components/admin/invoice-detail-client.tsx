@@ -123,20 +123,18 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
       toast.error("Please enter a coupon code");
       return;
     }
-    if (discountValue === "" || discountValue <= 0) {
-      toast.error("Please enter a valid discount value");
-      return;
-    }
+    const hasManualDiscountValue = discountValue !== "" && Number(discountValue) > 0;
 
     setIsApplyingDiscount(true);
     try {
       await applyCouponToInvoice({
         invoiceId: invoice._id,
         couponCode: normalizedCouponCode,
-        discountType,
-        discountValue: Number(discountValue),
+        ...(hasManualDiscountValue
+          ? { discountType, discountValue: Number(discountValue) }
+          : {}),
       });
-      toast.success("Discount applied successfully");
+      toast.success(invoice.couponCode ? "Discount replaced successfully" : "Discount applied successfully");
       setCouponCode("");
       setDiscountValue("");
       router.refresh();
@@ -416,7 +414,7 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
           </CardHeader>
           <CardContent className="space-y-4">
             {invoice.couponCode ? (
-              <div className="flex items-center justify-between p-3 border rounded-md bg-primary/5">
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 border rounded-md bg-primary/5">
                 <div>
                   <p className="font-semibold text-primary">Active Discount: {invoice.couponCode}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -432,8 +430,8 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                   Remove Discount
                 </Button>
               </div>
-            ) : (
-              <div className="space-y-4">
+            ) : null}
+            <div className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="coupon-code">Coupon / Promo Code</Label>
@@ -452,6 +450,10 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                         </span>
                       </p>
                     )}
+                    <p className="text-xs text-muted-foreground">
+                      Enter an existing Stripe coupon code, or add a type and
+                      value below to create a one-off discount.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="discount-type">Discount Type</Label>
@@ -475,7 +477,7 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                     <Input
                       id="discount-value"
                       type="number"
-                      placeholder={discountType === "percent" ? "e.g. 20 for 20%" : "e.g. 15 for $15"}
+                      placeholder={discountType === "percent" ? "Optional, e.g. 20" : "Optional, e.g. 15"}
                       value={discountValue}
                       onChange={(e) => setDiscountValue(e.target.value === "" ? "" : Number(e.target.value))}
                       min={1}
@@ -485,7 +487,11 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                       disabled={isApplyingDiscount}
                       className="whitespace-nowrap"
                     >
-                      {isApplyingDiscount ? "Applying..." : "Apply Discount"}
+                      {isApplyingDiscount
+                        ? "Applying..."
+                        : invoice.couponCode
+                          ? "Replace Discount"
+                          : "Apply Discount"}
                     </Button>
                   </div>
                 </div>
@@ -546,7 +552,6 @@ export default function InvoiceDetailClient({ invoiceId }: Props) {
                   </Button>
                 </div>
               </div>
-            )}
           </CardContent>
         </Card>
       )}

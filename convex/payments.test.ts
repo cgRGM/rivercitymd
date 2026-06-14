@@ -2814,4 +2814,64 @@ describe("payments", () => {
     expect(invoice?.total).toBe(100);
     expect(invoice?.remainingBalance).toBe(50);
   });
+
+  test("applyCouponToInvoice can use an existing Stripe coupon by code only", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { invoiceId } = await createTestAppointmentWithInvoice(
+      t,
+      userId,
+      adminId,
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+
+        if (urlString.includes("/coupons/VIP_CANAM")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "VIP_CANAM",
+              valid: true,
+              amount_off: 2500,
+              currency: "usd",
+            }),
+          } as Response;
+        }
+
+        return { ok: true, json: async () => ({ id: "stripe_test_123" }) } as Response;
+      }),
+    );
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
+
+    const applyResult = await asAdmin.action(api.payments.applyCouponToInvoice, {
+      invoiceId,
+      couponCode: "VIP CANAM",
+    });
+
+    expect(applyResult.success).toBe(true);
+    expect(applyResult.discountAmount).toBe(25);
+    expect(applyResult.newTotal).toBe(75);
+    expect(applyResult.newRemainingBalance).toBe(25);
+
+    const invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
+    expect(invoice?.couponCode).toBe("VIP_CANAM");
+    expect(invoice?.discountAmount).toBe(25);
+    expect(invoice?.total).toBe(75);
+    expect(invoice?.remainingBalance).toBe(25);
+  });
 });

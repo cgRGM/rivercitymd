@@ -156,20 +156,18 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       toast.error("Please enter a coupon code");
       return;
     }
-    if (discountValue === "" || discountValue <= 0) {
-      toast.error("Please enter a valid discount value");
-      return;
-    }
+    const hasManualDiscountValue = discountValue !== "" && Number(discountValue) > 0;
 
     setIsApplyingDiscount(true);
     try {
       await applyCouponToInvoice({
         invoiceId: invoice._id,
         couponCode: normalizedCouponCode,
-        discountType,
-        discountValue: Number(discountValue),
+        ...(hasManualDiscountValue
+          ? { discountType, discountValue: Number(discountValue) }
+          : {}),
       });
-      toast.success("Discount applied successfully");
+      toast.success(invoice.couponCode ? "Discount replaced successfully" : "Discount applied successfully");
       setCouponCode("");
       setDiscountValue("");
       router.refresh();
@@ -530,6 +528,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       return groups;
     }, {}),
   );
+  const canPreviewInlinePhoto = (photo: AppointmentBeforePhoto) =>
+    !["image/heic", "image/heif"].includes(photo.contentType.toLowerCase());
   const canEdit = ["pending", "confirmed", "in_progress"].includes(data.status);
   const canEditBilling =
     !!invoice &&
@@ -940,7 +940,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       {photos.map((photo) => (
                         <div key={photo.key} className="overflow-hidden rounded-md border">
-                          {photo.signedUrl ? (
+                          {photo.signedUrl && canPreviewInlinePhoto(photo) ? (
                             <button
                               type="button"
                               className="block w-full text-left"
@@ -957,6 +957,20 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                                 alt={photo.fileName}
                                 className="aspect-[4/3] w-full object-cover"
                               />
+                            </button>
+                          ) : photo.signedUrl ? (
+                            <button
+                              type="button"
+                              className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 bg-muted p-4 text-center text-xs text-muted-foreground"
+                              onClick={() =>
+                                setPreviewPhoto({
+                                  url: photo.signedUrl!,
+                                  fileName: photo.fileName,
+                                })
+                              }
+                            >
+                              <Images className="h-6 w-6" />
+                              Open photo
                             </button>
                           ) : (
                             <div className="flex aspect-[4/3] items-center justify-center bg-muted p-4 text-center text-xs text-muted-foreground">
@@ -1117,7 +1131,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                 </h4>
 
                 {invoice.couponCode ? (
-                  <div className="flex items-center justify-between gap-2 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary truncate">
                         {invoice.couponCode}
@@ -1136,8 +1150,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                       Remove
                     </Button>
                   </div>
-                ) : (
-                  <div className="space-y-3">
+                ) : null}
+                <div className="space-y-3">
                     <div className="grid gap-2 grid-cols-3">
                       <div className="col-span-2">
                         <Input
@@ -1154,6 +1168,10 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                             </span>
                           </p>
                         )}
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          Existing Stripe coupons only need the code. Add a
+                          value to create or replace a one-off discount.
+                        </p>
                       </div>
                       <div>
                         <Select
@@ -1174,7 +1192,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                       <div className="flex-1">
                         <Input
                           type="number"
-                          placeholder={discountType === "percent" ? "Percentage (e.g. 20)" : "Amount (e.g. 15)"}
+                          placeholder={discountType === "percent" ? "Optional %" : "Optional $"}
                           value={discountValue}
                           onChange={(e) => setDiscountValue(e.target.value === "" ? "" : Number(e.target.value))}
                           className="h-8 text-xs"
@@ -1187,7 +1205,11 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                         onClick={handleApplyDiscount}
                         disabled={isApplyingDiscount}
                       >
-                        {isApplyingDiscount ? "Applying..." : "Apply"}
+                        {isApplyingDiscount
+                          ? "Applying..."
+                          : invoice.couponCode
+                            ? "Replace"
+                            : "Apply"}
                       </Button>
                     </div>
 
@@ -1247,7 +1269,6 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                       </Button>
                     </div>
                   </div>
-                )}
               </div>
             )}
           </CardContent>
@@ -1551,12 +1572,19 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
             <DialogTitle>{previewPhoto?.fileName || "Before Photo"}</DialogTitle>
           </DialogHeader>
           {previewPhoto && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={previewPhoto.url}
-              alt={previewPhoto.fileName}
-              className="max-h-[75vh] w-full rounded-md object-contain"
-            />
+            <div className="space-y-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewPhoto.url}
+                alt={previewPhoto.fileName}
+                className="max-h-[75vh] w-full rounded-md object-contain"
+              />
+              <Button variant="outline" asChild>
+                <a href={previewPhoto.url} target="_blank" rel="noreferrer">
+                  Open original
+                </a>
+              </Button>
+            </div>
           )}
         </DialogContent>
       </Dialog>

@@ -298,6 +298,28 @@ function mapStripeInvoiceStatusToLocalStatus(
   return "sent";
 }
 
+function getDiscountFromStripeCoupon(stripeCoupon: any): {
+  discountType: "percent" | "amount";
+  discountValue: number;
+} {
+  if (!stripeCoupon || stripeCoupon.valid === false) {
+    throw new Error("This Stripe coupon is not active.");
+  }
+  if (typeof stripeCoupon.percent_off === "number" && stripeCoupon.percent_off > 0) {
+    return {
+      discountType: "percent",
+      discountValue: stripeCoupon.percent_off,
+    };
+  }
+  if (typeof stripeCoupon.amount_off === "number" && stripeCoupon.amount_off > 0) {
+    return {
+      discountType: "amount",
+      discountValue: Math.round(stripeCoupon.amount_off) / 100,
+    };
+  }
+  throw new Error("This Stripe coupon does not have a supported discount amount.");
+}
+
 async function getStripeInvoiceById(stripeInvoiceId: string): Promise<any> {
   return await stripeApiCall(`invoices/${stripeInvoiceId}`, {
     method: "GET",
@@ -1754,8 +1776,8 @@ export const applyCouponToInvoice = action({
   args: {
     invoiceId: v.id("invoices"),
     couponCode: v.string(),
-    discountType: v.union(v.literal("percent"), v.literal("amount")),
-    discountValue: v.number(),
+    discountType: v.optional(v.union(v.literal("percent"), v.literal("amount"))),
+    discountValue: v.optional(v.number()),
   },
   returns: v.object({
     success: v.boolean(),
@@ -1789,27 +1811,32 @@ export const applyCouponToInvoice = action({
       throw new Error("Paid invoices cannot be modified");
     }
 
-    // 1. Check if Coupon exists in Stripe. If not, create it.
-    let couponExists = false;
+    // 1. Check if Coupon exists in Stripe. If not, create it from supplied terms.
+    let stripeCoupon: any | null = null;
     try {
-      await stripeApiCall(`coupons/${encodeURIComponent(couponInput.couponCode)}`, {
+      stripeCoupon = await stripeApiCall(`coupons/${encodeURIComponent(couponInput.couponCode)}`, {
         method: "GET",
       });
-      couponExists = true;
     } catch {
       console.log(`[payments] Coupon ${couponInput.couponCode} not found in Stripe, will attempt to create it.`);
     }
 
-    if (!couponExists) {
+    if (!stripeCoupon) {
+      if (!args.discountType || couponInput.discountValue === undefined) {
+        throw new Error(
+          "Coupon not found in Stripe. Enter a discount type and value, or create the coupon first.",
+        );
+      }
+      const discountValue = couponInput.discountValue;
       const bodyParams = new URLSearchParams({
         id: couponInput.couponCode,
         name: couponInput.couponCode,
         duration: "once",
       });
       if (args.discountType === "percent") {
-        bodyParams.append("percent_off", couponInput.discountValue.toString());
+        bodyParams.append("percent_off", discountValue.toString());
       } else {
-        bodyParams.append("amount_off", Math.round(couponInput.discountValue * 100).toString());
+        bodyParams.append("amount_off", Math.round(discountValue * 100).toString());
         bodyParams.append("currency", "usd");
       }
       await stripeApiCall("coupons", {
@@ -1820,11 +1847,19 @@ export const applyCouponToInvoice = action({
     }
 
     // 2. Calculate local discount values
+    const effectiveDiscount =
+      couponInput.discountValue !== undefined && args.discountType
+        ? {
+            discountType: args.discountType,
+            discountValue: couponInput.discountValue,
+          }
+        : getDiscountFromStripeCoupon(stripeCoupon);
+
     let discountAmount = 0;
-    if (args.discountType === "percent") {
-      discountAmount = parseFloat((invoice.subtotal * (couponInput.discountValue / 100)).toFixed(2));
+    if (effectiveDiscount.discountType === "percent") {
+      discountAmount = parseFloat((invoice.subtotal * (effectiveDiscount.discountValue / 100)).toFixed(2));
     } else {
-      discountAmount = Math.min(couponInput.discountValue, invoice.subtotal);
+      discountAmount = Math.min(effectiveDiscount.discountValue, invoice.subtotal);
     }
 
     const newTotal = parseFloat((invoice.subtotal + invoice.tax - discountAmount).toFixed(2));
@@ -2904,6 +2939,10 @@ export const createStripeCoupon = action({
   handler: async (ctx, args): Promise<{ success: boolean; id: string }> => {
     await requireAdminRole(ctx);
     const couponInput = validateCouponInput(args);
+    if (couponInput.discountValue === undefined) {
+      throw new Error("Discount value must be greater than zero.");
+    }
+    const discountValue = couponInput.discountValue;
 
     const bodyParams = new URLSearchParams({
       id: couponInput.couponCode,
@@ -2912,9 +2951,9 @@ export const createStripeCoupon = action({
     });
 
     if (args.discountType === "percent") {
-      bodyParams.append("percent_off", couponInput.discountValue.toString());
+      bodyParams.append("percent_off", discountValue.toString());
     } else {
-      bodyParams.append("amount_off", Math.round(couponInput.discountValue * 100).toString());
+      bodyParams.append("amount_off", Math.round(discountValue * 100).toString());
       bodyParams.append("currency", "usd");
     }
 
