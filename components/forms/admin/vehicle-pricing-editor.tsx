@@ -68,7 +68,7 @@ export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
         vehicleTypeId: vehicleType._id,
         price: 0,
         duration: defaultDuration,
-        isAvailable: true,
+        isAvailable: false,
       })) as PathValue<TForm, Path<TForm>>,
       { shouldValidate: true },
     );
@@ -94,7 +94,7 @@ export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
         {
           price: 0,
           duration: defaultDuration,
-          isAvailable: true,
+          isAvailable: false,
         },
       ] as PathValue<TForm, Path<TForm>>,
       { shouldDirty: true, shouldValidate: true },
@@ -220,12 +220,18 @@ export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
               <Label className="text-xs">Available</Label>
               <div className="flex h-9 items-center">
                 <Switch
-                  checked={row.isAvailable}
+                  checked={row.isAvailable && row.price > 0 && row.duration > 0}
+                  disabled={row.price <= 0 || row.duration <= 0}
                   onCheckedChange={(checked) =>
                     updateRow(index, { isAvailable: checked })
                   }
                 />
               </div>
+              {(row.price <= 0 || row.duration <= 0) && (
+                <p className="text-[10px] text-muted-foreground">
+                  Add price and minutes first.
+                </p>
+              )}
             </div>
 
             <div className="flex items-end">

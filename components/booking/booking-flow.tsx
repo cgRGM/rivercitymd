@@ -815,6 +815,39 @@ export default function BookingFlow() {
         isValid = await step4Form.trigger();
         if (isValid) {
           const selectedStep4Data = step4Form.getValues();
+          const selectedVehicles = step3Data?.vehicles ?? [];
+          for (let idx = 0; idx < selectedVehicles.length; idx += 1) {
+            const vehicle = selectedVehicles[idx];
+            const vehicleContext = {
+              vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+              vehicleTypeId: vehicle.vehicleTypeId ?? null,
+            };
+            const selectedIds =
+              selectedStep4Data.vehicleServices?.[idx.toString()] ||
+              selectedStep4Data.serviceIds ||
+              [];
+            const selectedServices =
+              services?.filter((service) => selectedIds.includes(service._id)) ?? [];
+            const unavailableService = selectedServices.find(
+              (service) => !isServiceAvailableForVehicle(service, vehicleContext),
+            );
+            if (unavailableService) {
+              toast.error(
+                `${unavailableService.name} is not available for ${vehicle.make || "this vehicle"}. Please choose another service.`,
+              );
+              setExpandedStep4VehicleIndex(idx);
+              return;
+            }
+            const hasStandardPackage = selectedServices.some(
+              (service) => normalizeServiceType(service.serviceType) === "standard",
+            );
+            if (!hasStandardPackage) {
+              toast.error("Please choose a package for each vehicle.");
+              setExpandedStep4VehicleIndex(idx);
+              setActiveServiceSection((current) => ({ ...current, [idx]: "packages" }));
+              return;
+            }
+          }
 
           const serviceDurations: number[] = [];
           const vehicles = step3Data?.vehicles ?? [];
@@ -1616,7 +1649,16 @@ export default function BookingFlow() {
                               new Map<string, typeof sortedStandard>(),
                             );
 
-                            const currentSelection = field.value?.[vehicleKey] || [];
+                            const availableServiceIds = new Set(
+                              [
+                                ...standardServices,
+                                ...addonServices,
+                                ...subscriptionServices,
+                              ].map((service) => String(service._id)),
+                            );
+                            const currentSelection = (field.value?.[vehicleKey] || []).filter(
+                              (serviceId) => availableServiceIds.has(String(serviceId)),
+                            );
                             const activeSection = activeServiceSection[vIdx] || "packages";
 
                             const selectedPackageId = currentSelection.find(id => {

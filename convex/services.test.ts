@@ -166,6 +166,66 @@ describe("services", () => {
     expect(vehicleTypes.some((vehicleType) => vehicleType.name === "Boat")).toBe(true);
   });
 
+  test("normalizes vehicle price rows without price or minutes as unavailable", async () => {
+    const t = convexTest(schema, modules);
+
+    const adminId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-blank-pricing@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-blank-pricing@test.com",
+    });
+
+    const serviceId = await asAdmin.mutation(api.services.create, {
+      name: "Selective Detail",
+      description: "Some rows are intentionally blank",
+      duration: 90,
+      vehiclePrices: [
+        {
+          vehicleTypeName: "Car",
+          price: 125,
+          duration: 90,
+          isAvailable: true,
+        },
+        {
+          vehicleTypeName: "RV",
+          price: 250,
+          duration: 0,
+          isAvailable: true,
+        },
+        {
+          vehicleTypeName: "ATV",
+          price: 0,
+          duration: 45,
+          isAvailable: true,
+        },
+      ],
+    });
+
+    await t.finishInProgressScheduledFunctions();
+
+    const service = await asAdmin.query(api.services.getById, { serviceId });
+    expect(
+      service?.vehiclePrices.map((row) => ({
+        name: row.vehicleType?.name,
+        price: row.price,
+        duration: row.duration,
+        available: row.isAvailable,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        { name: "Car", price: 125, duration: 90, available: true },
+        { name: "RV", price: 250, duration: 0, available: false },
+        { name: "ATV", price: 0, duration: 45, available: false },
+      ]),
+    );
+  });
+
   test("landing page pricing is curated and grouped by vehicle type", async () => {
     const t = convexTest(schema, modules);
 

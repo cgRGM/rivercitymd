@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   getEffectiveServicePricingForVehicle,
+  hasAnyAvailableVehicleTypePrice,
+  isBookableStandardService,
   isServiceAvailableForVehicle,
 } from "./pricing";
 
@@ -71,6 +73,37 @@ describe("vehicle-aware service pricing", () => {
         vehicleTypeId: "van",
       }),
     ).toBe(false);
+  });
+
+  test("treats rows without price or duration as unavailable", () => {
+    const service = {
+      isActive: true,
+      serviceType: "standard" as const,
+      duration: 90,
+      vehiclePrices: [
+        {
+          vehicleTypeId: "car",
+          price: 125,
+          duration: 0,
+          isAvailable: true,
+        },
+        {
+          vehicleTypeId: "truck",
+          price: 0,
+          duration: 120,
+          isAvailable: true,
+        },
+      ],
+    };
+
+    expect(
+      getEffectiveServicePricingForVehicle(service, {
+        vehicleSize: "medium",
+        vehicleTypeId: "car",
+      }),
+    ).toEqual({ price: 125, duration: 0, isAvailable: false });
+    expect(hasAnyAvailableVehicleTypePrice(service.vehiclePrices)).toBe(false);
+    expect(isBookableStandardService(service)).toBe(false);
   });
 
   test("falls back to matching legacy size rows when a vehicle has no type id", () => {
