@@ -207,8 +207,18 @@ function validateBeforePhotoFile(fileName: string, contentType: string) {
     "image/png",
     "image/webp",
     "image/gif",
+    "image/heic",
+    "image/heif",
   ]);
-  const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+  const allowedExtensions = new Set([
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".heic",
+    ".heif",
+  ]);
   if (
     !allowedContentTypes.has(normalizeContentType(contentType)) ||
     !allowedExtensions.has(getFileExtension(fileName))

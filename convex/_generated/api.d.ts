@@ -25,6 +25,7 @@ import type * as http from "../http.js";
 import type * as invoices from "../invoices.js";
 import type * as lib_address from "../lib/address.js";
 import type * as lib_booking from "../lib/booking.js";
+import type * as lib_coupons from "../lib/coupons.js";
 import type * as lib_notificationMessages from "../lib/notificationMessages.js";
 import type * as lib_notificationSettings from "../lib/notificationSettings.js";
 import type * as lib_pricing from "../lib/pricing.js";
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   invoices: typeof invoices;
   "lib/address": typeof lib_address;
   "lib/booking": typeof lib_booking;
+  "lib/coupons": typeof lib_coupons;
   "lib/notificationMessages": typeof lib_notificationMessages;
   "lib/notificationSettings": typeof lib_notificationSettings;
   "lib/pricing": typeof lib_pricing;

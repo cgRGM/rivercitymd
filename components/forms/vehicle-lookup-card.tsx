@@ -72,6 +72,17 @@ const ALLOWED_PHOTO_TYPES = new Set([
   "image/png",
   "image/webp",
   "image/gif",
+  "image/heic",
+  "image/heif",
+]);
+const ALLOWED_PHOTO_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".heic",
+  ".heif",
 ]);
 
 function parseVehicleQuery(query: string) {
@@ -90,8 +101,31 @@ function isValidYear(year: string) {
   return /^\d{4}$/.test(year);
 }
 
+function getFileExtension(fileName: string) {
+  const normalized = fileName.toLowerCase().trim();
+  const lastDotIndex = normalized.lastIndexOf(".");
+  return lastDotIndex >= 0 ? normalized.slice(lastDotIndex) : "";
+}
+
+function getUploadContentType(file: File) {
+  if (file.type) return file.type;
+  const extension = getFileExtension(file.name);
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".heic") return "image/heic";
+  if (extension === ".heif") return "image/heif";
+  return "application/octet-stream";
+}
+
 function isAllowedPhoto(file: File) {
-  return ALLOWED_PHOTO_TYPES.has(file.type) && file.size <= MAX_PHOTO_SIZE_BYTES;
+  const extension = getFileExtension(file.name);
+  return (
+    file.size <= MAX_PHOTO_SIZE_BYTES &&
+    (ALLOWED_PHOTO_TYPES.has(file.type) ||
+      (file.type === "" && ALLOWED_PHOTO_EXTENSIONS.has(extension)))
+  );
 }
 
 export function VehicleLookupCard({
@@ -246,7 +280,7 @@ export function VehicleLookupCard({
 
     const invalidFile = selectedFiles.find((file) => !isAllowedPhoto(file));
     if (invalidFile) {
-      toast.error("Before photos must be JPG, PNG, WEBP, or GIF under 10MB.");
+      toast.error("Before photos must be JPG, PNG, WEBP, GIF, HEIC, or HEIF under 10MB.");
       return;
     }
 
@@ -254,13 +288,14 @@ export function VehicleLookupCard({
     try {
       const uploadedPhotos: BeforePhoto[] = [];
       for (const file of selectedFiles) {
+        const contentType = getUploadContentType(file);
         const upload = await createBeforePhotoUploadUrl({
           fileName: file.name,
-          contentType: file.type,
+          contentType,
         });
         const response = await fetch(upload.url, {
           method: "PUT",
-          headers: { "Content-Type": file.type },
+          headers: { "Content-Type": contentType },
           body: file,
         });
         if (!response.ok) {
@@ -269,7 +304,7 @@ export function VehicleLookupCard({
         uploadedPhotos.push({
           key: upload.key,
           fileName: file.name,
-          contentType: file.type,
+          contentType,
           sizeBytes: file.size,
           uploadedAt: Date.now(),
         });
@@ -488,7 +523,7 @@ export function VehicleLookupCard({
                     Upload
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
                       multiple
                       className="sr-only"
                       onChange={(event) => {
