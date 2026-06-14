@@ -7,6 +7,9 @@ import { modules, stripeFetchMock } from "./test.setup";
 describe("vehicleTypes", () => {
   afterEach(() => {
     vi.stubGlobal("fetch", vi.fn(stripeFetchMock));
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    delete process.env.GEMINI_VEHICLE_CLASSIFIER_MODEL;
   });
 
   test("seeds default vehicle types", async () => {
@@ -224,6 +227,94 @@ describe("vehicleTypes", () => {
     expect(result.legacySize).toBe("large");
     expect(result.source).toBe("vpic");
     expect(result.confidence).toBe("high");
+    expect(result.needsAdminReview).toBe(false);
+  });
+
+  test("matches vPIC models when drivetrain suffixes differ", async () => {
+    const t = convexTest(schema, modules);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const urlString = String(url);
+        if (urlString.includes("fueleconomy.gov")) {
+          return Response.json({}, { status: 500 });
+        }
+        if (urlString.includes("vpic.nhtsa.dot.gov")) {
+          return Response.json({
+            Results: [
+              {
+                Model_Name: "Sorento",
+                VehicleTypeName: "Sport Utility Vehicle",
+              },
+            ],
+          });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    const result = await t.action(api.vehicleTypes.classify, {
+      year: 2012,
+      make: "Kia",
+      model: "Sorento AWD",
+    });
+
+    expect(result.vehicleTypeName).toBe("SUV");
+    expect(result.legacySize).toBe("large");
+    expect(result.source).toBe("vpic");
+    expect(result.needsAdminReview).toBe(false);
+  });
+
+  test("uses Gemini Search as a final classifier for oddball manual vehicles", async () => {
+    const t = convexTest(schema, modules);
+    process.env.GEMINI_API_KEY = "gemini_test_key";
+    process.env.GEMINI_VEHICLE_CLASSIFIER_MODEL = "gemini-test-model";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = String(url);
+        if (urlString.includes("fueleconomy.gov")) {
+          return Response.json({}, { status: 500 });
+        }
+        if (urlString.includes("vpic.nhtsa.dot.gov")) {
+          return Response.json({ Results: [] });
+        }
+        if (urlString.includes("generativelanguage.googleapis.com")) {
+          expect(options?.body?.toString()).toContain("google_search");
+          return Response.json({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        slug: "motorcycle",
+                        confidence: "high",
+                        rawCategory: "three-wheeled motorcycle / roadster",
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    const result = await t.action(api.vehicleTypes.classify, {
+      year: 2024,
+      make: "Can-Am",
+      model: "Spyder RT",
+    });
+
+    expect(result.vehicleTypeName).toBe("Motorcycle");
+    expect(result.legacySize).toBe("small");
+    expect(result.confidence).toBe("high");
+    expect(result.rawCategory).toContain("Gemini Search");
     expect(result.needsAdminReview).toBe(false);
   });
 

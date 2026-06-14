@@ -11,6 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 type VehicleSize = "small" | "medium" | "large";
@@ -67,6 +74,11 @@ type VehicleLookupCardProps = {
 
 const MAX_PHOTOS = 6;
 const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024;
+const SIZE_LABELS: Record<VehicleSize, string> = {
+  small: "Small / motorcycle / ATV",
+  medium: "Car / standard",
+  large: "SUV / truck / van / RV",
+};
 const ALLOWED_PHOTO_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -153,6 +165,13 @@ export function VehicleLookupCard({
   const [isSearching, setIsSearching] = useState(false);
   const [isClassifying, setIsClassifying] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
+  const [manualVehicle, setManualVehicle] = useState({
+    year: value.year ?? "",
+    make: value.make ?? "",
+    model: value.model ?? "",
+    size: (value.size ?? "medium") as VehicleSize,
+  });
 
   useEffect(() => {
     const selectedVehicle = [value.year, value.make, value.model]
@@ -218,7 +237,10 @@ export function VehicleLookupCard({
       });
       onChange({
         ...nextValue,
-        size: classification.legacySize,
+        size:
+          classification.needsAdminReview || !classification.vehicleTypeId
+            ? nextValue.size ?? classification.legacySize
+            : classification.legacySize,
         vehicleTypeId: classification.vehicleTypeId as Id<"vehicleTypes"> | undefined,
         vehicleTypeName: classification.vehicleTypeName,
         classification: {
@@ -231,6 +253,7 @@ export function VehicleLookupCard({
     } catch {
       onChange({
         ...nextValue,
+        size: nextValue.size ?? "medium",
         classification: {
           source: "fallback",
           confidence: "low",
@@ -252,6 +275,36 @@ export function VehicleLookupCard({
       make: suggestion.make,
       model: suggestion.model,
     });
+  };
+
+  const acceptManualVehicle = () => {
+    const year = manualVehicle.year.trim();
+    const make = manualVehicle.make.trim();
+    const model = manualVehicle.model.trim();
+    if (!isValidYear(year) || !make || !model) {
+      toast.error("Enter a 4-digit year, make, and model.");
+      return;
+    }
+    const nextValue = {
+      ...value,
+      year,
+      make,
+      model,
+      size: manualVehicle.size,
+      vehicleTypeId: undefined,
+      vehicleTypeName: undefined,
+      classification: {
+        source: "manual" as const,
+        confidence: "low" as const,
+        rawCategory: "Manual customer entry",
+        needsAdminReview: true,
+      },
+    };
+    setQuery([year, make, model].join(" "));
+    setIsMenuOpen(false);
+    setSuggestions([]);
+    setIsManualEntryOpen(false);
+    void classifySelection(nextValue);
   };
 
   const acceptTypedVehicle = () => {
@@ -422,7 +475,7 @@ export function VehicleLookupCard({
               {isMenuOpen &&
                 (suggestions.length > 0 ||
                   isSearching ||
-                  (parseVehicleQuery(query).year && parseVehicleQuery(query).model)) && (
+                  query.trim().length >= 3) && (
                 <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border bg-background shadow-lg">
                   {isSearching && (
                     <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
@@ -456,9 +509,119 @@ export function VehicleLookupCard({
                       Use &quot;{query.trim()}&quot;
                     </button>
                   )}
+                  {!isSearching && suggestions.length === 0 && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm hover:bg-muted"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        const typed = parseVehicleQuery(query);
+                        setManualVehicle((current) => ({
+                          ...current,
+                          year: typed.year || current.year,
+                          make: typed.make || current.make,
+                          model: typed.model || current.model,
+                        }));
+                        setIsManualEntryOpen(true);
+                        setIsMenuOpen(false);
+                      }}
+                    >
+                      <Check className="h-4 w-4" />
+                      Enter this vehicle manually
+                    </button>
+                  )}
                 </div>
               )}
           </div>
+
+          {isManualEntryOpen && (
+            <div className="rounded-md border bg-muted/10 p-3">
+              <div className="grid gap-3 sm:grid-cols-[96px_1fr_1fr]">
+                <div className="space-y-1">
+                  <Label htmlFor={`${title}-manual-year`}>Year</Label>
+                  <Input
+                    id={`${title}-manual-year`}
+                    inputMode="numeric"
+                    value={manualVehicle.year}
+                    onChange={(event) =>
+                      setManualVehicle((current) => ({
+                        ...current,
+                        year: event.target.value,
+                      }))
+                    }
+                    placeholder="2024"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`${title}-manual-make`}>Make</Label>
+                  <Input
+                    id={`${title}-manual-make`}
+                    value={manualVehicle.make}
+                    onChange={(event) =>
+                      setManualVehicle((current) => ({
+                        ...current,
+                        make: event.target.value,
+                      }))
+                    }
+                    placeholder="Can-Am"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`${title}-manual-model`}>Model</Label>
+                  <Input
+                    id={`${title}-manual-model`}
+                    value={manualVehicle.model}
+                    onChange={(event) =>
+                      setManualVehicle((current) => ({
+                        ...current,
+                        model: event.target.value,
+                      }))
+                    }
+                    placeholder="Spyder RT"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+                <div className="space-y-1">
+                  <Label htmlFor={`${title}-manual-size`}>
+                    Pricing type
+                  </Label>
+                  <Select
+                    value={manualVehicle.size}
+                    onValueChange={(size) =>
+                      setManualVehicle((current) => ({
+                        ...current,
+                        size: size as VehicleSize,
+                      }))
+                    }
+                  >
+                    <SelectTrigger id={`${title}-manual-size`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["small", "medium", "large"] as VehicleSize[]).map((size) => (
+                        <SelectItem key={size} value={size}>
+                          {SIZE_LABELS[size]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end gap-2">
+                  <Button type="button" onClick={acceptManualVehicle}>
+                    Use Vehicle
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsManualEntryOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {(showColor || showLicensePlate) && (
             <div className="grid gap-4 sm:grid-cols-2">

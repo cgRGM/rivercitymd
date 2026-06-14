@@ -217,6 +217,26 @@ function mapCategoryToSlug(value: string | undefined): {
 } {
   const normalized = value?.toLowerCase() ?? "";
   if (!normalized) return { slug: "car", confidence: "low" };
+  if (
+    normalized.includes("recreational vehicle") ||
+    normalized.includes("motorhome") ||
+    normalized.includes("rv")
+  ) {
+    return { slug: "van", confidence: "medium" };
+  }
+  if (
+    normalized.includes("atv") ||
+    normalized.includes("all-terrain") ||
+    normalized.includes("all terrain") ||
+    normalized.includes("side-by-side") ||
+    normalized.includes("side by side") ||
+    normalized.includes("utv") ||
+    normalized.includes("can-am") ||
+    normalized.includes("spyder") ||
+    normalized.includes("slingshot")
+  ) {
+    return { slug: "motorcycle", confidence: "medium" };
+  }
   if (normalized.includes("minivan") || normalized.includes("van")) {
     return { slug: "van", confidence: "high" };
   }
@@ -242,6 +262,118 @@ function mapCategoryToSlug(value: string | undefined): {
     return { slug: "van", confidence: "medium" };
   }
   return { slug: "car", confidence: "low" };
+}
+
+function normalizeModelName(value: string | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/\b(all[-\s]?wheel|four[-\s]?wheel|front[-\s]?wheel|rear[-\s]?wheel)\s+drive\b/g, " ")
+    .replace(/\b(awd|4wd|2wd|fwd|rwd|4x4|2x4)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function isModelMatch(inputModel: string, candidateModel: string): boolean {
+  const input = normalizeModelName(inputModel);
+  const candidate = normalizeModelName(candidateModel);
+  if (!input || !candidate) return false;
+  return candidate.includes(input) || input.includes(candidate);
+}
+
+function getGeminiApiKey(): string | undefined {
+  return (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  )?.trim();
+}
+
+async function classifyWithGeminiSearch(args: {
+  year: number;
+  make: string;
+  model: string;
+}): Promise<{
+  slug: string;
+  confidence: "high" | "medium" | "low";
+  rawCategory?: string;
+} | null> {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return null;
+
+  const model = process.env.GEMINI_VEHICLE_CLASSIFIER_MODEL || "gemini-2.5-flash";
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text:
+                  "Use Google Search if needed. Classify this vehicle for a mobile detailing pricing engine. " +
+                  "Return only compact JSON with keys slug, confidence, rawCategory. " +
+                  "slug must be one of car, truck, suv, van, motorcycle. " +
+                  "Use motorcycle for motorcycles, scooters, trikes, ATVs, UTVs, side-by-sides, Can-Am Spyder/Ryker, and Polaris Slingshot. " +
+                  "Use van for RVs/motorhomes/campers if no better category exists. " +
+                  "Use confidence high only when the category is clear, medium when likely, low when uncertain. " +
+                  `Vehicle: ${args.year} ${args.make} ${args.model}`,
+              },
+            ],
+          },
+        ],
+        tools: [{ google_search: {} }],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: "application/json",
+        },
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Gemini vehicle classification failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = String(
+    data?.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part?.text ?? "")
+      .join("") ?? "",
+  ).trim();
+  if (!text) return null;
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    parsed = JSON.parse(jsonMatch[0]);
+  }
+
+  const mapped = mapCategoryToSlug(
+    `${parsed?.slug ?? ""} ${parsed?.rawCategory ?? ""}`,
+  );
+  const confidence =
+    parsed?.confidence === "high" || parsed?.confidence === "medium"
+      ? parsed.confidence
+      : mapped.confidence;
+
+  return {
+    slug:
+      ["car", "truck", "suv", "van", "motorcycle"].includes(parsed?.slug)
+        ? parsed.slug
+        : mapped.slug,
+    confidence,
+    rawCategory: parsed?.rawCategory
+      ? `Gemini Search: ${String(parsed.rawCategory)}`
+      : "Gemini Search classification",
+  };
 }
 
 async function fetchJson(url: string) {
@@ -490,9 +622,7 @@ export const classify = action({
           `https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMakeYear/make/${make}/modelyear/${args.year}?format=json`,
         );
         const match = (vpic?.Results ?? []).find((result: any) =>
-          String(result.Model_Name ?? "")
-            .toLowerCase()
-            .includes(args.model.trim().toLowerCase()),
+          isModelMatch(args.model, String(result.Model_Name ?? "")),
         );
         rawCategory = match?.VehicleTypeName ?? match?.Model_Name ?? rawCategory;
         const vpicMapped = mapCategoryToSlug(rawCategory);
@@ -502,6 +632,26 @@ export const classify = action({
         }
       } catch {
         // Keep fallback.
+      }
+    }
+
+    if (mapped.confidence === "low") {
+      try {
+        const geminiMapped = await classifyWithGeminiSearch(args);
+        if (
+          geminiMapped &&
+          (geminiMapped.confidence === "high" ||
+            geminiMapped.confidence === "medium")
+        ) {
+          mapped = {
+            slug: geminiMapped.slug,
+            confidence: geminiMapped.confidence,
+          };
+          source = "fallback";
+          rawCategory = geminiMapped.rawCategory ?? rawCategory;
+        }
+      } catch {
+        // Keep low-confidence manual review fallback if Gemini is unavailable.
       }
     }
 

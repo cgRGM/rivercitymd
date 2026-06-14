@@ -47,6 +47,7 @@ function assertHasPositivePrice(args: {
   basePrice?: number;
   vehiclePrices?: Array<{
     price: number;
+    duration?: number;
     isAvailable: boolean;
   }>;
 }) {
@@ -189,7 +190,7 @@ async function getServiceVehiclePricesForPresentation(
         vehicleTypeId: vehicleType._id,
         price,
         duration: service.duration,
-        isAvailable: price > 0,
+        isAvailable: price > 0 && service.duration > 0,
         createdAt: service._creationTime,
         updatedAt: service._creationTime,
         vehicleType,
@@ -275,13 +276,16 @@ async function replaceServiceVehiclePrices(
     const vehicleType = await ensureVehicleTypeForPrice(ctx, input);
     if (!vehicleType || seen.has(vehicleType._id)) continue;
     seen.add(vehicleType._id);
+    const price = Math.max(0, input.price || 0);
+    const duration = Math.max(0, Math.floor(input.duration || 0));
+    const isAvailable = input.isAvailable && price > 0 && duration > 0;
 
     const rowId = await ctx.db.insert("serviceVehiclePrices", {
       serviceId,
       vehicleTypeId: vehicleType._id,
-      price: Math.max(0, input.price || 0),
-      duration: Math.max(0, Math.floor(input.duration || 0)),
-      isAvailable: input.isAvailable,
+      price,
+      duration,
+      isAvailable,
       createdAt: now,
       updatedAt: now,
     });

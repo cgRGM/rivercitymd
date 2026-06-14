@@ -78,10 +78,11 @@ export function getEffectiveServicePricingForVehicle(
     }
 
     const price = Number.isFinite(row.price) ? row.price : 0;
+    const duration = Math.max(0, row.duration ?? fallbackDuration);
     return {
       price,
-      duration: Math.max(0, row.duration ?? fallbackDuration),
-      isAvailable: row.isAvailable && price > 0,
+      duration,
+      isAvailable: row.isAvailable && price > 0 && duration > 0,
     };
   }
 
@@ -120,16 +121,23 @@ export function hasAnyAvailableVehicleTypePrice(
 ): boolean {
   return (
     vehiclePrices?.some(
-      (price) => price.isAvailable && Number.isFinite(price.price) && price.price > 0,
+      (price) =>
+        price.isAvailable &&
+        Number.isFinite(price.price) &&
+        price.price > 0 &&
+        (price.duration ?? 0) > 0,
     ) ?? false
   );
 }
 
 export function isBookableStandardService(service: ServicePricingShape): boolean {
+  const hasVehicleTypeRows = (service.vehiclePrices?.length ?? 0) > 0;
   return (
     service.isActive === true &&
     normalizeServiceType(service.serviceType) === "standard" &&
-    hasAnyPositiveServicePrice(service)
+    (hasVehicleTypeRows
+      ? hasAnyAvailableVehicleTypePrice(service.vehiclePrices)
+      : hasAnyPositiveServicePrice(service))
   );
 }
 
