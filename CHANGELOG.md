@@ -4,6 +4,12 @@ All notable changes to the River City Mobile Detailing project are documented in
 
 ---
 
+## [v1.0.2] - 2026-06-15
+### Fixed
+- **Relay Upload CORS**: Configured the `/api/r2-upload-relay` route as a public route in Clerk middleware (`proxy.ts`). This resolves the CORS issue when unauthenticated guest users try to upload booking photos.
+
+---
+
 ## [v1.0.1] - 2026-06-15
 ### Added
 - **R2 Upload Relay Route**: Added `/api/r2-upload-relay` to relay photo uploads to R2 to avoid client CORS/connection errors.
