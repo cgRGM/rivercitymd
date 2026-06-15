@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   "/booking(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/api/r2-upload-relay",
 ]);
 
 const isOnboardingRoute = createRouteMatcher(["/onboarding(.*)"]);
