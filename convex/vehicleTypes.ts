@@ -231,10 +231,15 @@ function mapCategoryToSlug(value: string | undefined): {
     normalized.includes("side-by-side") ||
     normalized.includes("side by side") ||
     normalized.includes("utv") ||
+    normalized.includes("utility terrain") ||
+    normalized.includes("defender") ||
+    normalized.includes("maverick") ||
     normalized.includes("can-am") ||
-    normalized.includes("spyder") ||
     normalized.includes("slingshot")
   ) {
+    return { slug: "side-by-side", confidence: "medium" };
+  }
+  if (normalized.includes("spyder") || normalized.includes("ryker")) {
     return { slug: "motorcycle", confidence: "medium" };
   }
   if (normalized.includes("minivan") || normalized.includes("van")) {
@@ -318,8 +323,9 @@ async function classifyWithGeminiSearch(args: {
                 text:
                   "Use Google Search if needed. Classify this vehicle for a mobile detailing pricing engine. " +
                   "Return only compact JSON with keys slug, confidence, rawCategory. " +
-                  "slug must be one of car, truck, suv, van, motorcycle. " +
-                  "Use motorcycle for motorcycles, scooters, trikes, ATVs, UTVs, side-by-sides, Can-Am Spyder/Ryker, and Polaris Slingshot. " +
+                  "slug must be one of car, truck, suv, van, motorcycle, side-by-side. " +
+                  "Use side-by-side for ATVs, UTVs, side-by-sides, Can-Am Defender/Maverick, Polaris RZR/Ranger, and similar off-road utility vehicles. " +
+                  "Use motorcycle for motorcycles, scooters, trikes, Can-Am Spyder/Ryker, and road-going three-wheel motorcycles. " +
                   "Use van for RVs/motorhomes/campers if no better category exists. " +
                   "Use confidence high only when the category is clear, medium when likely, low when uncertain. " +
                   `Vehicle: ${args.year} ${args.make} ${args.model}`,
@@ -366,7 +372,7 @@ async function classifyWithGeminiSearch(args: {
 
   return {
     slug:
-      ["car", "truck", "suv", "van", "motorcycle"].includes(parsed?.slug)
+      ["car", "truck", "suv", "van", "motorcycle", "side-by-side"].includes(parsed?.slug)
         ? parsed.slug
         : mapped.slug,
     confidence,

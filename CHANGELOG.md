@@ -4,6 +4,17 @@ All notable changes to the River City Mobile Detailing project are documented in
 
 ---
 
+## [v1.0.1] - 2026-06-15
+### Added
+- **R2 Upload Relay Route**: Added `/api/r2-upload-relay` to relay photo uploads to R2 to avoid client CORS/connection errors.
+- **UTV/Side-by-side Classification**: Implemented classification rule for UTV/side-by-side vehicle models (e.g., Can-Am Defender, Maverick) and added unit tests.
+
+### Fixed
+- **Upload Failover**: Configured `VehicleLookupCard` to fall back to the relay upload route if direct signed URL upload fails.
+- **Booking Flow State Cleanup**: Fully reset forms (including active services, expanded index settings) and cleared local storage keys (`booking-storage`, `selectedAddress`, `appointmentFormData`) when resetting/cancelling the booking flow.
+
+---
+
 ## [v1.0.0] - 2026-06-13
 ### Added
 - **Coupon Dashboard**: Built a coupons administration panel (`/admin/coupons`) with stats summaries (total coupons, active coupons, and total redemptions) and a dialog to create/delete coupons on Stripe.

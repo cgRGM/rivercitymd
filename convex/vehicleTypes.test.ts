@@ -266,6 +266,56 @@ describe("vehicleTypes", () => {
     expect(result.needsAdminReview).toBe(false);
   });
 
+  test("routes Can-Am UTVs to a configured side-by-side vehicle type", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("vehicleTypes", {
+        name: "Side-by-side",
+        slug: "side-by-side",
+        legacySize: "medium",
+        apiAliases: ["side-by-side", "utv"],
+        isActive: true,
+        displayOrder: 90,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const urlString = String(url);
+        if (urlString.includes("fueleconomy.gov")) {
+          return Response.json({}, { status: 500 });
+        }
+        if (urlString.includes("vpic.nhtsa.dot.gov")) {
+          return Response.json({
+            Results: [
+              {
+                Model_Name: "Defender",
+                VehicleTypeName: "Utility Terrain Vehicle",
+              },
+            ],
+          });
+        }
+        return Response.json({}, { status: 404 });
+      }),
+    );
+
+    const result = await t.action(api.vehicleTypes.classify, {
+      year: 2014,
+      make: "Can-Am",
+      model: "Defender",
+    });
+
+    expect(result.vehicleTypeName).toBe("Side-by-side");
+    expect(result.legacySize).toBe("medium");
+    expect(result.source).toBe("vpic");
+    expect(result.confidence).toBe("medium");
+    expect(result.needsAdminReview).toBe(false);
+  });
+
   test("uses Gemini Search as a final classifier for oddball manual vehicles", async () => {
     const t = convexTest(schema, modules);
     process.env.GEMINI_API_KEY = "gemini_test_key";

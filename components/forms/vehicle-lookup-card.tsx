@@ -181,6 +181,47 @@ function uploadPhotoToSignedUrl(args: {
   });
 }
 
+async function relayPhotoToSignedUrl(args: {
+  url: string;
+  file: File;
+  contentType: string;
+}) {
+  const response = await fetch("/api/r2-upload-relay", {
+    method: "PUT",
+    headers: {
+      "Content-Type": args.contentType,
+      "x-r2-upload-url": args.url,
+    },
+    body: args.file,
+  });
+
+  if (!response.ok) {
+    let message = "Photo upload failed. Please try again or continue without photos.";
+    try {
+      const result = await response.clone().json();
+      if (typeof result?.error === "string" && result.error.trim()) {
+        message = result.error;
+      }
+    } catch {
+      const text = await response.text();
+      if (text.trim()) message = text;
+    }
+    throw new Error(message);
+  }
+}
+
+async function uploadPhoto(args: {
+  url: string;
+  file: File;
+  contentType: string;
+}) {
+  try {
+    await uploadPhotoToSignedUrl(args);
+  } catch {
+    await relayPhotoToSignedUrl(args);
+  }
+}
+
 export function VehicleLookupCard({
   value,
   onChange,
@@ -387,7 +428,7 @@ export function VehicleLookupCard({
           fileName: file.name,
           contentType,
         });
-        await uploadPhotoToSignedUrl({ url: upload.url, file, contentType });
+        await uploadPhoto({ url: upload.url, file, contentType });
         uploadedPhotos.push({
           key: upload.key,
           fileName: file.name,

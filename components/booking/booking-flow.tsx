@@ -913,9 +913,50 @@ export default function BookingFlow() {
 
   const handleCancel = () => {
     resetBooking();
+    step1Form.reset({
+      scheduledDate: undefined,
+      scheduledTime: "",
+      street: "",
+      city: "",
+      state: "",
+      zip: "",
+      locationNotes: "",
+      latitude: undefined,
+      longitude: undefined,
+    });
+    step2Form.reset({
+      name: "",
+      phone: "",
+      email: "",
+      smsOptIn: true,
+    });
+    step3Form.reset({
+      vehicles: [
+        {
+          year: "",
+          make: "",
+          model: "",
+          color: "",
+          licensePlate: "",
+          size: "small",
+          hasPet: false,
+          beforePhotos: [],
+        },
+      ],
+    });
+    step4Form.reset({
+      serviceIds: [],
+      vehicleServices: {},
+    });
+    setTravelQuote(null);
+    setOutOfAreaMode("idle");
+    setExpandedVehicleIndex(0);
+    setExpandedStep4VehicleIndex(0);
+    setActiveServiceSection({});
     if (typeof window !== "undefined") {
       localStorage.removeItem("selectedAddress");
       localStorage.removeItem("appointmentFormData");
+      localStorage.removeItem("booking-storage");
     }
     router.push("/");
   };
