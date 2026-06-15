@@ -113,6 +113,10 @@ function isValidYear(year: string) {
   return /^\d{4}$/.test(year);
 }
 
+function normalizeContentType(contentType: string) {
+  return contentType.toLowerCase().split(";")[0]?.trim() || "";
+}
+
 function getFileExtension(fileName: string) {
   const normalized = fileName.toLowerCase().trim();
   const lastDotIndex = normalized.lastIndexOf(".");
@@ -133,11 +137,48 @@ function getUploadContentType(file: File) {
 
 function isAllowedPhoto(file: File) {
   const extension = getFileExtension(file.name);
+  const contentType = normalizeContentType(file.type);
   return (
     file.size <= MAX_PHOTO_SIZE_BYTES &&
-    (ALLOWED_PHOTO_TYPES.has(file.type) ||
-      (file.type === "" && ALLOWED_PHOTO_EXTENSIONS.has(extension)))
+    (ALLOWED_PHOTO_TYPES.has(contentType) ||
+      (!contentType && ALLOWED_PHOTO_EXTENSIONS.has(extension)))
   );
+}
+
+function uploadPhotoToSignedUrl(args: {
+  url: string;
+  file: File;
+  contentType: string;
+}) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", args.url);
+    xhr.setRequestHeader("Content-Type", args.contentType);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          xhr.responseText ||
+            `Photo upload failed with status ${xhr.status || "unknown"}`,
+        ),
+      );
+    };
+    xhr.onerror = () => {
+      reject(
+        new Error(
+          "Photo upload could not connect to storage. Please try again or continue without photos.",
+        ),
+      );
+    };
+    xhr.ontimeout = () => {
+      reject(new Error("Photo upload timed out. Please try again."));
+    };
+    xhr.timeout = 60_000;
+    xhr.send(args.file);
+  });
 }
 
 export function VehicleLookupCard({
@@ -346,14 +387,7 @@ export function VehicleLookupCard({
           fileName: file.name,
           contentType,
         });
-        const response = await fetch(upload.url, {
-          method: "PUT",
-          headers: { "Content-Type": contentType },
-          body: file,
-        });
-        if (!response.ok) {
-          throw new Error((await response.text()) || "Photo upload failed");
-        }
+        await uploadPhotoToSignedUrl({ url: upload.url, file, contentType });
         uploadedPhotos.push({
           key: upload.key,
           fileName: file.name,
@@ -690,8 +724,10 @@ export function VehicleLookupCard({
                       multiple
                       className="sr-only"
                       onChange={(event) => {
-                        void uploadBeforePhotos(event.target.files);
-                        event.target.value = "";
+                        const input = event.currentTarget;
+                        void uploadBeforePhotos(input.files).finally(() => {
+                          input.value = "";
+                        });
                       }}
                     />
                   </label>
