@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -26,6 +26,7 @@ import {
   FileText,
   AlertCircle,
   Pencil,
+  Plus,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -38,6 +39,24 @@ import {
 } from "@/components/ui/table";
 import { formatTime12h } from "@/lib/time";
 import { EditCustomerForm } from "@/components/forms";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Props = {
   customerId: Id<"users">;
@@ -47,6 +66,60 @@ export default function CustomerDetailClient({ customerId }: Props) {
   const router = useRouter();
   const customerData = useQuery(api.users.getByIdWithDetails, { userId: customerId });
   const [showEditForm, setShowEditForm] = useState(false);
+  const [showAddVehicleForm, setShowAddVehicleForm] = useState(false);
+  const [newVehicle, setNewVehicle] = useState({
+    year: "",
+    make: "",
+    model: "",
+    size: "medium" as "small" | "medium" | "large",
+    color: "",
+    licensePlate: "",
+    notes: "",
+  });
+  const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
+  const createVehicle = useMutation(api.vehicles.create);
+
+  const resetVehicleForm = () => {
+    setNewVehicle({
+      year: "",
+      make: "",
+      model: "",
+      size: "medium",
+      color: "",
+      licensePlate: "",
+      notes: "",
+    });
+  };
+
+  const handleCreateVehicle = async () => {
+    if (!newVehicle.year || !newVehicle.make.trim() || !newVehicle.model.trim()) {
+      toast.error("Vehicle year, make, and model are required");
+      return;
+    }
+
+    setIsCreatingVehicle(true);
+    try {
+      await createVehicle({
+        userId: customerId,
+        year: Number(newVehicle.year),
+        make: newVehicle.make.trim(),
+        model: newVehicle.model.trim(),
+        size: newVehicle.size,
+        color: newVehicle.color.trim() || undefined,
+        licensePlate: newVehicle.licensePlate.trim() || undefined,
+        notes: newVehicle.notes.trim() || undefined,
+      });
+
+      toast.success("Vehicle added successfully");
+      resetVehicleForm();
+      setShowAddVehicleForm(false);
+      router.refresh();
+    } catch {
+      toast.error("Failed to add vehicle");
+    } finally {
+      setIsCreatingVehicle(false);
+    }
+  };
 
   if (customerData === undefined) {
     return (
@@ -341,9 +414,15 @@ export default function CustomerDetailClient({ customerId }: Props) {
 
       {/* Vehicles */}
       <Card>
-        <CardHeader>
-          <CardTitle>Vehicles ({vehicles.length})</CardTitle>
-          <CardDescription>All vehicles registered to this customer</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle>Vehicles ({vehicles.length})</CardTitle>
+            <CardDescription>All vehicles registered to this customer</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowAddVehicleForm(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Vehicle
+          </Button>
         </CardHeader>
         <CardContent>
           {vehicles.length === 0 ? (
@@ -384,6 +463,121 @@ export default function CustomerDetailClient({ customerId }: Props) {
         onOpenChange={setShowEditForm}
         customer={user}
       />
+
+      <Dialog open={showAddVehicleForm} onOpenChange={setShowAddVehicleForm}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add New Vehicle</DialogTitle>
+            <DialogDescription>
+              Enter vehicle details to add to this customer&apos;s profile
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="vehicle-year">Year</Label>
+                <Input
+                  id="vehicle-year"
+                  type="number"
+                  placeholder="2024"
+                  value={newVehicle.year}
+                  onChange={(e) =>
+                    setNewVehicle((prev) => ({ ...prev, year: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vehicle-make">Make</Label>
+                <Input
+                  id="vehicle-make"
+                  placeholder="Toyota"
+                  value={newVehicle.make}
+                  onChange={(e) =>
+                    setNewVehicle((prev) => ({ ...prev, make: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="vehicle-model">Model</Label>
+              <Input
+                id="vehicle-model"
+                placeholder="Camry"
+                value={newVehicle.model}
+                onChange={(e) =>
+                  setNewVehicle((prev) => ({ ...prev, model: e.target.value }))
+                }
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="vehicle-size">Size</Label>
+                <Select
+                  value={newVehicle.size}
+                  onValueChange={(val) =>
+                    setNewVehicle((prev) => ({
+                      ...prev,
+                      size: val as "small" | "medium" | "large",
+                    }))
+                  }
+                >
+                  <SelectTrigger id="vehicle-size">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="small">Small</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="large">Large</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vehicle-color">Color</Label>
+                <Input
+                  id="vehicle-color"
+                  placeholder="Silver"
+                  value={newVehicle.color}
+                  onChange={(e) =>
+                    setNewVehicle((prev) => ({ ...prev, color: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="vehicle-license">License Plate</Label>
+              <Input
+                id="vehicle-license"
+                placeholder="ABC-123"
+                value={newVehicle.licensePlate}
+                onChange={(e) =>
+                  setNewVehicle((prev) => ({
+                    ...prev,
+                    licensePlate: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="vehicle-notes">Notes</Label>
+              <Textarea
+                id="vehicle-notes"
+                placeholder="Any special notes about this vehicle"
+                value={newVehicle.notes}
+                onChange={(e) =>
+                  setNewVehicle((prev) => ({ ...prev, notes: e.target.value }))
+                }
+              />
+            </div>
+            <Button
+              className="w-full"
+              onClick={handleCreateVehicle}
+              disabled={isCreatingVehicle || !newVehicle.year || !newVehicle.make || !newVehicle.model}
+            >
+              {isCreatingVehicle ? "Adding Vehicle..." : "Add Vehicle"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

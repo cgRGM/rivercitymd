@@ -47,6 +47,7 @@ import {
   X,
   Images,
   Tag,
+  Plus,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -127,6 +128,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const updateAppointment = useMutation(api.appointments.update);
   const applyWorkAdjustment = useMutation(api.appointments.applyWorkAdjustment);
   const updateVehicle = useMutation(api.vehicles.updateVehicle);
+  const createVehicle = useMutation(api.vehicles.create);
   const updateBillingSettings = useMutation(api.invoices.updateBillingSettings);
   const reissueStripeInvoice = useAction(api.payments.reissueStripeInvoice);
   const applyCouponToInvoice = useAction(api.payments.applyCouponToInvoice);
@@ -212,6 +214,70 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const [editVehicleSizes, setEditVehicleSizes] = useState<Record<string, string>>({});
   const [editVehicleTypeIds, setEditVehicleTypeIds] = useState<Record<string, string>>({});
   const [editPetFeeVehicleIds, setEditPetFeeVehicleIds] = useState<Id<"vehicles">[]>([]);
+  const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
+  const [newVehicle, setNewVehicle] = useState({
+    year: "",
+    make: "",
+    model: "",
+    color: "",
+    size: "medium" as "small" | "medium" | "large",
+    licensePlate: "",
+    notes: "",
+  });
+
+  const resetVehicleForm = () => {
+    setNewVehicle({
+      year: "",
+      make: "",
+      model: "",
+      color: "",
+      size: "medium",
+      licensePlate: "",
+      notes: "",
+    });
+  };
+
+  const handleCreateVehicle = async () => {
+    if (!data?.userId) return;
+    if (!newVehicle.year || !newVehicle.make.trim() || !newVehicle.model.trim()) {
+      toast.error("Vehicle year, make, and model are required");
+      return;
+    }
+
+    setIsCreatingVehicle(true);
+    try {
+      const vehicleId = await createVehicle({
+        userId: data.userId,
+        year: Number(newVehicle.year),
+        make: newVehicle.make.trim(),
+        model: newVehicle.model.trim(),
+        size: newVehicle.size,
+        color: newVehicle.color.trim() || undefined,
+        licensePlate: newVehicle.licensePlate.trim() || undefined,
+        notes: newVehicle.notes.trim() || undefined,
+      });
+
+      // Automatically check/select this vehicle
+      setEditVehicleIds((prev) => [...prev, vehicleId]);
+
+      // Pre-set sizes/types mapping
+      setEditVehicleSizes((prev) => ({
+        ...prev,
+        [vehicleId]: newVehicle.size,
+      }));
+      setEditVehicleTypeIds((prev) => ({
+        ...prev,
+        [vehicleId]: "",
+      }));
+
+      resetVehicleForm();
+      toast.success("Vehicle added and selected");
+    } catch {
+      toast.error("Failed to add vehicle");
+    } finally {
+      setIsCreatingVehicle(false);
+    }
+  };
   const [adjustingWork, setAdjustingWork] = useState(false);
   const [adjustVehicleIds, setAdjustVehicleIds] = useState<Id<"vehicles">[]>([]);
   const [adjustServiceIds, setAdjustServiceIds] = useState<Id<"services">[]>([]);
@@ -762,76 +828,212 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                 <p className="text-sm text-muted-foreground">
                   Loading customer vehicles...
                 </p>
-              ) : customerVehicles.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  This customer has no saved vehicles yet.
-                </p>
               ) : (
-                <div className="space-y-3">
-                  {customerVehicles.map((v) => {
-                    const checked = editVehicleIds.includes(v._id);
-                    const hasPetFee = editPetFeeVehicleIds.includes(v._id);
-                    return (
-                      <div
-                        key={v._id}
-                        className="rounded-md border p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3">
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(value) =>
-                                toggleVehicle(v._id, value === true)
-                              }
-                              className="mt-1"
-                            />
-                            <div>
-                              <p className="font-medium text-sm">
-                                {v.year} {v.make} {v.model}
-                              </p>
-                              <div className="flex gap-2 text-xs text-muted-foreground">
-                                {v.color && <span>{v.color}</span>}
-                                {v.licensePlate && <span>{v.licensePlate}</span>}
+                <div className="space-y-4">
+                  {customerVehicles.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      This customer has no saved vehicles yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerVehicles.map((v) => {
+                        const checked = editVehicleIds.includes(v._id);
+                        const hasPetFee = editPetFeeVehicleIds.includes(v._id);
+                        return (
+                          <div
+                            key={v._id}
+                            className="rounded-md border p-3"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(value) =>
+                                    toggleVehicle(v._id, value === true)
+                                  }
+                                  className="mt-1"
+                                />
+                                <div>
+                                  <p className="font-medium text-sm">
+                                    {v.year} {v.make} {v.model}
+                                  </p>
+                                  <div className="flex gap-2 text-xs text-muted-foreground">
+                                    {v.color && <span>{v.color}</span>}
+                                    {v.licensePlate && <span>{v.licensePlate}</span>}
+                                  </div>
+                                </div>
                               </div>
+                              <Select
+                                value={editVehicleTypeIds[v._id] || "__legacy__"}
+                                onValueChange={(val) =>
+                                  setEditVehicleTypeIds((prev) => ({
+                                    ...prev,
+                                    [v._id]: val === "__legacy__" ? "" : val,
+                                  }))
+                                }
+                                disabled={!checked || typedVehicleTypes.length === 0}
+                              >
+                                <SelectTrigger className="w-36">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__legacy__">
+                                    {v.size || "medium"}
+                                  </SelectItem>
+                                  {typedVehicleTypes.map((vehicleType) => (
+                                    <SelectItem key={vehicleType._id} value={vehicleType._id}>
+                                      {vehicleType.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="mt-3 flex items-center gap-2 border-t pt-3">
+                              <Checkbox
+                                checked={hasPetFee}
+                                onCheckedChange={(value) =>
+                                  togglePetFeeVehicle(v._id, value === true)
+                                }
+                              />
+                              <Label className="text-xs font-normal">Pet fee</Label>
                             </div>
                           </div>
-                          <Select
-                            value={editVehicleTypeIds[v._id] || "__legacy__"}
-                            onValueChange={(val) =>
-                              setEditVehicleTypeIds((prev) => ({
-                                ...prev,
-                                [v._id]: val === "__legacy__" ? "" : val,
-                              }))
-                            }
-                            disabled={!checked || typedVehicleTypes.length === 0}
-                          >
-                            <SelectTrigger className="w-36">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__legacy__">
-                                {v.size || "medium"}
-                              </SelectItem>
-                              {typedVehicleTypes.map((vehicleType) => (
-                                <SelectItem key={vehicleType._id} value={vehicleType._id}>
-                                  {vehicleType.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="mt-3 flex items-center gap-2 border-t pt-3">
-                          <Checkbox
-                            checked={hasPetFee}
-                            onCheckedChange={(value) =>
-                              togglePetFeeVehicle(v._id, value === true)
-                            }
-                          />
-                          
-                        </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Add Vehicle sub-form */}
+                  <div className="space-y-4 rounded-lg border p-4 mt-4 bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      <div>
+                        <p className="text-sm font-medium">Add vehicle for this customer</p>
+                        <p className="text-xs text-muted-foreground">
+                          New vehicles are saved immediately and automatically selected.
+                        </p>
                       </div>
-                    );
-                  })}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="new-v-year" className="text-xs">Year</Label>
+                        <Input
+                          id="new-v-year"
+                          type="number"
+                          placeholder="2024"
+                          className="h-8 text-xs"
+                          value={newVehicle.year}
+                          onChange={(e) =>
+                            setNewVehicle((prev) => ({ ...prev, year: e.target.value }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="new-v-make" className="text-xs">Make</Label>
+                        <Input
+                          id="new-v-make"
+                          placeholder="Toyota"
+                          className="h-8 text-xs"
+                          value={newVehicle.make}
+                          onChange={(e) =>
+                            setNewVehicle((prev) => ({ ...prev, make: e.target.value }))
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="new-v-model" className="text-xs">Model</Label>
+                        <Input
+                          id="new-v-model"
+                          placeholder="Camry"
+                          className="h-8 text-xs"
+                          value={newVehicle.model}
+                          onChange={(e) =>
+                            setNewVehicle((prev) => ({ ...prev, model: e.target.value }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="new-v-color" className="text-xs">Color</Label>
+                        <Input
+                          id="new-v-color"
+                          placeholder="Silver"
+                          className="h-8 text-xs"
+                          value={newVehicle.color}
+                          onChange={(e) =>
+                            setNewVehicle((prev) => ({ ...prev, color: e.target.value }))
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="new-v-size" className="text-xs">Size</Label>
+                        <Select
+                          value={newVehicle.size}
+                          onValueChange={(val) =>
+                            setNewVehicle((prev) => ({
+                              ...prev,
+                              size: val as "small" | "medium" | "large",
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="new-v-size" className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="small">Small</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="large">Large</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="new-v-license" className="text-xs">License Plate</Label>
+                        <Input
+                          id="new-v-license"
+                          placeholder="ABC-123"
+                          className="h-8 text-xs"
+                          value={newVehicle.licensePlate}
+                          onChange={(e) =>
+                            setNewVehicle((prev) => ({
+                              ...prev,
+                              licensePlate: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label htmlFor="new-v-notes" className="text-xs">Notes</Label>
+                      <Textarea
+                        id="new-v-notes"
+                        placeholder="Optional notes"
+                        className="min-h-[50px] text-xs p-2"
+                        value={newVehicle.notes}
+                        onChange={(e) =>
+                          setNewVehicle((prev) => ({ ...prev, notes: e.target.value }))
+                        }
+                      />
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCreateVehicle}
+                        disabled={isCreatingVehicle || !newVehicle.year || !newVehicle.make || !newVehicle.model}
+                      >
+                        {isCreatingVehicle ? "Saving..." : "Save Vehicle"}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               )
             ) : vehicles.length === 0 ? (

@@ -4,6 +4,13 @@ All notable changes to the River City Mobile Detailing project are documented in
 
 ---
 
+## [v1.0.3] - 2026-06-16
+### Added
+- **Multi-Vehicle Customer Management**: Added a dialog/form to the admin Customer Detail page to register new vehicles directly to a customer's profile.
+- **Inline Vehicle Creation in Edit Appointment**: Added a sub-form to add new vehicles directly when editing an appointment, automatically selecting the newly created vehicle for the appointment and updating the pricing breakdown.
+
+---
+
 ## [v1.0.2] - 2026-06-15
 ### Fixed
 - **Relay Upload CORS**: Configured the `/api/r2-upload-relay` route as a public route in Clerk middleware (`proxy.ts`). This resolves the CORS issue when unauthenticated guest users try to upload booking photos.
