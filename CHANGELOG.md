@@ -4,6 +4,17 @@ All notable changes to the River City Mobile Detailing project are documented in
 
 ---
 
+## [v1.0.4] - 2026-06-18
+### Added
+- **Editable Customer Vehicles (Admin)**: Expanded the admin Customer Detail page to allow inline editing of customer vehicles (Year, Make, Model, Color, License Plate, Notes). This triggers auto-classification on save to update sizes and types without needing deletion.
+- **Service Descriptions at Checkout (Dashboard)**: Made services in the customer dashboard appointment booking summary clickable, revealing a Dialog containing complete service descriptions, matching the public booking flow behavior.
+
+### Fixed
+- **HEIC Image Upload Fallbacks**: Fixed HEIC/HEIF photo uploads being rejected with a "client error" when browser MIME types fallback to `application/octet-stream`. Falls back to parsing filename extensions and maps them to `image/heic`/`image/heif` or relaxes backend verification to match.
+- **Editable Vehicle Mutation**: Expanded `updateVehicle` mutation in `convex/vehicles.ts` to accept optional `year`, `make`, `model`, and `classification` arguments to support fully updating vehicle profiles rather than forcing delete/recreate.
+
+---
+
 ## [v1.0.3] - 2026-06-16
 ### Added
 - **Multi-Vehicle Customer Management**: Added a dialog/form to the admin Customer Detail page to register new vehicles directly to a customer's profile.

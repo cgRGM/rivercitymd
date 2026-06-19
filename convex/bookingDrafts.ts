@@ -209,6 +209,7 @@ function validateBeforePhotoFile(fileName: string, contentType: string) {
     "image/gif",
     "image/heic",
     "image/heif",
+    "application/octet-stream",
   ]);
   const allowedExtensions = new Set([
     ".jpg",
@@ -225,7 +226,7 @@ function validateBeforePhotoFile(fileName: string, contentType: string) {
   ) {
     throw new ConvexError({
       code: "INVALID_BEFORE_PHOTO_FILE_TYPE",
-      message: "Only JPG, PNG, WEBP, and GIF vehicle photos are allowed.",
+      message: "Before photos must be JPG, PNG, WEBP, GIF, HEIC, or HEIF.",
     });
   }
 }

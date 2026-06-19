@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -27,6 +27,7 @@ import {
   AlertCircle,
   Pencil,
   Plus,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -78,6 +79,96 @@ export default function CustomerDetailClient({ customerId }: Props) {
   });
   const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
   const createVehicle = useMutation(api.vehicles.create);
+
+  const [showEditVehicleForm, setShowEditVehicleForm] = useState(false);
+  const [isUpdatingVehicle, setIsUpdatingVehicle] = useState(false);
+  const [editVehicleData, setEditVehicleData] = useState({
+    id: "" as Id<"vehicles">,
+    year: "",
+    make: "",
+    model: "",
+    size: "medium" as "small" | "medium" | "large",
+    color: "",
+    licensePlate: "",
+    notes: "",
+  });
+
+  const updateVehicle = useMutation(api.vehicles.updateVehicle);
+  const deleteVehicle = useMutation(api.vehicles.deleteVehicle);
+  const classifyVehicle = useAction(api.vehicleTypes.classify);
+
+  const handleEditVehicle = (vehicle: any) => {
+    setEditVehicleData({
+      id: vehicle._id,
+      year: (vehicle.year ?? "").toString(),
+      make: vehicle.make ?? "",
+      model: vehicle.model ?? "",
+      size: vehicle.size || "medium",
+      color: vehicle.color || "",
+      licensePlate: vehicle.licensePlate || "",
+      notes: vehicle.notes || "",
+    });
+    setShowEditVehicleForm(true);
+  };
+
+  const handleUpdateVehicle = async () => {
+    if (!editVehicleData.year || !editVehicleData.make.trim() || !editVehicleData.model.trim()) {
+      toast.error("Vehicle year, make, and model are required");
+      return;
+    }
+
+    setIsUpdatingVehicle(true);
+    try {
+      // Run classification to get vehicle type
+      let classification = null;
+      try {
+        classification = await classifyVehicle({
+          year: parseInt(editVehicleData.year),
+          make: editVehicleData.make.trim(),
+          model: editVehicleData.model.trim(),
+        });
+      } catch (e) {
+        console.error("Failed to classify during edit:", e);
+      }
+
+      await updateVehicle({
+        id: editVehicleData.id,
+        year: parseInt(editVehicleData.year),
+        make: editVehicleData.make.trim(),
+        model: editVehicleData.model.trim(),
+        color: editVehicleData.color.trim() || undefined,
+        licensePlate: editVehicleData.licensePlate.trim() || undefined,
+        notes: editVehicleData.notes.trim() || undefined,
+        size: classification ? classification.legacySize : editVehicleData.size,
+        vehicleTypeId: classification ? classification.vehicleTypeId : undefined,
+        classification: classification ? {
+          source: classification.source,
+          confidence: classification.confidence,
+          rawCategory: classification.rawCategory,
+          needsAdminReview: classification.needsAdminReview,
+        } : undefined,
+      });
+
+      toast.success("Vehicle updated successfully");
+      setShowEditVehicleForm(false);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update vehicle");
+    } finally {
+      setIsUpdatingVehicle(false);
+    }
+  };
+
+  const handleDeleteVehicle = async (vehicleId: Id<"vehicles">) => {
+    if (!confirm("Are you sure you want to delete this vehicle? This will fail if it has active appointments.")) return;
+    try {
+      await deleteVehicle({ id: vehicleId });
+      toast.success("Vehicle deleted successfully");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete vehicle");
+    }
+  };
 
   const resetVehicleForm = () => {
     setNewVehicle({
@@ -436,20 +527,44 @@ export default function CustomerDetailClient({ customerId }: Props) {
               {vehicles.map((vehicle: any) => (
                 <div
                   key={vehicle._id}
-                  className="p-4 rounded-lg border border-border"
+                  className="p-4 rounded-lg border border-border flex flex-col justify-between"
                 >
-                  <div className="font-semibold text-lg mb-2">
-                    {vehicle.year} {vehicle.make} {vehicle.model}
-                  </div>
-                  <div className="text-sm text-muted-foreground space-y-1">
-                    <div>Color: {vehicle.color}</div>
-                    {vehicle.licensePlate && (
-                      <div>License: {vehicle.licensePlate}</div>
-                    )}
-                    {vehicle.size && (
-                      <div>Size: {vehicle.size.charAt(0).toUpperCase() + vehicle.size.slice(1)}</div>
-                    )}
-                    {vehicle.notes && <div>Notes: {vehicle.notes}</div>}
+                  <div>
+                    <div className="flex items-start justify-between mb-2 gap-2">
+                      <div className="font-semibold text-lg">
+                        {vehicle.year} {vehicle.make} {vehicle.model}
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditVehicle(vehicle)}
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          title="Edit vehicle"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteVehicle(vehicle._id)}
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          title="Delete vehicle"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <div>Color: {vehicle.color || "Not specified"}</div>
+                      {vehicle.licensePlate && (
+                        <div>License: {vehicle.licensePlate}</div>
+                      )}
+                      {vehicle.size && (
+                        <div>Size: {vehicle.size.charAt(0).toUpperCase() + vehicle.size.slice(1)}</div>
+                      )}
+                      {vehicle.notes && <div>Notes: {vehicle.notes}</div>}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -574,6 +689,121 @@ export default function CustomerDetailClient({ customerId }: Props) {
               disabled={isCreatingVehicle || !newVehicle.year || !newVehicle.make || !newVehicle.model}
             >
               {isCreatingVehicle ? "Adding Vehicle..." : "Add Vehicle"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditVehicleForm} onOpenChange={setShowEditVehicleForm}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Edit Vehicle</DialogTitle>
+            <DialogDescription>
+              Update vehicle details for this customer
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-vehicle-year">Year</Label>
+                <Input
+                  id="edit-vehicle-year"
+                  type="number"
+                  placeholder="2024"
+                  value={editVehicleData.year}
+                  onChange={(e) =>
+                    setEditVehicleData((prev) => ({ ...prev, year: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-vehicle-make">Make</Label>
+                <Input
+                  id="edit-vehicle-make"
+                  placeholder="Toyota"
+                  value={editVehicleData.make}
+                  onChange={(e) =>
+                    setEditVehicleData((prev) => ({ ...prev, make: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-vehicle-model">Model</Label>
+              <Input
+                id="edit-vehicle-model"
+                placeholder="Camry"
+                value={editVehicleData.model}
+                onChange={(e) =>
+                  setEditVehicleData((prev) => ({ ...prev, model: e.target.value }))
+                }
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-vehicle-size">Size</Label>
+                <Select
+                  value={editVehicleData.size}
+                  onValueChange={(val) =>
+                    setEditVehicleData((prev) => ({
+                      ...prev,
+                      size: val as "small" | "medium" | "large",
+                    }))
+                  }
+                >
+                  <SelectTrigger id="edit-vehicle-size">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="small">Small</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="large">Large</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-vehicle-color">Color</Label>
+                <Input
+                  id="edit-vehicle-color"
+                  placeholder="Silver"
+                  value={editVehicleData.color}
+                  onChange={(e) =>
+                    setEditVehicleData((prev) => ({ ...prev, color: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-vehicle-license">License Plate</Label>
+              <Input
+                id="edit-vehicle-license"
+                placeholder="ABC-123"
+                value={editVehicleData.licensePlate}
+                onChange={(e) =>
+                  setEditVehicleData((prev) => ({
+                    ...prev,
+                    licensePlate: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-vehicle-notes">Notes</Label>
+              <Textarea
+                id="edit-vehicle-notes"
+                placeholder="Any special notes about this vehicle"
+                value={editVehicleData.notes}
+                onChange={(e) =>
+                  setEditVehicleData((prev) => ({ ...prev, notes: e.target.value }))
+                }
+              />
+            </div>
+            <Button
+              className="w-full"
+              onClick={handleUpdateVehicle}
+              disabled={isUpdatingVehicle || !editVehicleData.year || !editVehicleData.make || !editVehicleData.model}
+            >
+              {isUpdatingVehicle ? "Updating Vehicle..." : "Update Vehicle"}
             </Button>
           </div>
         </DialogContent>

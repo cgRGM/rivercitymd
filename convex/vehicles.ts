@@ -140,6 +140,10 @@ export const updateVehicle = mutation({
     color: v.optional(v.string()),
     licensePlate: v.optional(v.string()),
     notes: v.optional(v.string()),
+    year: v.optional(v.number()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    classification: v.optional(classificationValidator),
   },
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
@@ -153,15 +157,7 @@ export const updateVehicle = mutation({
     }
 
     const { id, ...updates } = args;
-    let patch: typeof updates & {
-      vehicleTypeOverrideBy?: typeof userId;
-      vehicleTypeOverrideAt?: number;
-      classification?: {
-        source: "manual";
-        confidence: "high";
-        needsAdminReview: false;
-      };
-    } = { ...updates };
+    let patch: Record<string, any> = { ...updates };
 
     if (updates.vehicleTypeId) {
       const vehicleType = await ctx.db.get(updates.vehicleTypeId);

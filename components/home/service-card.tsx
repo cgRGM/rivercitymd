@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ export function ServiceCard({
   isSelected,
   onSelect,
 }: ServiceCardProps) {
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const pricing = getEffectiveServicePricingForVehicle(service, {
     vehicleSize,
     vehicleTypeId,
@@ -75,9 +77,24 @@ export function ServiceCard({
               </Badge>
             )}
           </div>
-          <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed mt-2">
+          <p className={cn(
+            "text-sm text-muted-foreground leading-relaxed mt-2",
+            !isDescriptionExpanded && "line-clamp-3"
+          )}>
             {service.description}
           </p>
+          {service.description && service.description.length > 120 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsDescriptionExpanded(!isDescriptionExpanded);
+              }}
+              className="text-xs text-primary font-medium hover:underline mt-1 focus:outline-none"
+            >
+              {isDescriptionExpanded ? "Show less" : "Read more"}
+            </button>
+          )}
         </div>
         
         <div className="mt-4 pt-3 border-t border-border/50 flex items-end justify-between">
