@@ -119,6 +119,11 @@ export function DashboardAppointmentForm({
 }: DashboardAppointmentFormProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [readingService, setReadingService] = useState<{
+    name: string;
+    description: string;
+    price: number;
+  } | null>(null);
 
   // Form state
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
@@ -839,13 +844,23 @@ export function DashboardAppointmentForm({
                 return (
                   <div
                     key={service._id}
-                    className="flex justify-between text-sm"
+                    className="flex justify-between text-sm items-start gap-2"
                   >
-                    <span className="text-muted-foreground">
-                      {service.name}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <span className="font-medium">${price.toFixed(2)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setReadingService({
+                        name: service.name,
+                        description: service.description || "No description available.",
+                        price: price
+                      })}
+                      className="text-left text-muted-foreground hover:text-primary transition-colors flex items-baseline gap-1.5 focus:outline-none"
+                    >
+                      <span className="border-b border-dashed border-muted-foreground/40 hover:border-primary">
+                        {service.name}
+                      </span>
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="font-medium text-foreground">${price.toFixed(2)}</span>
                       {isSubscription && (
                         <span className="text-[10px] text-muted-foreground">
                           /mo
@@ -1081,6 +1096,21 @@ export function DashboardAppointmentForm({
             </Button>
           )}
         </div>
+        {readingService && (
+          <Dialog open={readingService !== null} onOpenChange={(open) => !open && setReadingService(null)}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>{readingService.name}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2 text-sm">
+                <p className="text-muted-foreground leading-relaxed">{readingService.description}</p>
+                <div className="font-semibold text-foreground">
+                  Price: ${readingService.price.toFixed(2)}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -27,3 +27,13 @@ export const dumpAppointments = query({
       .collect();
   },
 });
+export const searchUsers = query({
+  args: { query: v.string() },
+  handler: async (ctx, args) => {
+    const allUsers = await ctx.db.query("users").collect();
+    return allUsers.filter(u => 
+      (u.name && u.name.toLowerCase().includes(args.query.toLowerCase())) ||
+      (u.email && u.email.toLowerCase().includes(args.query.toLowerCase()))
+    );
+  },
+});

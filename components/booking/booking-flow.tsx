@@ -29,6 +29,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Form,
   FormControl,
   FormField,
@@ -200,6 +206,11 @@ export default function BookingFlow() {
     distanceMiles: number;
     fee: number;
     bufferMinutes: number;
+  } | null>(null);
+  const [readingService, setReadingService] = useState<{
+    name: string;
+    description: string;
+    price: number;
   } | null>(null);
   const { user, isLoaded, isSignedIn } = useUser();
   const [expandedVehicleIndex, setExpandedVehicleIndex] = useState<number>(0);
@@ -2022,6 +2033,7 @@ export default function BookingFlow() {
           const serviceBreakdownItems: Array<{
             vehicleLabel: string;
             serviceName: string;
+            serviceDescription: string;
             price: number;
             isSubscription: boolean;
           }> = [];
@@ -2041,6 +2053,7 @@ export default function BookingFlow() {
               serviceBreakdownItems.push({
                 vehicleLabel,
                 serviceName: service.name,
+                serviceDescription: service.description || "No description available.",
                 price,
                 isSubscription: service.serviceType === "subscription",
               });
@@ -2065,11 +2078,22 @@ export default function BookingFlow() {
                   Order Summary
                 </h3>
                 {serviceBreakdownItems.map((item, index) => (
-                  <div key={index} className="flex justify-between text-sm mb-2">
-                    <span className="text-muted-foreground">
-                      {item.serviceName} <span className="text-xs text-muted-foreground/60">({item.vehicleLabel})</span>
-                    </span>
-                    <div className="flex items-center gap-1">
+                  <div key={index} className="flex justify-between text-sm mb-2 items-start gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReadingService({
+                        name: item.serviceName,
+                        description: item.serviceDescription,
+                        price: item.price
+                      })}
+                      className="text-left text-muted-foreground hover:text-primary transition-colors flex items-baseline gap-1.5 focus:outline-none"
+                    >
+                      <span className="border-b border-dashed border-muted-foreground/40 hover:border-primary">
+                        {item.serviceName}
+                      </span>
+                      <span className="text-xs text-muted-foreground/60">({item.vehicleLabel})</span>
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
                       <span className="font-medium text-foreground">${item.price.toFixed(2)}</span>
                       {item.isSubscription && <span className="text-[10px] text-muted-foreground">/mo</span>}
                     </div>
@@ -2282,6 +2306,21 @@ export default function BookingFlow() {
           )}
         </div>
       </CardContent>
+      {readingService && (
+        <Dialog open={readingService !== null} onOpenChange={(open) => !open && setReadingService(null)}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>{readingService.name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2 text-sm">
+              <p className="text-muted-foreground leading-relaxed">{readingService.description}</p>
+              <div className="font-semibold text-foreground">
+                Price: ${readingService.price.toFixed(2)}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
 }

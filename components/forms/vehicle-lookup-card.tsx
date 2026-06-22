@@ -124,7 +124,7 @@ function getFileExtension(fileName: string) {
 }
 
 function getUploadContentType(file: File) {
-  if (file.type) return file.type;
+  if (file.type && file.type !== "application/octet-stream") return file.type;
   const extension = getFileExtension(file.name);
   if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
   if (extension === ".png") return "image/png";
@@ -138,10 +138,15 @@ function getUploadContentType(file: File) {
 function isAllowedPhoto(file: File) {
   const extension = getFileExtension(file.name);
   const contentType = normalizeContentType(file.type);
+  const resolvedContentType =
+    contentType === "application/octet-stream" || !contentType
+      ? getUploadContentType(file)
+      : contentType;
+
   return (
     file.size <= MAX_PHOTO_SIZE_BYTES &&
-    (ALLOWED_PHOTO_TYPES.has(contentType) ||
-      (!contentType && ALLOWED_PHOTO_EXTENSIONS.has(extension)))
+    (ALLOWED_PHOTO_TYPES.has(resolvedContentType) ||
+      ALLOWED_PHOTO_EXTENSIONS.has(extension))
   );
 }
 

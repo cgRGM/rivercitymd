@@ -45,6 +45,14 @@ const workAdjustmentArgs = {
   serviceIds: v.array(v.id("services")),
   petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
   reason: v.string(),
+  vehicleServices: v.optional(
+    v.array(
+      v.object({
+        vehicleId: v.id("vehicles"),
+        serviceIds: v.array(v.id("services")),
+      })
+    )
+  ),
 } as const;
 
 function getVehicleSize(
@@ -177,6 +185,24 @@ async function buildVehicleServiceItems(
   }
 
   return { items, duration };
+}
+
+function buildUpdatedVehicleServices(
+  existingVehicleServices: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }> | undefined,
+  newVehicleIds: Id<"vehicles">[],
+  newServiceIds: Id<"services">[],
+): Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }> {
+  const existing = existingVehicleServices ?? [];
+  return newVehicleIds.map((vehicleId) => {
+    const match = existing.find((m) => m.vehicleId === vehicleId);
+    const serviceIds = match
+      ? match.serviceIds.filter((id) => newServiceIds.includes(id))
+      : newServiceIds;
+    return {
+      vehicleId,
+      serviceIds: serviceIds.length > 0 ? serviceIds : newServiceIds,
+    };
+  });
 }
 
 async function buildAdjustmentPricing(
@@ -900,6 +926,14 @@ export const update = mutation({
     locationNotes: v.optional(v.string()),
     notes: v.optional(v.string()),
     petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    vehicleServices: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.id("vehicles"),
+          serviceIds: v.array(v.id("services")),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const userId = await getUserIdFromIdentity(ctx);
@@ -996,10 +1030,17 @@ export const update = mutation({
       }
     }
 
+    const vehicleServices = updates.vehicleServices ?? buildUpdatedVehicleServices(
+      existingAppointment.vehicleServices,
+      updates.vehicleIds,
+      updates.serviceIds,
+    );
+
     await ctx.db.patch(appointmentId, {
       userId: updates.userId,
       vehicleIds: updates.vehicleIds,
       serviceIds: updates.serviceIds,
+      vehicleServices,
       scheduledDate: normalizeDateKey(updates.scheduledDate),
       scheduledTime: updates.scheduledTime,
       duration,
@@ -1286,9 +1327,16 @@ export const applyWorkAdjustment = mutation({
       }
     }
 
+    const vehicleServices = args.vehicleServices ?? buildUpdatedVehicleServices(
+      appointment.vehicleServices,
+      args.vehicleIds,
+      args.serviceIds,
+    );
+
     await ctx.db.patch(args.appointmentId, {
       vehicleIds: args.vehicleIds,
       serviceIds: args.serviceIds,
+      vehicleServices,
       petFeeVehicleIds: newPetFeeVehicleIds,
       duration: newPricing.duration,
       totalPrice: newPricing.totalPrice,

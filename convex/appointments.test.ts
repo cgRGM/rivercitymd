@@ -1,6 +1,7 @@
 import { convexTest } from "convex-test";
 import { expect, test, describe, vi } from "vitest";
 import { api } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import schema from "./schema";
 import { modules } from "./test.setup";
 import { seedBookingSetup } from "./testUtils/bookingSetup";
@@ -499,6 +500,58 @@ describe("appointments", () => {
         unitPrice: 75,
         totalPrice: 75,
       }),
+    ]);
+  });
+
+  test("preserves existing service assignments when adding a vehicle", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+    } = await createAdjustmentFixture(t);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(appointmentId, {
+        vehicleServices: [
+          {
+            vehicleId,
+            serviceIds: [baseServiceId],
+          },
+        ],
+      });
+    });
+
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [vehicleId, secondVehicleId],
+      serviceIds: [baseServiceId, addOnServiceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72205",
+    });
+
+    const appointment = await t.run(
+      async (ctx) => (await ctx.db.get(appointmentId)) as Doc<"appointments"> | null,
+    );
+
+    expect(appointment?.vehicleServices).toEqual([
+      {
+        vehicleId,
+        serviceIds: [baseServiceId],
+      },
+      {
+        vehicleId: secondVehicleId,
+        serviceIds: [baseServiceId, addOnServiceId],
+      },
     ]);
   });
 
