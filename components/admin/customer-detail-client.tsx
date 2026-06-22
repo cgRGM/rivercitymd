@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
   Card,
   CardContent,
@@ -97,7 +97,7 @@ export default function CustomerDetailClient({ customerId }: Props) {
   const deleteVehicle = useMutation(api.vehicles.deleteVehicle);
   const classifyVehicle = useAction(api.vehicleTypes.classify);
 
-  const handleEditVehicle = (vehicle: any) => {
+  const handleEditVehicle = (vehicle: Doc<"vehicles">) => {
     setEditVehicleData({
       id: vehicle._id,
       year: (vehicle.year ?? "").toString(),
@@ -811,4 +811,3 @@ export default function CustomerDetailClient({ customerId }: Props) {
     </div>
   );
 }
-
