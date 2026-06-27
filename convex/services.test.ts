@@ -929,11 +929,12 @@ describe("services", () => {
     await t.finishInProgressScheduledFunctions();
 
     // Try to delete service - should fail
-    await expect(
+    await expectConvexErrorCode(
       asAdmin.mutation(api.services.deleteService, {
         serviceId,
       }),
-    ).rejects.toThrow("Cannot delete service with appointment history. Hide it instead.");
+      "SERVICE_HAS_APPOINTMENT_HISTORY",
+    );
   });
 
   test("cannot delete service with cancelled appointment history", async () => {
@@ -1007,10 +1008,11 @@ describe("services", () => {
       await ctx.db.patch(appointmentId, { status: "cancelled" });
     });
 
-    await expect(
+    await expectConvexErrorCode(
       asAdmin.mutation(api.services.deleteService, {
         serviceId,
       }),
-    ).rejects.toThrow("Cannot delete service with appointment history. Hide it instead.");
+      "SERVICE_HAS_APPOINTMENT_HISTORY",
+    );
   });
 });
