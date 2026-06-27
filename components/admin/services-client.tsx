@@ -80,6 +80,25 @@ type ServiceRecord = {
   }>;
 };
 
+const SERVICE_HAS_APPOINTMENT_HISTORY = "SERVICE_HAS_APPOINTMENT_HISTORY";
+
+function getMutationErrorDetails(error: unknown) {
+  const data = (error as { data?: unknown })?.data;
+
+  if (data && typeof data === "object") {
+    const details = data as { code?: unknown; message?: unknown };
+    return {
+      code: typeof details.code === "string" ? details.code : undefined,
+      message: typeof details.message === "string" ? details.message : undefined,
+    };
+  }
+
+  return {
+    code: undefined,
+    message: error instanceof Error ? error.message : undefined,
+  };
+}
+
 export default function ServicesClient() {
   const router = useRouter();
   const servicesQuery = useQuery(api.services.listWithBookingStats) as
@@ -290,6 +309,8 @@ export default function ServicesClient() {
   }
 
   const services = servicesQuery;
+  const selectedServiceToDelete =
+    services.find((service) => service._id === serviceToDelete) ?? null;
 
   const formatDuration = (duration: number) => {
     const hours = Math.floor(duration / 60);
@@ -447,23 +468,11 @@ export default function ServicesClient() {
     }
   };
 
-  const confirmDelete = async () => {
-    if (!serviceToDelete) return;
-
-    setDeletingId(serviceToDelete);
-    setServiceToDelete(null);
-
-    try {
-      await deleteService({ serviceId: serviceToDelete });
-      toast.success("Service deleted successfully");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete service");
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const toggleServiceVisibility = async (service: ServiceRecord) => {
+  const setServiceVisibility = async (
+    service: ServiceRecord,
+    isActive: boolean,
+    successMessage: string,
+  ) => {
     setUpdatingVisibilityId(service._id);
     try {
       await updateService({
@@ -485,17 +494,74 @@ export default function ServicesClient() {
         includedServiceIds: service.includedServiceIds,
         features: service.features,
         icon: service.icon,
-        isActive: !service.isActive,
+        isActive,
         showOnLandingPage: service.showOnLandingPage ?? true,
       });
 
-      toast.success(service.isActive ? "Service hidden" : "Service made visible");
+      toast.success(successMessage);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update service visibility");
+      const details = getMutationErrorDetails(error);
+      toast.error(details.message ?? "Failed to update service visibility");
     } finally {
       setUpdatingVisibilityId(null);
     }
+  };
+
+  const hideService = async (service: ServiceRecord) => {
+    if (!service.isActive) {
+      toast.success("Service is already hidden");
+      return;
+    }
+
+    await setServiceVisibility(
+      service,
+      false,
+      "Service hidden. Existing appointments remain unchanged.",
+    );
+  };
+
+  const confirmDelete = async () => {
+    if (!serviceToDelete) return;
+
+    const service = selectedServiceToDelete;
+    setDeletingId(serviceToDelete);
+    setServiceToDelete(null);
+
+    try {
+      await deleteService({ serviceId: serviceToDelete });
+      toast.success("Service deleted successfully");
+      router.refresh();
+    } catch (error) {
+      const details = getMutationErrorDetails(error);
+      const wasBlockedByHistory =
+        details.code === SERVICE_HAS_APPOINTMENT_HISTORY ||
+        details.message?.includes("appointment history");
+
+      if (wasBlockedByHistory && service) {
+        await hideService(service);
+      } else {
+        toast.error(details.message ?? "Failed to delete service");
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const hideServiceFromDeleteDialog = async () => {
+    if (!selectedServiceToDelete) return;
+
+    const service = selectedServiceToDelete;
+    setServiceToDelete(null);
+    await hideService(service);
+  };
+
+  const toggleServiceVisibility = async (service: ServiceRecord) => {
+    await setServiceVisibility(
+      service,
+      !service.isActive,
+      service.isActive ? "Service hidden" : "Service made visible",
+    );
   };
 
   const columns: ColumnDef<ServiceRecord>[] = [
@@ -1178,18 +1244,23 @@ export default function ServicesClient() {
       <Dialog open={!!serviceToDelete} onOpenChange={(open) => !open && setServiceToDelete(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Are you absolutely sure?</DialogTitle>
+            <DialogTitle>Remove service?</DialogTitle>
             <DialogDescription>
-              This permanently deletes a service only when it has never been used in any appointment.
-              For used services, hide them instead.
+              Delete permanently removes a service only when it has never been used in an appointment.
+              Hide keeps existing appointments intact and removes the service from new bookings.
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex justify-end gap-3">
+          <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={() => setServiceToDelete(null)}>
               Cancel
             </Button>
+            {selectedServiceToDelete?.isActive ? (
+              <Button variant="secondary" onClick={() => void hideServiceFromDeleteDialog()}>
+                Hide Service
+              </Button>
+            ) : null}
             <Button variant="destructive" onClick={confirmDelete}>
-              Delete Service
+              Delete Permanently
             </Button>
           </div>
         </DialogContent>
