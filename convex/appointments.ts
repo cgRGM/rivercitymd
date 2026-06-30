@@ -1014,8 +1014,13 @@ export const update = mutation({
     });
     const materialChanged =
       materialChangeFingerprint !== previousMaterialFingerprint;
+    const isInProgressWorkOnlyChange =
+      existingAppointment.status === "in_progress" && !scheduleChanged;
 
-    if (scheduleChanged || duration !== existingAppointment.duration) {
+    if (
+      (scheduleChanged || duration !== existingAppointment.duration) &&
+      !isInProgressWorkOnlyChange
+    ) {
       const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
         date: normalizeDateKey(updates.scheduledDate),
         startTime: updates.scheduledTime,
@@ -1224,17 +1229,19 @@ export const applyWorkAdjustment = mutation({
     const priceDelta = Math.round((newPricing.totalPrice - appointment.totalPrice) * 100) / 100;
     const durationDelta = newPricing.duration - appointment.duration;
 
-    const availability = await ctx.runQuery(api.availability.checkAvailability, {
-      date: appointment.scheduledDate,
-      startTime: appointment.scheduledTime,
-      duration: newPricing.duration,
-      ignoreAppointmentId: args.appointmentId,
-    });
-    if (!availability.available) {
-      throw new ConvexError({
-        code: "TIME_SLOT_UNAVAILABLE",
-        message: availability.reason || "Adjusted work no longer fits this time slot.",
+    if (appointment.status !== "in_progress") {
+      const availability = await ctx.runQuery(api.availability.checkAvailability, {
+        date: appointment.scheduledDate,
+        startTime: appointment.scheduledTime,
+        duration: newPricing.duration,
+        ignoreAppointmentId: args.appointmentId,
       });
+      if (!availability.available) {
+        throw new ConvexError({
+          code: "TIME_SLOT_UNAVAILABLE",
+          message: availability.reason || "Adjusted work no longer fits this time slot.",
+        });
+      }
     }
 
     const invoice = await ctx.db
