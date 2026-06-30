@@ -155,6 +155,7 @@ describe("appointments", () => {
       asAdmin,
       appointmentId,
       invoiceId,
+      adminId,
       userId,
       vehicleId,
       secondVehicleId,
@@ -670,6 +671,116 @@ describe("appointments", () => {
     expect(appointment?.vehicleIds).toEqual([vehicleId, secondVehicleId]);
     expect(appointment?.totalPrice).toBe(250);
     expect(appointment?.duration).toBe(240);
+  });
+
+  test("in-progress appointment update can add service despite downstream booking", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      adminId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+    } = await createAdjustmentFixture(t, { appointmentStatus: "in_progress" });
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [secondVehicleId],
+        serviceIds: [baseServiceId],
+        scheduledDate: APPOINTMENT_TEST_DATE,
+        scheduledTime: "12:15",
+        duration: 60,
+        location: {
+          street: "456 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72205",
+        },
+        status: "confirmed",
+        totalPrice: 100,
+        createdBy: adminId,
+      });
+    });
+
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId, addOnServiceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72205",
+    });
+
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db.get(invoiceId);
+      return { appointment, invoice };
+    });
+
+    expect(updated.appointment?.serviceIds).toEqual([baseServiceId, addOnServiceId]);
+    expect(updated.appointment?.duration).toBe(165);
+    expect(updated.appointment?.totalPrice).toBe(160);
+    expect(updated.invoice?.total).toBe(160);
+  });
+
+  test("in-progress work adjustment can add service despite downstream booking", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      adminId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+    } = await createAdjustmentFixture(t, { appointmentStatus: "in_progress" });
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [secondVehicleId],
+        serviceIds: [baseServiceId],
+        scheduledDate: APPOINTMENT_TEST_DATE,
+        scheduledTime: "12:15",
+        duration: 60,
+        location: {
+          street: "456 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72205",
+        },
+        status: "confirmed",
+        totalPrice: 100,
+        createdBy: adminId,
+      });
+    });
+
+    const result = await asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId, addOnServiceId],
+      petFeeVehicleIds: [],
+      reason: "Customer approved extra work on site",
+    });
+
+    const appointment = await t.run(
+      async (ctx: any) => (await ctx.db.get(appointmentId)) as any,
+    );
+
+    expect(result.invoiceAction).toBe("updated_open_invoice");
+    expect(appointment?.serviceIds).toEqual([baseServiceId, addOnServiceId]);
+    expect(appointment?.duration).toBe(165);
+    expect(appointment?.totalPrice).toBe(160);
   });
 
   test("work adjustment creates a supplemental invoice for paid invoice increases", async () => {
