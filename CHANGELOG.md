@@ -10,6 +10,7 @@ All notable changes to the River City Mobile Detailing project are documented in
 - **Service Descriptions at Checkout (Dashboard)**: Made services in the customer dashboard appointment booking summary clickable, revealing a Dialog containing complete service descriptions, matching the public booking flow behavior.
 
 ### Fixed
+- **Service Deletion Guidance**: Added a clear hide path for services with appointment history so admins can remove them from new bookings without breaking existing appointment records.
 - **HEIC Image Upload Fallbacks**: Fixed HEIC/HEIF photo uploads being rejected with a "client error" when browser MIME types fallback to `application/octet-stream`. Falls back to parsing filename extensions and maps them to `image/heic`/`image/heif` or relaxes backend verification to match.
 - **Editable Vehicle Mutation**: Expanded `updateVehicle` mutation in `convex/vehicles.ts` to accept optional `year`, `make`, `model`, and `classification` arguments to support fully updating vehicle profiles rather than forcing delete/recreate.
 

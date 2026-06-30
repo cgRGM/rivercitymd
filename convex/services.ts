@@ -861,7 +861,10 @@ export const deleteService = mutation({
     );
 
     if (isUsed) {
-      throw new Error("Cannot delete service with appointment history. Hide it instead.");
+      throw new ConvexError({
+        code: "SERVICE_HAS_APPOINTMENT_HISTORY",
+        message: "Cannot delete service with appointment history. Hide it instead.",
+      });
     }
 
     await ctx.db.delete(args.serviceId);
