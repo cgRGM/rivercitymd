@@ -272,6 +272,37 @@ function getScheduleFingerprint(
   return `${scheduledDate}|${scheduledTime}`;
 }
 
+function getBusinessDateTimeParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const partMap = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+
+  return {
+    date: `${partMap.year}-${partMap.month}-${partMap.day}`,
+    time: `${partMap.hour}:${partMap.minute}`,
+  };
+}
+
+function hasAppointmentStarted(
+  scheduledDate: string,
+  scheduledTime: string,
+  now = new Date(),
+): boolean {
+  const dateKey = normalizeDateKey(scheduledDate);
+  const current = getBusinessDateTimeParts(now);
+
+  return dateKey < current.date || (dateKey === current.date && scheduledTime <= current.time);
+}
+
 async function scheduleReminder(
   ctx: any,
   appointmentId: Id<"appointments">,
@@ -987,11 +1018,13 @@ export const update = mutation({
       petFeeTimeMinutes: petFee.petFeeTimeMinutes,
     });
 
+    const normalizedScheduledDate = normalizeDateKey(updates.scheduledDate);
+    const existingScheduledDate = normalizeDateKey(existingAppointment.scheduledDate);
     const scheduleChanged =
-      existingAppointment.scheduledDate !== updates.scheduledDate ||
+      existingScheduledDate !== normalizedScheduledDate ||
       existingAppointment.scheduledTime !== updates.scheduledTime;
     const materialChangeFingerprint = JSON.stringify({
-      scheduledDate: updates.scheduledDate,
+      scheduledDate: normalizedScheduledDate,
       scheduledTime: updates.scheduledTime,
       street: updates.street,
       city: updates.city,
@@ -1002,7 +1035,7 @@ export const update = mutation({
       vehicleIds: [...updates.vehicleIds].sort(),
     });
     const previousMaterialFingerprint = JSON.stringify({
-      scheduledDate: existingAppointment.scheduledDate,
+      scheduledDate: existingScheduledDate,
       scheduledTime: existingAppointment.scheduledTime,
       street: existingAppointment.location.street,
       city: existingAppointment.location.city,
@@ -1014,15 +1047,18 @@ export const update = mutation({
     });
     const materialChanged =
       materialChangeFingerprint !== previousMaterialFingerprint;
-    const isInProgressWorkOnlyChange =
-      existingAppointment.status === "in_progress" && !scheduleChanged;
+    const isActiveWorkOnlyChange =
+      !scheduleChanged &&
+      ["pending", "confirmed", "in_progress"].includes(existingAppointment.status) &&
+      (existingAppointment.status === "in_progress" ||
+        hasAppointmentStarted(existingScheduledDate, existingAppointment.scheduledTime));
 
     if (
       (scheduleChanged || duration !== existingAppointment.duration) &&
-      !isInProgressWorkOnlyChange
+      !isActiveWorkOnlyChange
     ) {
       const slotAvailability = await ctx.runQuery(api.availability.checkAvailability, {
-        date: normalizeDateKey(updates.scheduledDate),
+        date: normalizedScheduledDate,
         startTime: updates.scheduledTime,
         duration,
         ignoreAppointmentId: appointmentId,
@@ -1046,7 +1082,7 @@ export const update = mutation({
       vehicleIds: updates.vehicleIds,
       serviceIds: updates.serviceIds,
       vehicleServices,
-      scheduledDate: normalizeDateKey(updates.scheduledDate),
+      scheduledDate: normalizedScheduledDate,
       scheduledTime: updates.scheduledTime,
       duration,
       location: {
@@ -1097,7 +1133,7 @@ export const update = mutation({
         await scheduleReminder(
           ctx,
           appointmentId,
-          updates.scheduledDate,
+          normalizedScheduledDate,
           updates.scheduledTime,
         );
       }
@@ -1229,7 +1265,12 @@ export const applyWorkAdjustment = mutation({
     const priceDelta = Math.round((newPricing.totalPrice - appointment.totalPrice) * 100) / 100;
     const durationDelta = newPricing.duration - appointment.duration;
 
-    if (appointment.status !== "in_progress") {
+    const isActiveWorkAdjustment =
+      ["pending", "confirmed", "in_progress"].includes(appointment.status) &&
+      (appointment.status === "in_progress" ||
+        hasAppointmentStarted(appointment.scheduledDate, appointment.scheduledTime));
+
+    if (!isActiveWorkAdjustment) {
       const availability = await ctx.runQuery(api.availability.checkAvailability, {
         date: appointment.scheduledDate,
         startTime: appointment.scheduledTime,

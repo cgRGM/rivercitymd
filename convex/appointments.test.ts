@@ -8,6 +8,7 @@ import { seedBookingSetup } from "./testUtils/bookingSetup";
 import { r2 } from "./r2";
 
 const APPOINTMENT_TEST_DATE = "2024-12-02"; // Monday (dayOfWeek 1)
+const FUTURE_APPOINTMENT_TEST_DATE = "2999-12-02"; // Monday (dayOfWeek 1)
 
 async function expectConvexErrorCode(
   promise: Promise<unknown>,
@@ -730,6 +731,119 @@ describe("appointments", () => {
     expect(updated.appointment?.duration).toBe(165);
     expect(updated.appointment?.totalPrice).toBe(160);
     expect(updated.invoice?.total).toBe(160);
+  });
+
+  test("already-started pending appointment update can add service despite downstream booking", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      adminId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+    } = await createAdjustmentFixture(t, { appointmentStatus: "pending" });
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [secondVehicleId],
+        serviceIds: [baseServiceId],
+        scheduledDate: APPOINTMENT_TEST_DATE,
+        scheduledTime: "12:15",
+        duration: 60,
+        location: {
+          street: "456 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72205",
+        },
+        status: "confirmed",
+        totalPrice: 100,
+        createdBy: adminId,
+      });
+    });
+
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId, addOnServiceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72205",
+    });
+
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db.get(invoiceId);
+      return { appointment, invoice };
+    });
+
+    expect(updated.appointment?.status).toBe("pending");
+    expect(updated.appointment?.serviceIds).toEqual([baseServiceId, addOnServiceId]);
+    expect(updated.appointment?.duration).toBe(165);
+    expect(updated.appointment?.totalPrice).toBe(160);
+    expect(updated.invoice?.total).toBe(160);
+  });
+
+  test("future pending appointment update still blocks service additions that overlap", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      adminId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+    } = await createAdjustmentFixture(t, { appointmentStatus: "pending" });
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(appointmentId, {
+        scheduledDate: FUTURE_APPOINTMENT_TEST_DATE,
+      });
+      await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [secondVehicleId],
+        serviceIds: [baseServiceId],
+        scheduledDate: FUTURE_APPOINTMENT_TEST_DATE,
+        scheduledTime: "12:15",
+        duration: 60,
+        location: {
+          street: "456 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72205",
+        },
+        status: "confirmed",
+        totalPrice: 100,
+        createdBy: adminId,
+      });
+    });
+
+    await expectConvexErrorCode(
+      asAdmin.mutation(api.appointments.update, {
+        appointmentId,
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [baseServiceId, addOnServiceId],
+        scheduledDate: FUTURE_APPOINTMENT_TEST_DATE,
+        scheduledTime: "10:00",
+        street: "123 Main St",
+        city: "Little Rock",
+        state: "AR",
+        zip: "72205",
+      }),
+      "TIME_SLOT_UNAVAILABLE",
+    );
   });
 
   test("in-progress work adjustment can add service despite downstream booking", async () => {
