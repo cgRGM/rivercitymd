@@ -235,6 +235,106 @@ describe("appointments", () => {
     }
   });
 
+  test("appointment details use vehicle type matrix pricing over legacy size pricing", async () => {
+    const t = convexTest(schema, modules);
+    const { appointmentId, adminId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const adminId = await ctx.db.insert("users", {
+        name: "Matrix Admin",
+        email: "matrix-admin@example.com",
+        role: "admin",
+      });
+      const userId = await ctx.db.insert("users", {
+        name: "Matrix Customer",
+        email: "matrix-customer@example.com",
+        role: "client",
+      });
+      const carTypeId = await ctx.db.insert("vehicleTypes", {
+        name: "Car",
+        slug: "car",
+        legacySize: "small",
+        isActive: true,
+        displayOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const suvTypeId = await ctx.db.insert("vehicleTypes", {
+        name: "SUV",
+        slug: "suv",
+        legacySize: "medium",
+        isActive: true,
+        displayOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const vehicleId = await ctx.db.insert("vehicles", {
+        userId,
+        year: 2014,
+        make: "Buick",
+        model: "LaCrosse",
+        vehicleTypeId: carTypeId,
+        size: "medium",
+      });
+      const serviceId = await ctx.db.insert("services", {
+        name: "Level 3 - Full Detail",
+        description: "Full detail",
+        basePrice: 325,
+        basePriceSmall: 300,
+        basePriceMedium: 325,
+        duration: 170,
+        serviceType: "standard",
+        isActive: true,
+      });
+      await ctx.db.insert("serviceVehiclePrices", {
+        serviceId,
+        vehicleTypeId: carTypeId,
+        price: 300,
+        duration: 170,
+        isAvailable: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("serviceVehiclePrices", {
+        serviceId,
+        vehicleTypeId: suvTypeId,
+        price: 325,
+        duration: 210,
+        isAvailable: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const appointmentId = await ctx.db.insert("appointments", {
+        userId,
+        vehicleIds: [vehicleId],
+        serviceIds: [serviceId],
+        scheduledDate: APPOINTMENT_TEST_DATE,
+        scheduledTime: "10:00",
+        duration: 170,
+        location: {
+          street: "123 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72205",
+        },
+        status: "pending",
+        totalPrice: 300,
+        createdBy: adminId,
+      });
+      return { appointmentId, adminId };
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "matrix-admin@example.com",
+    });
+    const appointment = await asAdmin.query(api.appointments.getByIdWithDetails, {
+      appointmentId,
+    });
+
+    expect(appointment?.vehicles[0]?.vehicleType?.name).toBe("Car");
+    expect(appointment?.services[0]?.effectivePrice).toBe(300);
+  });
+
   test("create appointment", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t);

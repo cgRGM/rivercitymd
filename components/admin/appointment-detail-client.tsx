@@ -54,6 +54,11 @@ import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { formatDateStringLong } from "@/lib/time";
 import { normalizeStripeCouponCode } from "@/convex/lib/coupons";
+import {
+  getEffectiveServicePricingForVehicle,
+  type ServiceVehiclePriceShape,
+  type VehicleSize,
+} from "@/convex/lib/pricing";
 
 type Props = {
   appointmentId: Id<"appointments">;
@@ -65,6 +70,7 @@ type AppointmentVehicle = Doc<"vehicles"> & {
 
 type AppointmentService = Doc<"services"> & {
   effectivePrice?: number;
+  vehiclePrices?: ServiceVehiclePriceShape[];
 };
 
 type AppointmentBeforePhoto = NonNullable<Doc<"appointments">["beforePhotos"]>[number] & {
@@ -103,16 +109,6 @@ function formatMinutes(minutes: number) {
   if (hours === 0) return `${sign}${remainder} min`;
   if (remainder === 0) return `${sign}${hours} hr`;
   return `${sign}${hours} hr ${remainder} min`;
-}
-
-function getEffectivePrice(
-  service: { basePrice?: number; basePriceSmall?: number; basePriceMedium?: number; basePriceLarge?: number },
-  size: string,
-): number {
-  const fallback = service.basePrice ?? 0;
-  if (size === "small") return service.basePriceSmall ?? service.basePriceMedium ?? fallback;
-  if (size === "large") return service.basePriceLarge ?? service.basePriceMedium ?? fallback;
-  return service.basePriceMedium ?? fallback;
 }
 
 export default function AppointmentDetailClient({ appointmentId }: Props) {
@@ -1082,8 +1078,17 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                   .filter((s) => s.isActive)
                   .map((s) => {
                     const isSelected = editServiceIds.includes(s._id);
-                    const editVehicleSize = vehicles[0] ? (editVehicleSizes[vehicles[0]._id] || "medium") : "medium";
-                    const price = getEffectivePrice(s, editVehicleSize);
+                    const editVehicle = vehicles[0];
+                    const editVehicleSize = (editVehicle
+                      ? editVehicleSizes[editVehicle._id] || "medium"
+                      : "medium") as VehicleSize;
+                    const editVehicleTypeId = editVehicle
+                      ? editVehicleTypeIds[editVehicle._id] || null
+                      : null;
+                    const price = getEffectiveServicePricingForVehicle(s, {
+                      vehicleSize: editVehicleSize,
+                      vehicleTypeId: editVehicleTypeId,
+                    }).price;
                     return (
                       <div
                         key={s._id}
