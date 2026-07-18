@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Check, Calendar } from "lucide-react";
+import { Calendar } from "lucide-react";
 import { motion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,11 @@ type LandingPricingResult = {
   categories: LandingPricingCategory[];
   addons: LandingPricingService[];
 };
+
+function pluralizeVehicleType(name: string) {
+  if (name.endsWith("s")) return name;
+  return `${name}s`;
+}
 
 export function PricingSection() {
   const router = useRouter();
@@ -265,12 +270,6 @@ export function PricingSection() {
                             .00
                           </span>
                         </div>
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest mt-1">
-                          Approx.&nbsp;{Math.floor(service.minDuration / 60)}h
-                          {service.minDuration % 60 > 0
-                            ? ` ${service.minDuration % 60}m`
-                            : ""}
-                        </p>
                       </div>
 
                       {/* Divider */}
@@ -284,7 +283,7 @@ export function PricingSection() {
                               className="flex items-center justify-between gap-3 text-xs"
                             >
                               <span className="min-w-0 truncate text-muted-foreground">
-                                {price.vehicleTypeName}
+                                {pluralizeVehicleType(price.vehicleTypeName)}
                               </span>
                               <span className="font-semibold text-foreground">
                                 ${price.price.toFixed(0)}
@@ -305,14 +304,10 @@ export function PricingSection() {
                               <li
                                 key={i}
                                 className={cn(
-                                  "inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/35 px-2.5 py-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground/80",
+                                  "inline-flex max-w-full items-center rounded-lg border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-foreground/75 transition-colors group-hover:bg-primary/20 group-hover:text-foreground",
                                   usesTwoColFeatures ? "max-w-[calc(50%-0.25rem)]" : "",
                                 )}
                               >
-                                <Check
-                                  className="w-3 h-3 text-primary flex-shrink-0"
-                                  strokeWidth={2.5}
-                                />
                                 <span className="min-w-0 truncate leading-tight">
                                   {feature}
                                 </span>
@@ -391,7 +386,7 @@ export function PricingSection() {
               size="lg"
               disabled={bookingReadiness === undefined}
               onClick={handleBookNow}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground px-10 py-6 text-lg rounded-full shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground px-10 py-6 text-lg rounded-lg shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
             >
               <Calendar className="w-5 h-5 mr-2" />
               Book Appointment
