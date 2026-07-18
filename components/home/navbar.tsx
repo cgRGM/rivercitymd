@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import { Home, Wrench, DollarSign, MessageSquare, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,8 +11,8 @@ import { getRoleHomePath } from "@/lib/auth-routing";
 
 export default function Navbar() {
   const [activeSection, setActiveSection] = useState("home");
-  const { isSignedIn } = useAuth();
-  const userRole = useQuery(api.auth.getUserRole, isSignedIn ? {} : "skip");
+  const userRole = useQuery(api.auth.getUserRole);
+  const isSignedIn = Boolean(userRole);
 
   const dashboardHref =
     userRole?.type === "admin"
