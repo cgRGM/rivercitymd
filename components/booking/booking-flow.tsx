@@ -54,6 +54,7 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Tag,
   X,
 } from "lucide-react";
 import AddressInput from "@/components/ui/address-input";
@@ -237,6 +238,17 @@ export default function BookingFlow() {
     hasPet: false,
   });
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoStatus, setPromoStatus] = useState<
+    "idle" | "checking" | "valid" | "invalid"
+  >("idle");
+  const [promoMessage, setPromoMessage] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    discountType: "percent" | "amount";
+    discountValue: number;
+    discountAmount: number;
+  } | null>(null);
 
   const step1Form = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
@@ -266,6 +278,7 @@ export default function BookingFlow() {
   const upsertBookingDraft = useAction(api.bookingDrafts.createOrUpdate);
   const calculateTravelFee = useAction(api.travelFees.calculate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+  const validateBookingPromoCode = useAction(api.payments.validateBookingPromoCode);
   const saveOutOfAreaLead = useMutation(api.bookingDrafts.saveOutOfAreaLead);
   const saveOutOfAreaRequest = useMutation(api.bookingDrafts.saveOutOfAreaRequest);
   const convex = useConvex();
@@ -282,6 +295,98 @@ export default function BookingFlow() {
       vehicleTypeId: vehicle.vehicleTypeId ?? null,
     }));
   }, [step3Data?.vehicles]);
+
+  const checkoutSummary = useMemo(() => {
+    const petFeeForSize = (size: "small" | "medium" | "large") => {
+      if (petFeeSettings?.isActive === false) return 0;
+      if (size === "small") {
+        return petFeeSettings?.basePriceSmall ?? petFeeSettings?.basePriceMedium ?? 50;
+      }
+      if (size === "large") {
+        return petFeeSettings?.basePriceLarge ?? petFeeSettings?.basePriceMedium ?? 50;
+      }
+      return petFeeSettings?.basePriceMedium ?? 50;
+    };
+
+    const vehicles = step3Data?.vehicles ?? [];
+    let serviceTotal = 0;
+    const serviceBreakdownItems: Array<{
+      vehicleLabel: string;
+      serviceName: string;
+      serviceDescription: string;
+      price: number;
+      isSubscription: boolean;
+    }> = [];
+
+    vehicles.forEach((vehicle, idx) => {
+      const vServiceIds = step4Data?.vehicleServices?.[idx.toString()] || step4Data?.serviceIds || [];
+      const vehicleLabel = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || `Vehicle ${idx + 1}`;
+      const vehicleContext = {
+        vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
+        vehicleTypeId: vehicle.vehicleTypeId ?? null,
+      };
+
+      const vehicleServices = services?.filter((s) => vServiceIds.includes(s._id)) ?? [];
+      vehicleServices.forEach((service) => {
+        const price = getEffectiveServicePricingForVehicle(service, vehicleContext).price;
+        serviceTotal += price;
+        serviceBreakdownItems.push({
+          vehicleLabel,
+          serviceName: service.name,
+          serviceDescription: service.description || "No description available.",
+          price,
+          isSubscription: service.serviceType === "subscription",
+        });
+      });
+    });
+
+    const petFeeTotal = vehicles.reduce((sum, vehicle) => {
+      if (!vehicle.hasPet) return sum;
+      return sum + petFeeForSize(vehicle.size ?? "medium");
+    }, 0);
+    const travelFeeTotal = travelQuote?.fee ?? 0;
+    const orderTotal = serviceTotal + petFeeTotal + travelFeeTotal;
+
+    return { serviceTotal, serviceBreakdownItems, petFeeTotal, travelFeeTotal, orderTotal };
+  }, [step3Data?.vehicles, step4Data, services, petFeeSettings, travelQuote?.fee]);
+
+  // Live-validate promo codes as the customer types (debounced). The result
+  // drives the red/green input feedback and is re-checked whenever the order
+  // total changes so usage rules like minimum spend stay enforced.
+  useEffect(() => {
+    const code = promoCodeInput.trim();
+    if (!code) {
+      setPromoStatus("idle");
+      setPromoMessage("");
+      setAppliedCoupon(null);
+      return;
+    }
+    setPromoStatus("checking");
+    const handle = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await validateBookingPromoCode({
+            code,
+            orderTotal: checkoutSummary.orderTotal,
+          });
+          setAppliedCoupon(result);
+          setPromoStatus("valid");
+          setPromoMessage(
+            result.discountType === "percent"
+              ? `${result.code} applied — ${result.discountValue}% off`
+              : `${result.code} applied — $${result.discountValue.toFixed(2)} off`,
+          );
+        } catch (error) {
+          setAppliedCoupon(null);
+          setPromoStatus("invalid");
+          setPromoMessage(
+            error instanceof Error ? error.message : "This promo code is not valid.",
+          );
+        }
+      })();
+    }, 500);
+    return () => clearTimeout(handle);
+  }, [promoCodeInput, checkoutSummary.orderTotal, validateBookingPromoCode]);
 
   const watchedStreet = step1Form.watch("street");
   const watchedCity = step1Form.watch("city");
@@ -1054,6 +1159,7 @@ export default function BookingFlow() {
       const { url } = await createBookingCheckout({
         draftId,
         origin: window.location.origin,
+        couponCode: appliedCoupon?.code ?? "",
       });
 
       if (url) {
@@ -2017,58 +2123,22 @@ export default function BookingFlow() {
           const vehicleCount = vehiclePricingContexts.length;
           const depositPerVehicle = depositSettings?.amountPerVehicle ?? 50;
           const depositTotal = depositPerVehicle * vehicleCount;
-          const petFeeForSize = (size: "small" | "medium" | "large") => {
-            if (petFeeSettings?.isActive === false) return 0;
-            if (size === "small") {
-              return petFeeSettings?.basePriceSmall ?? petFeeSettings?.basePriceMedium ?? 50;
-            }
-            if (size === "large") {
-              return petFeeSettings?.basePriceLarge ?? petFeeSettings?.basePriceMedium ?? 50;
-            }
-            return petFeeSettings?.basePriceMedium ?? 50;
-          };
+          const {
+            serviceTotal,
+            serviceBreakdownItems,
+            petFeeTotal,
+            travelFeeTotal,
+            orderTotal,
+          } = checkoutSummary;
+          const discountAmount = appliedCoupon
+            ? appliedCoupon.discountType === "percent"
+              ? Math.round(orderTotal * (appliedCoupon.discountValue / 100) * 100) / 100
+              : Math.min(appliedCoupon.discountValue, orderTotal)
+            : 0;
+          const discountedTotal = Math.max(0, Math.round((orderTotal - discountAmount) * 100) / 100);
 
-          const vehicles = step3Data?.vehicles ?? [];
-          let serviceTotal = 0;
-          const serviceBreakdownItems: Array<{
-            vehicleLabel: string;
-            serviceName: string;
-            serviceDescription: string;
-            price: number;
-            isSubscription: boolean;
-          }> = [];
-
-          vehicles.forEach((vehicle, idx) => {
-            const vServiceIds = step4Data?.vehicleServices?.[idx.toString()] || step4Data?.serviceIds || [];
-            const vehicleLabel = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || `Vehicle ${idx + 1}`;
-            const vehicleContext = {
-              vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
-              vehicleTypeId: vehicle.vehicleTypeId ?? null,
-            };
-
-            const vehicleServices = services?.filter((s) => vServiceIds.includes(s._id)) ?? [];
-            vehicleServices.forEach((service) => {
-              const price = getEffectiveServicePricingForVehicle(service, vehicleContext).price;
-              serviceTotal += price;
-              serviceBreakdownItems.push({
-                vehicleLabel,
-                serviceName: service.name,
-                serviceDescription: service.description || "No description available.",
-                price,
-                isSubscription: service.serviceType === "subscription",
-              });
-            });
-          });
-
-          const petFeeTotal = (step3Data?.vehicles ?? []).reduce((sum, vehicle) => {
-            if (!vehicle.hasPet) return sum;
-            return sum + petFeeForSize(vehicle.size ?? "medium");
-          }, 0);
-          const travelFeeTotal = travelQuote?.fee ?? 0;
-          const orderTotal = serviceTotal + petFeeTotal + travelFeeTotal;
-
-          const dueNow = paymentOption === "full" ? orderTotal : Math.min(depositTotal, orderTotal);
-          const remainingBalance = Math.max(0, orderTotal - dueNow);
+          const dueNow = paymentOption === "full" ? discountedTotal : Math.min(depositTotal, discountedTotal);
+          const remainingBalance = Math.max(0, discountedTotal - dueNow);
 
           return (
             <div className="space-y-6">
@@ -2123,9 +2193,18 @@ export default function BookingFlow() {
                     <span className="text-foreground">${travelFeeTotal.toFixed(2)}</span>
                   </div>
                 )}
+                {appliedCoupon && discountAmount > 0 && (
+                  <div className="flex justify-between text-sm font-medium mt-1">
+                    <span className="text-green-600 flex items-center gap-1">
+                      <Tag className="h-3 w-3" />
+                      Discount ({appliedCoupon.code})
+                    </span>
+                    <span className="text-green-600">-${discountAmount.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between border-t border-border/50 pt-2 text-base font-bold mt-2">
                   <span className="text-foreground">Total</span>
-                  <span className="text-foreground">${orderTotal.toFixed(2)}</span>
+                  <span className="text-foreground">${discountedTotal.toFixed(2)}</span>
                 </div>
                 {paymentOption !== "full" && (
                   <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
@@ -2139,6 +2218,51 @@ export default function BookingFlow() {
                     </div>
                   </div>
                 )}
+
+                {/* Promo Code */}
+                <div className="mt-3 border-t border-border/30 pt-3">
+                  <div className="relative">
+                    <Input
+                      placeholder="Promo code"
+                      value={promoCodeInput}
+                      onChange={(e) => setPromoCodeInput(e.target.value)}
+                      className={`h-9 pr-8 text-sm uppercase ${
+                        promoStatus === "valid"
+                          ? "border-green-500 focus-visible:ring-green-500"
+                          : promoStatus === "invalid"
+                            ? "border-red-500 focus-visible:ring-red-500"
+                            : ""
+                      }`}
+                      aria-invalid={promoStatus === "invalid"}
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                      {promoStatus === "checking" && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      {promoStatus === "valid" && (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      )}
+                      {promoStatus === "invalid" && (
+                        <X className="h-4 w-4 text-red-500" />
+                      )}
+                    </span>
+                  </div>
+                  {promoStatus === "valid" && promoMessage && (
+                    <p className="mt-1.5 text-xs font-medium text-green-600">
+                      {promoMessage}
+                    </p>
+                  )}
+                  {promoStatus === "invalid" && promoMessage && (
+                    <p className="mt-1.5 text-xs font-medium text-red-600">
+                      {promoMessage}
+                    </p>
+                  )}
+                  {promoStatus === "valid" && paymentOption !== "full" && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      The discount applies to your remaining balance, not the deposit.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Payment Option Selector */}
@@ -2163,7 +2287,7 @@ export default function BookingFlow() {
                     <div>
                       <span className="font-semibold text-sm text-foreground">Pay Deposit Now</span>
                       <span className="text-xs text-muted-foreground block mt-0.5">
-                        ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, remaining balance invoiced after service
+                        ${Math.min(depositTotal, discountedTotal).toFixed(2)} deposit now, remaining balance invoiced after service
                       </span>
                     </div>
                   </label>
@@ -2185,7 +2309,7 @@ export default function BookingFlow() {
                     <div>
                       <span className="font-semibold text-sm text-foreground">Pay Full Price Now</span>
                       <span className="text-xs text-muted-foreground block mt-0.5">
-                        ${orderTotal.toFixed(2)} — pay entire amount upfront
+                        ${discountedTotal.toFixed(2)} — pay entire amount upfront
                       </span>
                     </div>
                   </label>
@@ -2207,7 +2331,7 @@ export default function BookingFlow() {
                     <div>
                       <span className="font-semibold text-sm text-foreground">Pay Remaining in Person</span>
                       <span className="text-xs text-muted-foreground block mt-0.5">
-                        ${Math.min(depositTotal, orderTotal).toFixed(2)} deposit now, pay balance in cash/card at service
+                        ${Math.min(depositTotal, discountedTotal).toFixed(2)} deposit now, pay balance in cash/card at service
                       </span>
                     </div>
                   </label>

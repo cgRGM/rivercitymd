@@ -673,11 +673,28 @@ export const getByIdWithDetails = query({
           : null,
       })));
 
-    const vehicleSize: VehicleSize = (vehicles[0]?.size as VehicleSize) || "medium";
-    const servicesWithPricing = services.map((s) => ({
-      ...s,
-      effectivePrice: getEffectiveServicePrice(s, vehicleSize),
-    }));
+    const primaryVehicle = vehicles[0] as Doc<"vehicles"> | undefined;
+    const servicesWithPricing = await Promise.all(
+      services.map(async (s) => {
+        if (!primaryVehicle) {
+          return {
+            ...s,
+            effectivePrice: getEffectiveServicePrice(s, "medium"),
+          };
+        }
+
+        const pricing = await getMatrixPriceForServiceAndVehicle(
+          ctx,
+          s,
+          primaryVehicle,
+        );
+
+        return {
+          ...s,
+          effectivePrice: pricing.unitPrice,
+        };
+      }),
+    );
 
     const invoice = await ctx.db
       .query("invoices")

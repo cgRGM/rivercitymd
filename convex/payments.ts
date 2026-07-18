@@ -12,7 +12,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { stripeClient } from "./stripeClient";
 import { BOOKING_BLOCK_MINUTES } from "./lib/booking";
-import { validateCouponInput } from "./lib/coupons";
+import { normalizeStripeCouponCode, validateCouponInput } from "./lib/coupons";
 import { assertRateLimit, normalizeRateLimitKey } from "./rateLimiter";
 
 const paymentsInternal: any = (internal as any).payments;
@@ -1807,8 +1807,8 @@ export const applyCouponToInvoice = action({
     if (!invoice) {
       throw new Error("Invoice not found");
     }
-    if (invoice.status === "paid") {
-      throw new Error("Paid invoices cannot be modified");
+    if (invoice.status === "paid" && (invoice.remainingBalance ?? 0) <= 0) {
+      throw new Error("Fully paid invoices cannot be modified");
     }
 
     // 1. Check if Coupon exists in Stripe. If not, create it from supplied terms.
@@ -1927,8 +1927,8 @@ export const removeDiscountFromInvoice = action({
     if (!invoice) {
       throw new Error("Invoice not found");
     }
-    if (invoice.status === "paid") {
-      throw new Error("Paid invoices cannot be modified");
+    if (invoice.status === "paid" && (invoice.remainingBalance ?? 0) <= 0) {
+      throw new Error("Fully paid invoices cannot be modified");
     }
 
     if (invoice.stripeInvoiceId) {
@@ -1956,6 +1956,171 @@ export const removeDiscountFromInvoice = action({
     }
 
     return { success: true };
+  },
+});
+
+type ResolvedStripeCoupon = {
+  couponId: string;
+  discountType: "percent" | "amount";
+  discountValue: number;
+};
+
+function assertStripeCouponRedeemable(stripeCoupon: any) {
+  if (!stripeCoupon || stripeCoupon.valid === false) {
+    throw new Error("This promo code is not valid or has expired.");
+  }
+  if (
+    typeof stripeCoupon.redeem_by === "number" &&
+    stripeCoupon.redeem_by * 1000 < Date.now()
+  ) {
+    throw new Error("This promo code is not valid or has expired.");
+  }
+  if (
+    typeof stripeCoupon.max_redemptions === "number" &&
+    (stripeCoupon.times_redeemed ?? 0) >= stripeCoupon.max_redemptions
+  ) {
+    throw new Error("This promo code has reached its redemption limit.");
+  }
+}
+
+// Promotion code usage rules: active flag, expiration, redemption cap, and
+// minimum order value. Note: first-time-transaction and per-customer
+// restrictions cannot be verified before checkout and are not enforced here.
+function assertPromotionCodeRedeemable(promo: any, orderTotal?: number) {
+  if (!promo || promo.active === false) {
+    throw new Error("This promo code is not valid or has expired.");
+  }
+  if (
+    typeof promo.expires_at === "number" &&
+    promo.expires_at * 1000 < Date.now()
+  ) {
+    throw new Error("This promo code is not valid or has expired.");
+  }
+  if (
+    typeof promo.max_redemptions === "number" &&
+    (promo.times_redeemed ?? 0) >= promo.max_redemptions
+  ) {
+    throw new Error("This promo code has reached its redemption limit.");
+  }
+  const minimumAmount = promo.restrictions?.minimum_amount;
+  if (
+    typeof minimumAmount === "number" &&
+    orderTotal !== undefined &&
+    Math.round(orderTotal * 100) < minimumAmount
+  ) {
+    throw new Error(
+      `This promo code requires a minimum order of $${(minimumAmount / 100).toFixed(2)}.`,
+    );
+  }
+}
+
+// Resolve a customer-entered code to a Stripe coupon: try customer-facing
+// promotion codes first, then fall back to the coupon ID format used by the
+// admin coupons dashboard.
+async function resolveStripeCouponForCode(
+  rawCode: string,
+  orderTotal?: number,
+): Promise<ResolvedStripeCoupon> {
+  const trimmed = rawCode.trim();
+  if (!trimmed) {
+    throw new Error("Please enter a promo code.");
+  }
+
+  try {
+    const promoResponse = await stripeApiCall(
+      `promotion_codes?active=true&limit=1&code=${encodeURIComponent(trimmed)}`,
+      { method: "GET" },
+    );
+    const promo = (promoResponse.data || [])[0];
+    if (promo?.coupon) {
+      assertPromotionCodeRedeemable(promo, orderTotal);
+      const couponId =
+        typeof promo.coupon === "string" ? promo.coupon : promo.coupon.id;
+      const stripeCoupon =
+        typeof promo.coupon === "string"
+          ? await stripeApiCall(`coupons/${encodeURIComponent(couponId)}`, {
+              method: "GET",
+            })
+          : promo.coupon;
+      assertStripeCouponRedeemable(stripeCoupon);
+      const discount = getDiscountFromStripeCoupon(stripeCoupon);
+      return { couponId, ...discount };
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes("not valid") ||
+        error.message.includes("redemption limit") ||
+        error.message.includes("minimum order") ||
+        error.message.includes("not active"))
+    ) {
+      throw error;
+    }
+    // Otherwise fall through to the direct coupon lookup.
+  }
+
+  const normalizedCode = normalizeStripeCouponCode(trimmed);
+  if (!normalizedCode) {
+    throw new Error("Please enter a promo code.");
+  }
+  let stripeCoupon: any;
+  try {
+    stripeCoupon = await stripeApiCall(
+      `coupons/${encodeURIComponent(normalizedCode)}`,
+      { method: "GET" },
+    );
+  } catch {
+    throw new Error("This promo code is not valid or has expired.");
+  }
+  assertStripeCouponRedeemable(stripeCoupon);
+  const discount = getDiscountFromStripeCoupon(stripeCoupon);
+  return { couponId: stripeCoupon.id ?? normalizedCode, ...discount };
+}
+
+function computeCouponDiscountAmount(
+  subtotal: number,
+  discountType: "percent" | "amount",
+  discountValue: number,
+): number {
+  if (discountType === "percent") {
+    return Math.round(subtotal * (discountValue / 100) * 100) / 100;
+  }
+  return Math.min(discountValue, subtotal);
+}
+
+// Public validation used by the booking checkout UI to preview a promo code.
+export const validateBookingPromoCode = action({
+  args: {
+    code: v.string(),
+    orderTotal: v.optional(v.number()),
+  },
+  returns: v.object({
+    code: v.string(),
+    discountType: v.union(v.literal("percent"), v.literal("amount")),
+    discountValue: v.number(),
+    discountAmount: v.number(),
+  }),
+  handler: async (_ctx, args) => {
+    const resolved = await resolveStripeCouponForCode(
+      args.code,
+      typeof args.orderTotal === "number" && args.orderTotal > 0
+        ? args.orderTotal
+        : undefined,
+    );
+    const base =
+      typeof args.orderTotal === "number" && args.orderTotal > 0
+        ? args.orderTotal
+        : 0;
+    return {
+      code: resolved.couponId,
+      discountType: resolved.discountType,
+      discountValue: resolved.discountValue,
+      discountAmount: computeCouponDiscountAmount(
+        base,
+        resolved.discountType,
+        resolved.discountValue,
+      ),
+    };
   },
 });
 
@@ -2492,6 +2657,7 @@ async function createCheckoutSessionForDraft(
   ctx: any,
   draft: Doc<"bookingDrafts">,
   origin: string,
+  couponCodeInput?: string,
 ): Promise<BookingCheckoutResult> {
   if (draft.status === "converted") {
     throw new Error("This booking has already been completed.");
@@ -2531,6 +2697,30 @@ async function createCheckoutSessionForDraft(
 
   if (draft.stripeCheckoutSessionId) {
     await expireStripeCheckoutSessionIfPossible(draft.stripeCheckoutSessionId);
+  }
+
+  // Resolve the promo code (explicit input wins; empty string clears; when the
+  // arg is omitted, fall back to whatever is already stored on the draft).
+  const rawCouponCode =
+    couponCodeInput !== undefined ? couponCodeInput : draft.couponCode;
+  let resolvedCoupon: ResolvedStripeCoupon | null = null;
+  if (rawCouponCode && rawCouponCode.trim()) {
+    resolvedCoupon = await resolveStripeCouponForCode(
+      rawCouponCode,
+      draft.totalPrice,
+    );
+  }
+  if (
+    resolvedCoupon?.couponId !== draft.couponCode ||
+    resolvedCoupon?.discountType !== draft.couponDiscountType ||
+    resolvedCoupon?.discountValue !== draft.couponDiscountValue
+  ) {
+    await ctx.runMutation(internal.bookingDrafts.setCouponInternal, {
+      draftId: draft._id,
+      couponCode: resolvedCoupon?.couponId,
+      couponDiscountType: resolvedCoupon?.discountType,
+      couponDiscountValue: resolvedCoupon?.discountValue,
+    });
   }
 
   const { stripeCustomerId } = await ensureStripeCustomerForBookingDraft(ctx, draft);
@@ -2598,6 +2788,9 @@ async function createCheckoutSessionForDraft(
       `Full Service Payment (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
     );
     sessionData.append("line_items[0][quantity]", "1");
+    if (resolvedCoupon) {
+      sessionData.append("discounts[0][coupon]", resolvedCoupon.couponId);
+    }
 
     const session = await stripeApiCall("checkout/sessions", {
       method: "POST",
@@ -2695,6 +2888,7 @@ export const createBookingCheckout = action({
   args: {
     draftId: v.id("bookingDrafts"),
     origin: v.string(),
+    couponCode: v.optional(v.string()),
   },
   returns: v.object({
     sessionId: v.string(),
@@ -2717,7 +2911,12 @@ export const createBookingCheckout = action({
       throw new Error("Booking draft not found");
     }
 
-    return await createCheckoutSessionForDraft(ctx, draft, args.origin);
+    return await createCheckoutSessionForDraft(
+      ctx,
+      draft,
+      args.origin,
+      args.couponCode,
+    );
   },
 });
 

@@ -965,6 +965,25 @@ export const markCheckoutOpenInternal = internalMutation({
   },
 });
 
+export const setCouponInternal = internalMutation({
+  args: {
+    draftId: v.id("bookingDrafts"),
+    couponCode: v.optional(v.string()),
+    couponDiscountType: v.optional(
+      v.union(v.literal("percent"), v.literal("amount")),
+    ),
+    couponDiscountValue: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.draftId, {
+      couponCode: args.couponCode,
+      couponDiscountType: args.couponDiscountType,
+      couponDiscountValue: args.couponDiscountValue,
+      lastActivityAt: Date.now(),
+    });
+  },
+});
+
 export const markCancelledInternal = internalMutation({
   args: {
     draftId: v.id("bookingDrafts"),
@@ -1036,6 +1055,33 @@ export const markAbandonedEmailSentInternal = internalMutation({
   },
 });
 
+function getDraftCouponDiscount(draft: Doc<"bookingDrafts">): {
+  couponCode?: string;
+  discountAmount: number;
+  discountedTotal: number;
+} {
+  const hasCouponSnapshot =
+    !!draft.couponCode &&
+    !!draft.couponDiscountType &&
+    draft.couponDiscountValue != null &&
+    draft.couponDiscountValue > 0;
+  const discountAmount = hasCouponSnapshot
+    ? draft.couponDiscountType === "percent"
+      ? Math.round(
+          draft.totalPrice * ((draft.couponDiscountValue ?? 0) / 100) * 100,
+        ) / 100
+      : Math.min(draft.couponDiscountValue ?? 0, draft.totalPrice)
+    : 0;
+  return {
+    couponCode: discountAmount > 0 ? draft.couponCode : undefined,
+    discountAmount,
+    discountedTotal: Math.max(
+      0,
+      Math.round((draft.totalPrice - discountAmount) * 100) / 100,
+    ),
+  };
+}
+
 export const convertSuccessfulCheckout = internalMutation({
   args: {
     draftId: v.id("bookingDrafts"),
@@ -1069,7 +1115,7 @@ export const convertSuccessfulCheckout = internalMutation({
         userId: draft.convertedUserId,
         paymentOption: draft.paymentOption,
         isFullPayment: draft.paymentOption === "full",
-        total: draft.totalPrice,
+        total: getDraftCouponDiscount(draft).discountedTotal,
       };
     }
 
@@ -1273,6 +1319,10 @@ export const convertSuccessfulCheckout = internalMutation({
     const today = new Date().toISOString().split("T")[0];
     const isFullPayment = draft.paymentOption === "full";
 
+    const couponDiscount = getDraftCouponDiscount(draft);
+    const discountAmount = couponDiscount.discountAmount;
+    const discountedTotal = couponDiscount.discountedTotal;
+
     const invoiceId: Id<"invoices"> = await ctx.db.insert("invoices", {
       appointmentId,
       userId: user._id,
@@ -1280,18 +1330,22 @@ export const convertSuccessfulCheckout = internalMutation({
       items: draft.priceSnapshot,
       subtotal: draft.totalPrice,
       tax: 0,
-      total: draft.totalPrice,
+      total: discountedTotal,
       status: isFullPayment ? "paid" : "draft",
       dueDate: dueDate.toISOString().split("T")[0],
       paidDate: isFullPayment ? today : undefined,
       notes: `Invoice for appointment on ${draft.scheduledDate}`,
-      depositAmount: draft.paymentOption === "full" ? draft.totalPrice : draft.depositAmount,
+      depositAmount: isFullPayment ? discountedTotal : draft.depositAmount,
       depositPaid: true,
       depositPaymentIntentId: args.paymentIntentId,
-      remainingBalance: isFullPayment ? 0 : draft.remainingBalance,
+      remainingBalance: isFullPayment
+        ? 0
+        : Math.max(0, Math.round((discountedTotal - draft.depositAmount) * 100) / 100),
       paymentOption: draft.paymentOption,
       remainingBalanceCollectionMethod:
         draft.paymentOption === "deposit" ? "send_invoice" : undefined,
+      couponCode: discountAmount > 0 ? draft.couponCode : undefined,
+      discountAmount: discountAmount > 0 ? discountAmount : undefined,
     });
 
     await ctx.db.patch(draft._id, {
@@ -1311,7 +1365,7 @@ export const convertSuccessfulCheckout = internalMutation({
       userId: user._id,
       paymentOption: draft.paymentOption,
       isFullPayment,
-      total: draft.totalPrice,
+      total: discountedTotal,
     };
   },
 });

@@ -54,6 +54,11 @@ import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { formatDateStringLong } from "@/lib/time";
 import { normalizeStripeCouponCode } from "@/convex/lib/coupons";
+import {
+  getEffectiveServicePricingForVehicle,
+  type ServiceVehiclePriceShape,
+  type VehicleSize,
+} from "@/convex/lib/pricing";
 
 type Props = {
   appointmentId: Id<"appointments">;
@@ -65,6 +70,7 @@ type AppointmentVehicle = Doc<"vehicles"> & {
 
 type AppointmentService = Doc<"services"> & {
   effectivePrice?: number;
+  vehiclePrices?: ServiceVehiclePriceShape[];
 };
 
 type AppointmentBeforePhoto = NonNullable<Doc<"appointments">["beforePhotos"]>[number] & {
@@ -103,16 +109,6 @@ function formatMinutes(minutes: number) {
   if (hours === 0) return `${sign}${remainder} min`;
   if (remainder === 0) return `${sign}${hours} hr`;
   return `${sign}${hours} hr ${remainder} min`;
-}
-
-function getEffectivePrice(
-  service: { basePrice?: number; basePriceSmall?: number; basePriceMedium?: number; basePriceLarge?: number },
-  size: string,
-): number {
-  const fallback = service.basePrice ?? 0;
-  if (size === "small") return service.basePriceSmall ?? service.basePriceMedium ?? fallback;
-  if (size === "large") return service.basePriceLarge ?? service.basePriceMedium ?? fallback;
-  return service.basePriceMedium ?? fallback;
 }
 
 export default function AppointmentDetailClient({ appointmentId }: Props) {
@@ -602,20 +598,24 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     (invoice.paymentOption ?? "deposit") === "deposit" &&
     (invoice.remainingBalance ?? 0) > 0 &&
     invoice.status !== "paid";
+  const canApplyDiscount =
+    !!invoice &&
+    canEdit &&
+    (invoice.status !== "paid" || (invoice.remainingBalance ?? 0) > 0);
   const canReissueBilling = canEditBilling && !!invoice?.stripeInvoiceId;
   const adjustmentBlockedByCredit =
     adjustmentPreview?.invoicePaid === true && adjustmentPreview.priceDelta < 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" asChild>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button variant="ghost" asChild className="w-fit">
           <Link href="/admin/appointments">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Appointments
           </Link>
         </Button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canEdit && !editing && (
             <Button size="sm" variant="outline" onClick={startEditing}>
               <Pencil className="mr-2 h-4 w-4" />
@@ -697,7 +697,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       )}
       {canEdit &&
         invoice &&
-        invoice.status !== "paid" && (
+        (invoice.status !== "paid" || (invoice.remainingBalance ?? 0) > 0) && (
           <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-100">
             You can edit appointment details, adjust work, and apply discounts
             until completion. Complete only after the invoice reflects the final
@@ -1082,8 +1082,17 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                   .filter((s) => s.isActive)
                   .map((s) => {
                     const isSelected = editServiceIds.includes(s._id);
-                    const editVehicleSize = vehicles[0] ? (editVehicleSizes[vehicles[0]._id] || "medium") : "medium";
-                    const price = getEffectivePrice(s, editVehicleSize);
+                    const editVehicle = vehicles[0];
+                    const editVehicleSize = (editVehicle
+                      ? editVehicleSizes[editVehicle._id] || "medium"
+                      : "medium") as VehicleSize;
+                    const editVehicleTypeId = editVehicle
+                      ? editVehicleTypeIds[editVehicle._id] || null
+                      : null;
+                    const price = getEffectiveServicePricingForVehicle(s, {
+                      vehicleSize: editVehicleSize,
+                      vehicleTypeId: editVehicleTypeId,
+                    }).price;
                     return (
                       <div
                         key={s._id}
@@ -1325,7 +1334,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
               </div>
             )}
 
-            {invoice && invoice.status !== "paid" && (
+            {invoice && canApplyDiscount && (
               <div className="space-y-3 rounded-md border p-3 bg-muted/20 mt-4">
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                   <Tag className="h-3 w-3" />

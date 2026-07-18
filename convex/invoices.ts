@@ -741,8 +741,8 @@ export const updateDiscount = internalMutation({
     if (!invoice) {
       throw new Error("Invoice not found");
     }
-    if (invoice.status === "paid") {
-      throw new Error("Paid invoices cannot be edited");
+    if (invoice.status === "paid" && (invoice.remainingBalance ?? 0) <= 0) {
+      throw new Error("Fully paid invoices cannot be edited");
     }
     await ctx.db.patch(args.invoiceId, {
       couponCode: args.couponCode,
@@ -753,6 +753,7 @@ export const updateDiscount = internalMutation({
       stripeInvoiceUrl: undefined,
       finalPaymentIntentId: undefined,
       status: invoice.depositPaid ? "draft" : invoice.status,
+      paidDate: invoice.status === "paid" ? undefined : invoice.paidDate,
     });
   },
 });
@@ -766,8 +767,8 @@ export const removeDiscount = internalMutation({
     if (!invoice) {
       throw new Error("Invoice not found");
     }
-    if (invoice.status === "paid") {
-      throw new Error("Paid invoices cannot be edited");
+    if (invoice.status === "paid" && (invoice.remainingBalance ?? 0) <= 0) {
+      throw new Error("Fully paid invoices cannot be edited");
     }
     const originalTotal = invoice.subtotal + invoice.tax;
     const newRemainingBalance = Math.max(0, originalTotal - (invoice.depositAmount || 0));
@@ -781,6 +782,7 @@ export const removeDiscount = internalMutation({
       stripeInvoiceUrl: undefined,
       finalPaymentIntentId: undefined,
       status: invoice.depositPaid ? "draft" : invoice.status,
+      paidDate: invoice.status === "paid" ? undefined : invoice.paidDate,
     });
   },
 });

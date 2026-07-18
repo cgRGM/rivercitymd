@@ -2874,4 +2874,439 @@ describe("payments", () => {
     expect(invoice?.total).toBe(75);
     expect(invoice?.remainingBalance).toBe(25);
   });
+
+  test("applyCouponToInvoice allows a paid invoice that still has a remaining balance", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { invoiceId } = await createTestAppointmentWithInvoice(
+      t,
+      userId,
+      adminId,
+    );
+
+    // Simulate the reported state: invoice marked paid with a balance still owed
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        status: "paid",
+        depositPaid: true,
+        paidDate: "2024-12-01",
+      });
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("/coupons/")) {
+          return {
+            ok: true,
+            json: async () => ({ id: "SAVE20", valid: true }),
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
+
+    const applyResult = await asAdmin.action(api.payments.applyCouponToInvoice, {
+      invoiceId,
+      couponCode: "SAVE20",
+      discountType: "percent",
+      discountValue: 20,
+    });
+
+    expect(applyResult.success).toBe(true);
+    expect(applyResult.discountAmount).toBe(20);
+    expect(applyResult.newTotal).toBe(80);
+    expect(applyResult.newRemainingBalance).toBe(30);
+
+    const invoice = await t.run(async (ctx: any) => ctx.db.get(invoiceId));
+    expect(invoice?.couponCode).toBe("SAVE20");
+    expect(invoice?.discountAmount).toBe(20);
+    expect(invoice?.total).toBe(80);
+    expect(invoice?.remainingBalance).toBe(30);
+    // Re-opened so the reduced balance can be collected again
+    expect(invoice?.status).not.toBe("paid");
+    expect(invoice?.paidDate).toBeUndefined();
+  });
+
+  test("applyCouponToInvoice and removeDiscountFromInvoice reject fully settled invoices", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const adminId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test.com",
+        role: "admin",
+      });
+    });
+
+    const { invoiceId } = await createTestAppointmentWithInvoice(
+      t,
+      userId,
+      adminId,
+    );
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        status: "paid",
+        depositPaid: true,
+        remainingBalance: 0,
+        paidDate: "2024-12-01",
+      });
+    });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin@test.com",
+    });
+
+    await expect(
+      asAdmin.action(api.payments.applyCouponToInvoice, {
+        invoiceId,
+        couponCode: "SAVE20",
+        discountType: "percent",
+        discountValue: 20,
+      }),
+    ).rejects.toThrow("Fully paid invoices cannot be modified");
+
+    await expect(
+      asAdmin.action(api.payments.removeDiscountFromInvoice, { invoiceId }),
+    ).rejects.toThrow("Fully paid invoices cannot be modified");
+  });
+
+  test("validateBookingPromoCode validates coupon ids and promotion codes", async () => {
+    const t = convexTest(schema, modules);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("promotion_codes")) {
+          if (urlString.includes("SPRING25")) {
+            return {
+              ok: true,
+              json: async () => ({
+                data: [
+                  {
+                    id: "promo_spring25",
+                    active: true,
+                    code: "SPRING25",
+                    coupon: "SPRING25OFF",
+                  },
+                ],
+              }),
+            } as Response;
+          }
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+        if (urlString.includes("/coupons/SAVE20")) {
+          return {
+            ok: true,
+            json: async () => ({ id: "SAVE20", valid: true, percent_off: 20 }),
+          } as Response;
+        }
+        if (urlString.includes("/coupons/SPRING25OFF")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "SPRING25OFF",
+              valid: true,
+              percent_off: 25,
+            }),
+          } as Response;
+        }
+        if (urlString.includes("/coupons/MAXED")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "MAXED",
+              valid: true,
+              percent_off: 10,
+              max_redemptions: 5,
+              times_redeemed: 5,
+            }),
+          } as Response;
+        }
+        if (urlString.includes("/coupons/")) {
+          return {
+            ok: false,
+            status: 404,
+            text: async () => "Not found",
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    // Direct coupon id (case-insensitive input)
+    const couponResult = await t.action(api.payments.validateBookingPromoCode, {
+      code: "save20",
+      orderTotal: 150,
+    });
+    expect(couponResult).toEqual({
+      code: "SAVE20",
+      discountType: "percent",
+      discountValue: 20,
+      discountAmount: 30,
+    });
+
+    // Customer-facing promotion code resolves to its coupon
+    const promoResult = await t.action(api.payments.validateBookingPromoCode, {
+      code: "SPRING25",
+      orderTotal: 200,
+    });
+    expect(promoResult).toEqual({
+      code: "SPRING25OFF",
+      discountType: "percent",
+      discountValue: 25,
+      discountAmount: 50,
+    });
+
+    // Redemption limit is enforced
+    await expect(
+      t.action(api.payments.validateBookingPromoCode, {
+        code: "MAXED",
+        orderTotal: 100,
+      }),
+    ).rejects.toThrow("redemption limit");
+
+    // Unknown codes are rejected
+    await expect(
+      t.action(api.payments.validateBookingPromoCode, {
+        code: "NOPE",
+        orderTotal: 100,
+      }),
+    ).rejects.toThrow("not valid or has expired");
+  });
+
+  test("validateBookingPromoCode enforces promotion code minimum order amounts", async () => {
+    const t = convexTest(schema, modules);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("promotion_codes")) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: [
+                {
+                  id: "promo_big",
+                  active: true,
+                  code: "BIGORDER",
+                  coupon: "BIGCOUPON",
+                  restrictions: { minimum_amount: 20000 },
+                },
+              ],
+            }),
+          } as Response;
+        }
+        if (urlString.includes("/coupons/BIGCOUPON")) {
+          return {
+            ok: true,
+            json: async () => ({ id: "BIGCOUPON", valid: true, percent_off: 10 }),
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    await expect(
+      t.action(api.payments.validateBookingPromoCode, {
+        code: "BIGORDER",
+        orderTotal: 150,
+      }),
+    ).rejects.toThrow("minimum order of $200.00");
+
+    const result = await t.action(api.payments.validateBookingPromoCode, {
+      code: "BIGORDER",
+      orderTotal: 250,
+    });
+    expect(result.code).toBe("BIGCOUPON");
+    expect(result.discountAmount).toBe(25);
+  });
+
+  test("full-payment booking checkout applies the coupon and snapshots it on the draft", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const serviceId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("services", {
+        name: "Full Pay Service",
+        description: "Service for full-payment coupon test",
+        basePrice: 100,
+        basePriceMedium: 100,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const booking = await t.action(api.bookingDrafts.createOrUpdate, {
+      name: "Full Pay Booker",
+      email: "full-pay@example.com",
+      phone: "555-7777",
+      address: {
+        street: "789 Full St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      vehicles: [{ year: 2022, make: "Tesla", model: "Model 3", size: "medium" }],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-03",
+      scheduledTime: "10:00",
+      paymentOption: "full",
+    });
+
+    let checkoutRequestBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.includes("promotion_codes")) {
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+        if (urlString.includes("/coupons/SAVE20")) {
+          return {
+            ok: true,
+            json: async () => ({ id: "SAVE20", valid: true, percent_off: 20 }),
+          } as Response;
+        }
+        if (urlString.includes("checkout/sessions")) {
+          if (options?.body instanceof URLSearchParams) {
+            checkoutRequestBody = options.body.toString();
+          } else if (typeof options?.body === "string") {
+            checkoutRequestBody = options.body;
+          }
+          return {
+            ok: true,
+            json: async () => ({
+              id: "cs_full_coupon_123",
+              url: "https://checkout.stripe.com/full-coupon",
+            }),
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const checkout = await t.action(api.payments.createBookingCheckout, {
+      draftId: booking.draftId,
+      origin: "https://example.com",
+      couponCode: "SAVE20",
+    });
+
+    expect(checkout.sessionId).toBe("cs_full_coupon_123");
+    const bodyParams = new URLSearchParams(checkoutRequestBody);
+    expect(bodyParams.get("discounts[0][coupon]")).toBe("SAVE20");
+
+    const draft = await t.run(async (ctx: any) => ctx.db.get(booking.draftId));
+    expect(draft?.couponCode).toBe("SAVE20");
+    expect(draft?.couponDiscountType).toBe("percent");
+    expect(draft?.couponDiscountValue).toBe(20);
+
+    // Conversion prices the invoice from the snapshot so it matches the charge
+    const converted = await t.mutation(
+      internal.bookingDrafts.convertSuccessfulCheckout,
+      {
+        draftId: booking.draftId,
+        stripeCustomerId: "cus_full_coupon",
+        paymentIntentId: "pi_full_coupon",
+      },
+    );
+
+    expect(converted?.total).toBe(80);
+    const invoice = await t.run(async (ctx: any) =>
+      converted ? ctx.db.get(converted.invoiceId) : null,
+    );
+    expect(invoice?.status).toBe("paid");
+    expect(invoice?.subtotal).toBe(100);
+    expect(invoice?.couponCode).toBe("SAVE20");
+    expect(invoice?.discountAmount).toBe(20);
+    expect(invoice?.total).toBe(80);
+    expect(invoice?.depositAmount).toBe(80);
+    expect(invoice?.remainingBalance).toBe(0);
+  });
+
+  test("deposit checkout conversion applies the coupon snapshot to the remaining balance", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const serviceId = await t.run(async (ctx: any) => {
+      return await ctx.db.insert("services", {
+        name: "Deposit Coupon Service",
+        description: "Service for deposit coupon test",
+        basePrice: 100,
+        basePriceMedium: 100,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+    });
+
+    const booking = await t.action(api.bookingDrafts.createOrUpdate, {
+      name: "Deposit Coupon Booker",
+      email: "deposit-coupon@example.com",
+      phone: "555-8888",
+      address: {
+        street: "321 Deposit St",
+        city: "Springfield",
+        state: "IL",
+        zip: "62701",
+      },
+      vehicles: [{ year: 2021, make: "Honda", model: "Civic", size: "medium" }],
+      serviceIds: [serviceId],
+      scheduledDate: "2024-12-04",
+      scheduledTime: "10:00",
+      paymentOption: "deposit",
+    });
+
+    await t.mutation(internal.bookingDrafts.setCouponInternal, {
+      draftId: booking.draftId,
+      couponCode: "SAVE20",
+      couponDiscountType: "percent",
+      couponDiscountValue: 20,
+    });
+
+    const converted = await t.mutation(
+      internal.bookingDrafts.convertSuccessfulCheckout,
+      {
+        draftId: booking.draftId,
+        stripeCustomerId: "cus_deposit_coupon",
+        paymentIntentId: "pi_deposit_coupon",
+      },
+    );
+
+    expect(converted?.total).toBe(80);
+    const invoice = await t.run(async (ctx: any) =>
+      converted ? ctx.db.get(converted.invoiceId) : null,
+    );
+    expect(invoice?.status).toBe("draft");
+    expect(invoice?.couponCode).toBe("SAVE20");
+    expect(invoice?.discountAmount).toBe(20);
+    expect(invoice?.total).toBe(80);
+    expect(invoice?.depositAmount).toBe(50);
+    expect(invoice?.remainingBalance).toBe(30);
+  });
 });
