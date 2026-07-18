@@ -3308,5 +3308,6 @@ describe("payments", () => {
     expect(invoice?.total).toBe(80);
     expect(invoice?.depositAmount).toBe(50);
     expect(invoice?.remainingBalance).toBe(30);
+    expect(invoice?.dueDate).toBe("2024-12-07");
   });
 });

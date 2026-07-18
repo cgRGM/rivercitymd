@@ -30,6 +30,7 @@ import {
   getEffectiveServicePrice,
   type VehicleSize,
 } from "./lib/pricing";
+import { getInvoiceDueDateFromDateKey } from "./lib/invoices";
 import { assertRateLimit, contactRateLimitKey } from "./rateLimiter";
 
 const HOLD_DURATION_MS = 15 * 60 * 1000;
@@ -1314,8 +1315,7 @@ export const convertSuccessfulCheckout = internalMutation({
       {},
     );
     const invoiceNumber: string = `INV-${String(invoiceCountResult.count + 1).padStart(4, "0")}`;
-    const dueDate = new Date(`${draft.scheduledDate}T00:00:00.000Z`);
-    dueDate.setUTCDate(dueDate.getUTCDate() + 30);
+    const dueDate = getInvoiceDueDateFromDateKey(draft.scheduledDate);
     const today = new Date().toISOString().split("T")[0];
     const isFullPayment = draft.paymentOption === "full";
 
@@ -1332,7 +1332,7 @@ export const convertSuccessfulCheckout = internalMutation({
       tax: 0,
       total: discountedTotal,
       status: isFullPayment ? "paid" : "draft",
-      dueDate: dueDate.toISOString().split("T")[0],
+      dueDate,
       paidDate: isFullPayment ? today : undefined,
       notes: `Invoice for appointment on ${draft.scheduledDate}`,
       depositAmount: isFullPayment ? discountedTotal : draft.depositAmount,

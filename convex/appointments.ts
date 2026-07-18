@@ -21,6 +21,11 @@ import {
   normalizeServiceType,
   type VehicleSize,
 } from "./lib/pricing";
+import {
+  getInvoiceDueDateFromDate,
+  getInvoiceDueDateFromDateKey,
+  REMAINING_BALANCE_DUE_DAYS,
+} from "./lib/invoices";
 import { r2 } from "./r2";
 
 interface StripeInvoiceVehicleInput {
@@ -925,9 +930,7 @@ export const create = mutation({
     const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     // Create invoice date
-    const appointmentDate = new Date(`${scheduledDateKey}T00:00:00.000Z`);
-    const dueDate = new Date(appointmentDate);
-    dueDate.setDate(dueDate.getDate() + 30);
+    const dueDate = getInvoiceDueDateFromDateKey(scheduledDateKey);
 
     // Create invoice in Convex immediately (don't create Stripe invoice yet - wait for deposit)
     const invoiceId: Id<"invoices"> = await ctx.db.insert("invoices", {
@@ -939,7 +942,7 @@ export const create = mutation({
       tax,
       total,
       status: "draft", // Start as draft, will be sent after deposit is paid
-      dueDate: dueDate.toISOString().split("T")[0],
+      dueDate,
       notes: `Invoice for appointment on ${scheduledDateKey}`,
       depositAmount,
       depositPaid: false,
@@ -1324,8 +1327,7 @@ export const applyWorkAdjustment = mutation({
           await ctx.runQuery(internal.invoices.getCountInternal, {})
         ).count;
         const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
-        const dueDate = new Date();
-        dueDate.setDate(dueDate.getDate() + 30);
+        const dueDate = getInvoiceDueDateFromDate(new Date());
         supplementalInvoiceId = await ctx.db.insert("invoices", {
           appointmentId: args.appointmentId,
           userId: appointment.userId,
@@ -1342,7 +1344,7 @@ export const applyWorkAdjustment = mutation({
           tax: 0,
           total: priceDelta,
           status: "draft",
-          dueDate: dueDate.toISOString().split("T")[0],
+          dueDate,
           notes: `Supplemental invoice for ${invoice.invoiceNumber}: ${reason}`,
           depositAmount: 0,
           depositPaid: true,
@@ -2165,9 +2167,7 @@ export const createStripeInvoice = action({
     }
 
     // Create the invoice
-    const appointmentDate = new Date(args.scheduledDate);
-    const dueDate = new Date(appointmentDate);
-    dueDate.setDate(dueDate.getDate() + 30);
+    const dueDate = getInvoiceDueDateFromDateKey(args.scheduledDate);
 
     const invoiceResponse = await fetch("https://api.stripe.com/v1/invoices", {
       method: "POST",
@@ -2178,7 +2178,7 @@ export const createStripeInvoice = action({
       body: new URLSearchParams({
         customer: stripeCustomerId!,
         collection_method: "send_invoice",
-        days_until_due: "30",
+        days_until_due: String(REMAINING_BALANCE_DUE_DAYS),
         auto_advance: "true",
         description: `Mobile detailing service - ${args.scheduledDate}`,
       }),
@@ -2260,7 +2260,7 @@ export const createStripeInvoice = action({
       tax,
       total,
       status: "sent",
-      dueDate: dueDate.toISOString().split("T")[0],
+      dueDate,
       stripeInvoiceId: sentInvoice.id,
       stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
       notes: `Invoice for appointment on ${args.scheduledDate}`,
@@ -2367,9 +2367,7 @@ export const createStripeInvoiceInternal = internalAction({
     }
 
     // Create Stripe invoice
-    const appointmentDate = new Date(args.scheduledDate);
-    const dueDate = new Date(appointmentDate);
-    dueDate.setDate(dueDate.getDate() + 30);
+    const dueDate = getInvoiceDueDateFromDateKey(args.scheduledDate);
 
     const invoiceResponse = await fetch("https://api.stripe.com/v1/invoices", {
       method: "POST",
@@ -2380,7 +2378,7 @@ export const createStripeInvoiceInternal = internalAction({
       body: new URLSearchParams({
         customer: stripeCustomerId,
         collection_method: "send_invoice",
-        days_until_due: "30",
+        days_until_due: String(REMAINING_BALANCE_DUE_DAYS),
         auto_advance: "true",
         description: `Mobile detailing service - ${args.scheduledDate}`,
         metadata: JSON.stringify({
@@ -2459,7 +2457,7 @@ export const createStripeInvoiceInternal = internalAction({
       tax,
       total,
       status: "sent",
-      dueDate: dueDate.toISOString().split("T")[0],
+      dueDate,
       stripeInvoiceId: sentInvoice.id,
       stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
       notes: `Invoice for appointment on ${args.scheduledDate}`,

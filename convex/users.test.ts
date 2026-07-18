@@ -1157,5 +1157,6 @@ describe("users", () => {
         }),
       ]),
     );
+    expect(invoice?.dueDate).toBe("2024-12-05");
   });
 });
