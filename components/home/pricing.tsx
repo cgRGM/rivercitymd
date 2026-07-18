@@ -155,7 +155,7 @@ export function PricingSection() {
               Transparent pricing for quality service
             </h2>
             <p className="text-lg text-muted-foreground mb-2">
-              Mobile detailing packages matched to your vehicle
+              Mobile detailing packages matched to your vehicles
             </p>
             <p className="text-sm text-muted-foreground">
               Choose a category to compare packages and vehicle pricing.
@@ -296,24 +296,26 @@ export function PricingSection() {
 
                       {/* Features */}
                       {service.features && service.features.length > 0 && (
-                        <div className="px-5 pb-4 flex-1">
-                          <ul
-                            className={cn(
-                              usesTwoColFeatures
-                                ? "grid grid-cols-2 gap-x-3 gap-y-1.5"
-                                : "flex flex-col gap-y-1.5",
-                            )}
-                          >
+                        <div className="mx-5 border-t border-border/40 py-4 flex-1">
+                          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                            Includes
+                          </p>
+                          <ul className="flex flex-wrap gap-2">
                             {service.features.map((feature, i) => (
                               <li
                                 key={i}
-                                className="flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-foreground/80 transition-colors"
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/35 px-2.5 py-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground/80",
+                                  usesTwoColFeatures ? "max-w-[calc(50%-0.25rem)]" : "",
+                                )}
                               >
                                 <Check
                                   className="w-3 h-3 text-primary flex-shrink-0"
                                   strokeWidth={2.5}
                                 />
-                                <span className="leading-tight">{feature}</span>
+                                <span className="min-w-0 truncate leading-tight">
+                                  {feature}
+                                </span>
                               </li>
                             ))}
                           </ul>

@@ -23,7 +23,7 @@ const SERVICE_TYPE_LABELS = {
   subscription: "Subscription Plans",
 } as const;
 
-const LANDING_PAGE_SERVICE_LIMIT = 5;
+const LANDING_PAGE_SERVICE_LIMIT = 4;
 
 const LANDING_CATEGORIES = [
   { slug: "full-detail", name: "Full Detail", displayOrder: 10 },
@@ -267,6 +267,42 @@ function inferServiceCategorySlug(service: Doc<"services">) {
     return "exterior";
   }
   return "full-detail";
+}
+
+function getLandingCategory(slug: string) {
+  return LANDING_CATEGORIES.find((category) => category.slug === slug);
+}
+
+function getPublicLandingCategorySlug(
+  service: Doc<"services">,
+  category: Doc<"serviceCategories"> | null,
+) {
+  const storedSlug = getStoredCategorySlug(category);
+  if (storedSlug === ADDON_CATEGORY.slug) return ADDON_CATEGORY.slug;
+  if (storedSlug) {
+    return getLandingCategory(storedSlug)?.slug;
+  }
+
+  const inferredSlug = inferServiceCategorySlug(service);
+  if (inferredSlug === ADDON_CATEGORY.slug) return ADDON_CATEGORY.slug;
+  const name = service.name.toLowerCase();
+  if (
+    inferredSlug === "full-detail" &&
+    !/\blevel\s*\d+\b/.test(name) &&
+    !name.includes("full detail") &&
+    !name.includes("basic reset") &&
+    !name.includes("motorcycle")
+  ) {
+    return undefined;
+  }
+  return getLandingCategory(inferredSlug)?.slug;
+}
+
+function getServiceSortWeight(service: LandingPageService) {
+  const levelMatch = service.name.match(/\blevel\s*(\d+)\b/i);
+  if (levelMatch?.[1]) return Number(levelMatch[1]);
+  if (service.name.toLowerCase().includes("level")) return 20;
+  return 100;
 }
 
 function inferServiceBookingRole(service: Doc<"services">) {
@@ -825,7 +861,8 @@ export const listLandingPagePricing = query({
 
     for (const service of landingServices) {
       const category = service.categoryId ? categoryById.get(service.categoryId) ?? null : null;
-      const categorySlug = getStoredCategorySlug(category) || inferServiceCategorySlug(service);
+      const categorySlug = getPublicLandingCategorySlug(service, category);
+      if (!categorySlug) continue;
       const fallbackCategory = [...LANDING_CATEGORIES, ADDON_CATEGORY].find(
         (candidate) => candidate.slug === categorySlug,
       );
@@ -891,7 +928,9 @@ export const listLandingPagePricing = query({
           services: group.services
             .sort(
               (a, b) =>
-                a.startingPrice - b.startingPrice || a.name.localeCompare(b.name),
+                getServiceSortWeight(a) - getServiceSortWeight(b) ||
+                a.startingPrice - b.startingPrice ||
+                a.name.localeCompare(b.name),
             )
             .slice(0, LANDING_PAGE_SERVICE_LIMIT),
         }))
