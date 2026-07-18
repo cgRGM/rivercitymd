@@ -4,6 +4,17 @@ All notable changes to the River City Mobile Detailing project are documented in
 
 ---
 
+## [v1.0.5] - 2026-07-18
+### Added
+- **Booking Checkout Promo Codes**: Added a promo code input to the booking checkout order summary with live red/green validation feedback. Codes resolve against Stripe promotion codes first, then coupon IDs, enforcing usage rules (active status, expiration, redemption caps, minimum order value). Full-payment checkouts apply the coupon via Stripe `discounts`; deposit bookings apply the discount to the remaining balance invoice.
+- **Discounts on Active Appointments**: Admins can now apply, replace, or remove coupons on pending, confirmed, and in-progress appointments whenever the invoice still has a collectible balance — including invoices marked paid with a remaining balance (e.g. after manual mark-paid). Applying re-opens the invoice and reissues the Stripe invoice for the reduced balance.
+
+### Fixed
+- **Appointment Service Prices by Vehicle Type**: Appointment detail pricing now reflects per-vehicle-type service pricing.
+- **Mobile Appointment Actions**: The appointment detail page CTAs now stack below the back button on mobile instead of crowding the same row.
+
+---
+
 ## [v1.0.4] - 2026-06-18
 ### Added
 - **Editable Customer Vehicles (Admin)**: Expanded the admin Customer Detail page to allow inline editing of customer vehicles (Year, Make, Model, Color, License Plate, Notes). This triggers auto-classification on save to update sizes and types without needing deletion.

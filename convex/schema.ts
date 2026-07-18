@@ -428,6 +428,11 @@ const schema = defineSchema({
       v.literal("full"),
       v.literal("in_person"),
     ),
+    couponCode: v.optional(v.string()),
+    couponDiscountType: v.optional(
+      v.union(v.literal("percent"), v.literal("amount")),
+    ),
+    couponDiscountValue: v.optional(v.number()),
     priceSnapshot: v.array(
       v.object({
         itemType: v.optional(
