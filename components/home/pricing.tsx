@@ -233,27 +233,25 @@ export function PricingSection() {
                       <div className="h-[3px] w-full bg-primary/70 flex-shrink-0" />
 
                       {/* Header */}
-                      <div className="px-5 pt-5 pb-4 text-center">
+                      <div className="flex min-h-[152px] flex-col justify-between px-5 pt-5 pb-4 text-center">
                         {/* Icon + Title inline */}
-                        <div className="flex items-center justify-center gap-2 mb-2">
+                        <div className="mb-2 flex min-h-6 items-center justify-center gap-2">
                           {service.icon && (
                             <span className="text-xl leading-none">
                               {service.icon}
                             </span>
                           )}
-                          <h3 className="text-lg font-bold tracking-tight leading-tight">
+                          <h3 className="min-w-0 truncate whitespace-nowrap text-base font-bold leading-tight tracking-normal sm:text-[17px]">
                             {service.name}
                           </h3>
                         </div>
 
-                        {service.description && (
-                          <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
-                            {service.description}
-                          </p>
-                        )}
+                        <p className="mx-auto min-h-10 max-w-[15rem] text-xs leading-snug text-muted-foreground">
+                          {service.description}
+                        </p>
 
                         {/* Price */}
-                        <div className="mt-4 flex items-baseline justify-center gap-0.5">
+                        <div className="mt-4 flex min-h-9 items-baseline justify-center gap-0.5">
                           <span className="mr-1 text-xs font-medium uppercase text-muted-foreground">
                             From
                           </span>
@@ -272,7 +270,7 @@ export function PricingSection() {
                       {/* Divider */}
                       <div className="mx-5 h-px bg-border/40" />
 
-                      <div className="px-5 py-4">
+                      <div className="min-h-[120px] px-5 py-4">
                         <div className="space-y-2">
                           {service.vehiclePrices.slice(0, 6).map((price) => (
                             <div
@@ -292,15 +290,15 @@ export function PricingSection() {
 
                       {/* Features */}
                       {service.features && service.features.length > 0 && (
-                        <div className="mx-5 border-t border-border/40 py-4 flex-1">
-                          <p className="mb-3 text-xs font-semibold text-foreground">
+                        <div className="mx-5 flex-1 border-t border-border/40 py-4">
+                          <p className="mb-3 text-xs font-semibold leading-none text-foreground">
                             Includes:
                           </p>
-                          <ul className="grid grid-cols-2 gap-1.5 xl:grid-cols-3">
+                          <ul className="grid grid-cols-2 gap-1.5">
                             {service.features.map((feature, i) => (
                               <li
                                 key={i}
-                                className="inline-flex min-h-6 items-center justify-center rounded-lg bg-primary px-2 py-1 text-center text-[10px] font-semibold leading-tight text-primary-foreground"
+                                className="inline-flex min-h-5 items-center justify-center rounded-md bg-primary px-2 py-1 text-center text-[9px] font-semibold leading-[1.05] text-primary-foreground"
                               >
                                 <span className="break-words">
                                   {feature}
