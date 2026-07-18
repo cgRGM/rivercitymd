@@ -75,6 +75,17 @@ export function PricingSection() {
     pricingQuery?.categories[0];
   const mainServices = selectedGroup?.services ?? [];
   const addons = pricingQuery?.addons ?? [];
+  const visibleCardCount = Math.min(mainServices.length, 4);
+  const cardGridClass = cn(
+    "flex snap-x gap-4 overflow-x-auto pb-3 md:grid md:justify-center md:overflow-visible",
+    visibleCardCount === 1 &&
+      "justify-center md:grid-cols-[minmax(0,17.5rem)]",
+    visibleCardCount === 2 &&
+      "justify-center md:grid-cols-[repeat(2,minmax(0,17.5rem))]",
+    visibleCardCount === 3 &&
+      "md:grid-cols-[repeat(2,minmax(0,17.5rem))] lg:grid-cols-[repeat(3,minmax(0,17.5rem))]",
+    visibleCardCount >= 4 && "md:grid-cols-2 lg:grid-cols-4",
+  );
 
   const handleBookNow = () => {
     if (bookingReadiness && !bookingReadiness.isReady) {
@@ -215,7 +226,7 @@ export function PricingSection() {
               </div>
             ) : (
               <div
-                className="flex snap-x gap-4 overflow-x-auto pb-3 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-4"
+                className={cardGridClass}
                 aria-label="Service pricing cards"
               >
               {mainServices.map((service, index) => {
