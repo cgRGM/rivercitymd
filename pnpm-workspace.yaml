@@ -1,0 +1,15 @@
+packages:
+  - "."
+
+allowBuilds:
+  '@clerk/shared': true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+
+onlyBuiltDependencies:
+  - "@clerk/shared"
+  - "@tailwindcss/oxide"
+  - esbuild
+  - sharp
+  - unrs-resolver

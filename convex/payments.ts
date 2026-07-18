@@ -6,7 +6,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { getUserIdFromIdentity, isAdmin } from "./auth";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -303,7 +303,9 @@ function getDiscountFromStripeCoupon(stripeCoupon: any): {
   discountValue: number;
 } {
   if (!stripeCoupon || stripeCoupon.valid === false) {
-    throw new Error("This Stripe coupon is not active.");
+    throw new ConvexError({
+      message: "This Stripe coupon is not active.",
+    });
   }
   if (typeof stripeCoupon.percent_off === "number" && stripeCoupon.percent_off > 0) {
     return {
@@ -317,7 +319,9 @@ function getDiscountFromStripeCoupon(stripeCoupon: any): {
       discountValue: Math.round(stripeCoupon.amount_off) / 100,
     };
   }
-  throw new Error("This Stripe coupon does not have a supported discount amount.");
+  throw new ConvexError({
+    message: "This Stripe coupon does not have a supported discount amount.",
+  });
 }
 
 async function getStripeInvoiceById(stripeInvoiceId: string): Promise<any> {
@@ -1967,19 +1971,25 @@ type ResolvedStripeCoupon = {
 
 function assertStripeCouponRedeemable(stripeCoupon: any) {
   if (!stripeCoupon || stripeCoupon.valid === false) {
-    throw new Error("This promo code is not valid or has expired.");
+    throw new ConvexError({
+      message: "This promo code is not valid or has expired.",
+    });
   }
   if (
     typeof stripeCoupon.redeem_by === "number" &&
     stripeCoupon.redeem_by * 1000 < Date.now()
   ) {
-    throw new Error("This promo code is not valid or has expired.");
+    throw new ConvexError({
+      message: "This promo code is not valid or has expired.",
+    });
   }
   if (
     typeof stripeCoupon.max_redemptions === "number" &&
     (stripeCoupon.times_redeemed ?? 0) >= stripeCoupon.max_redemptions
   ) {
-    throw new Error("This promo code has reached its redemption limit.");
+    throw new ConvexError({
+      message: "This promo code has reached its redemption limit.",
+    });
   }
 }
 
@@ -1988,19 +1998,25 @@ function assertStripeCouponRedeemable(stripeCoupon: any) {
 // restrictions cannot be verified before checkout and are not enforced here.
 function assertPromotionCodeRedeemable(promo: any, orderTotal?: number) {
   if (!promo || promo.active === false) {
-    throw new Error("This promo code is not valid or has expired.");
+    throw new ConvexError({
+      message: "This promo code is not valid or has expired.",
+    });
   }
   if (
     typeof promo.expires_at === "number" &&
     promo.expires_at * 1000 < Date.now()
   ) {
-    throw new Error("This promo code is not valid or has expired.");
+    throw new ConvexError({
+      message: "This promo code is not valid or has expired.",
+    });
   }
   if (
     typeof promo.max_redemptions === "number" &&
     (promo.times_redeemed ?? 0) >= promo.max_redemptions
   ) {
-    throw new Error("This promo code has reached its redemption limit.");
+    throw new ConvexError({
+      message: "This promo code has reached its redemption limit.",
+    });
   }
   const minimumAmount = promo.restrictions?.minimum_amount;
   if (
@@ -2008,9 +2024,9 @@ function assertPromotionCodeRedeemable(promo: any, orderTotal?: number) {
     orderTotal !== undefined &&
     Math.round(orderTotal * 100) < minimumAmount
   ) {
-    throw new Error(
-      `This promo code requires a minimum order of $${(minimumAmount / 100).toFixed(2)}.`,
-    );
+    throw new ConvexError({
+      message: `This promo code requires a minimum order of $${(minimumAmount / 100).toFixed(2)}.`,
+    });
   }
 }
 
@@ -2023,7 +2039,7 @@ async function resolveStripeCouponForCode(
 ): Promise<ResolvedStripeCoupon> {
   const trimmed = rawCode.trim();
   if (!trimmed) {
-    throw new Error("Please enter a promo code.");
+    throw new ConvexError({ message: "Please enter a promo code." });
   }
 
   try {
@@ -2047,13 +2063,7 @@ async function resolveStripeCouponForCode(
       return { couponId, ...discount };
     }
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.includes("not valid") ||
-        error.message.includes("redemption limit") ||
-        error.message.includes("minimum order") ||
-        error.message.includes("not active"))
-    ) {
+    if (error instanceof ConvexError) {
       throw error;
     }
     // Otherwise fall through to the direct coupon lookup.
@@ -2061,7 +2071,7 @@ async function resolveStripeCouponForCode(
 
   const normalizedCode = normalizeStripeCouponCode(trimmed);
   if (!normalizedCode) {
-    throw new Error("Please enter a promo code.");
+    throw new ConvexError({ message: "Please enter a promo code." });
   }
   let stripeCoupon: any;
   try {
@@ -2070,7 +2080,9 @@ async function resolveStripeCouponForCode(
       { method: "GET" },
     );
   } catch {
-    throw new Error("This promo code is not valid or has expired.");
+    throw new ConvexError({
+      message: "This promo code is not valid or has expired.",
+    });
   }
   assertStripeCouponRedeemable(stripeCoupon);
   const discount = getDiscountFromStripeCoupon(stripeCoupon);
