@@ -25,18 +25,42 @@ const SERVICE_TYPE_LABELS = {
 
 const LANDING_PAGE_SERVICE_LIMIT = 5;
 
+const LANDING_CATEGORIES = [
+  { slug: "full-detail", name: "Full Detail", displayOrder: 10 },
+  { slug: "interior", name: "Interior", displayOrder: 20 },
+  { slug: "exterior", name: "Exterior", displayOrder: 30 },
+  { slug: "wax-ceramic", name: "Wax & Ceramic", displayOrder: 40 },
+] as const;
+
+const ADDON_CATEGORY = {
+  slug: "add-ons",
+  name: "Add-ons",
+  displayOrder: 50,
+} as const;
+
 type LandingPageService = {
   _id: Id<"services">;
   name: string;
   description: string;
   icon?: string;
   features?: string[];
-  price: number;
-  duration: number;
+  categorySlug: string;
+  categoryName: string;
+  bookingRole: "core" | "upgrade" | "addon";
+  startingPrice: number;
+  minDuration: number;
+  vehiclePrices: Array<{
+    vehicleTypeId: Id<"vehicleTypes">;
+    vehicleTypeName: string;
+    price: number;
+    duration: number;
+  }>;
 };
 
-type LandingPageVehicleGroup = {
-  vehicleType: Doc<"vehicleTypes">;
+type LandingPageCategoryGroup = {
+  slug: string;
+  name: string;
+  displayOrder: number;
   services: LandingPageService[];
 };
 
@@ -66,6 +90,17 @@ const vehiclePriceInputValidator = v.object({
   duration: v.number(),
   isAvailable: v.boolean(),
 });
+
+const bookingRoleValidator = v.union(
+  v.literal("core"),
+  v.literal("upgrade"),
+  v.literal("addon"),
+);
+
+const subscriptionFrequencyValidator = v.union(
+  v.literal("monthly"),
+  v.literal("biweekly"),
+);
 
 type VehiclePriceInput = {
   vehicleTypeId?: Id<"vehicleTypes">;
@@ -207,6 +242,44 @@ async function getServiceCategoryName(ctx: any, service: Doc<"services">) {
   return category?.name ?? SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)];
 }
 
+function getStoredCategorySlug(category: Doc<"serviceCategories"> | null) {
+  return category?.slug || (category?.name ? slugify(category.name) : "");
+}
+
+function inferServiceCategorySlug(service: Doc<"services">) {
+  const name = service.name.toLowerCase();
+  const type = normalizeServiceType(service.serviceType);
+  if (type === "addon" || service.bookingRole === "addon") return ADDON_CATEGORY.slug;
+  if (
+    name.includes("ceramic") ||
+    name.includes("wax") ||
+    name.includes("paint enhancement") ||
+    name.includes("protection")
+  ) {
+    return "wax-ceramic";
+  }
+  if (name.includes("interior")) return "interior";
+  if (
+    name.includes("exterior") ||
+    name.includes("wash") ||
+    name.includes("decon")
+  ) {
+    return "exterior";
+  }
+  return "full-detail";
+}
+
+function inferServiceBookingRole(service: Doc<"services">) {
+  const type = normalizeServiceType(service.serviceType);
+  if (type === "addon") return "addon" as const;
+  return service.bookingRole ?? (inferServiceCategorySlug(service) === "wax-ceramic" ? "upgrade" : "core");
+}
+
+function serviceHasLevelOneName(service: Doc<"services">) {
+  const name = service.name.toLowerCase();
+  return /\blevel\s*1\b/.test(name) || name.includes("basic reset");
+}
+
 function calculateLegacyPrices(
   rows: Array<{
     price: number;
@@ -274,7 +347,13 @@ async function replaceServiceVehiclePrices(
   const rows = [];
   for (const input of vehiclePrices) {
     const vehicleType = await ensureVehicleTypeForPrice(ctx, input);
-    if (!vehicleType || seen.has(vehicleType._id)) continue;
+    if (!vehicleType) continue;
+    if (seen.has(vehicleType._id)) {
+      throw new ConvexError({
+        code: "DUPLICATE_VEHICLE_PRICE",
+        message: "Each vehicle type can only be priced once per service.",
+      });
+    }
     seen.add(vehicleType._id);
     const price = Math.max(0, input.price || 0);
     const duration = Math.max(0, Math.floor(input.duration || 0));
@@ -541,19 +620,125 @@ export const listCategories = query({
 export const createCategory = mutation({
   args: {
     name: v.string(),
+    slug: v.optional(v.string()),
     type: v.union(
       v.literal("standard"),
       v.literal("subscription"),
       v.literal("addon"),
     ),
+    displayOrder: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
     return await ctx.db.insert("serviceCategories", {
       name: args.name,
+      slug: args.slug ?? slugify(args.name),
       type: args.type,
+      displayOrder: args.displayOrder,
     });
+  },
+});
+
+export const seedServicePresentationData = mutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const dryRun = args.dryRun ?? true;
+    const existingCategories = await ctx.db.query("serviceCategories").collect();
+    const bySlug = new Map(
+      existingCategories.map((category) => [
+        getStoredCategorySlug(category),
+        category,
+      ]),
+    );
+    const desiredCategories = [
+      ...LANDING_CATEGORIES.map((category) => ({
+        ...category,
+        type: "standard" as const,
+      })),
+      { ...ADDON_CATEGORY, type: "addon" as const },
+    ];
+
+    const categoryResults = [];
+    const categoryIds = new Map<string, Id<"serviceCategories">>();
+    for (const category of desiredCategories) {
+      const existing = bySlug.get(category.slug);
+      if (existing) {
+        categoryIds.set(category.slug, existing._id);
+        categoryResults.push({ slug: category.slug, action: "exists" });
+        if (!dryRun) {
+          await ctx.db.patch(existing._id, {
+            name: category.name,
+            slug: category.slug,
+            type: category.type,
+            displayOrder: category.displayOrder,
+          });
+        }
+        continue;
+      }
+
+      categoryResults.push({ slug: category.slug, action: "create" });
+      if (!dryRun) {
+        const id = await ctx.db.insert("serviceCategories", {
+          name: category.name,
+          slug: category.slug,
+          type: category.type,
+          displayOrder: category.displayOrder,
+        });
+        categoryIds.set(category.slug, id);
+      }
+    }
+
+    const services = await ctx.db.query("services").collect();
+    const serviceResults = [];
+    for (const service of services) {
+      const categorySlug = inferServiceCategorySlug(service);
+      const categoryId = categoryIds.get(categorySlug);
+      const bookingRole = inferServiceBookingRole(service);
+      const isLevelOne = serviceHasLevelOneName(service);
+      const disallowWhenPetHair =
+        service.disallowWhenPetHair ??
+        (isLevelOne && (categorySlug === "full-detail" || categorySlug === "interior"));
+      const disallowWhenDirtyMud =
+        service.disallowWhenDirtyMud ??
+        (isLevelOne && (categorySlug === "full-detail" || categorySlug === "exterior"));
+      const isSubscribable =
+        service.isSubscribable ??
+        (bookingRole === "core" && normalizeServiceType(service.serviceType) === "standard");
+
+      serviceResults.push({
+        serviceId: service._id,
+        name: service.name,
+        categorySlug,
+        bookingRole,
+        disallowWhenPetHair,
+        disallowWhenDirtyMud,
+        isSubscribable,
+        action: dryRun ? "would-patch" : "patched",
+      });
+
+      if (!dryRun) {
+        await ctx.db.patch(service._id, {
+          categoryId,
+          bookingRole,
+          disallowWhenPetHair,
+          disallowWhenDirtyMud,
+          isSubscribable,
+          subscriptionFrequencies:
+            service.subscriptionFrequencies ??
+            (isSubscribable ? ["monthly", "biweekly"] : undefined),
+        });
+      }
+    }
+
+    return {
+      dryRun,
+      categories: categoryResults,
+      services: serviceResults,
+    };
   },
 });
 
@@ -616,56 +801,106 @@ export const listLandingPagePricing = query({
   args: {},
   handler: async (ctx) => {
     const services = await ctx.db.query("services").collect();
+    const categories = await ctx.db.query("serviceCategories").collect();
+    const categoryById = new Map(categories.map((category) => [category._id, category]));
     const landingServices = services.filter((service) => {
       const serviceType = normalizeServiceType(service.serviceType);
       return (
         service.isActive &&
         service.showOnLandingPage !== false &&
-        serviceType === "standard"
+        (serviceType === "standard" || serviceType === "addon")
       );
     });
 
-    const vehicleTypeMap = new Map<string, LandingPageVehicleGroup>();
+    const categoryMap = new Map<string, LandingPageCategoryGroup>();
+    for (const category of LANDING_CATEGORIES) {
+      categoryMap.set(category.slug, {
+        slug: category.slug,
+        name: category.name,
+        displayOrder: category.displayOrder,
+        services: [],
+      });
+    }
+    const addons: LandingPageService[] = [];
 
     for (const service of landingServices) {
+      const category = service.categoryId ? categoryById.get(service.categoryId) ?? null : null;
+      const categorySlug = getStoredCategorySlug(category) || inferServiceCategorySlug(service);
+      const fallbackCategory = [...LANDING_CATEGORIES, ADDON_CATEGORY].find(
+        (candidate) => candidate.slug === categorySlug,
+      );
+      const bookingRole = inferServiceBookingRole(service);
       const vehiclePrices = await getServiceVehiclePricesForPresentation(ctx, service);
-      for (const price of vehiclePrices) {
-        if (!price.isAvailable || price.price <= 0 || !price.vehicleType?.isActive) {
-          continue;
-        }
-
-        const vehicleTypeId = String(price.vehicleTypeId);
-        const existing: LandingPageVehicleGroup = vehicleTypeMap.get(vehicleTypeId) ?? {
-          vehicleType: price.vehicleType,
-          services: [],
-        };
-
-        existing.services.push({
-          _id: service._id,
-          name: service.name,
-          description: service.description,
-          icon: service.icon,
-          features: service.features,
+      const availablePrices = vehiclePrices
+        .filter(
+          (price) =>
+            price.isAvailable &&
+            price.price > 0 &&
+            price.duration > 0 &&
+            price.vehicleType?.isActive,
+        )
+        .map((price) => ({
+          vehicleTypeId: price.vehicleTypeId,
+          vehicleTypeName: price.vehicleType?.name ?? "Vehicle",
           price: price.price,
           duration: price.duration || service.duration,
-        });
-        vehicleTypeMap.set(vehicleTypeId, existing);
+        }));
+      if (availablePrices.length === 0) continue;
+
+      const startingPrice = availablePrices.reduce(
+        (min, row) => Math.min(min, row.price),
+        availablePrices[0].price,
+      );
+      const minDuration = availablePrices.reduce(
+        (min, row) => Math.min(min, row.duration),
+        availablePrices[0].duration,
+      );
+      const item: LandingPageService = {
+        _id: service._id,
+        name: service.name,
+        description: service.description,
+        icon: service.icon,
+        features: service.features,
+        categorySlug,
+        categoryName: category?.name ?? fallbackCategory?.name ?? "Services",
+        bookingRole,
+        startingPrice,
+        minDuration,
+        vehiclePrices: availablePrices,
+      };
+
+      if (bookingRole === "addon" || categorySlug === ADDON_CATEGORY.slug) {
+        addons.push(item);
+        continue;
       }
+
+      const group = categoryMap.get(categorySlug) ?? {
+        slug: categorySlug,
+        name: category?.name ?? fallbackCategory?.name ?? "Services",
+        displayOrder: category?.displayOrder ?? fallbackCategory?.displayOrder ?? 999,
+        services: [],
+      };
+      group.services.push(item);
+      categoryMap.set(categorySlug, group);
     }
 
-    return Array.from(vehicleTypeMap.values())
-      .map((group) => ({
-        vehicleType: group.vehicleType,
-        services: group.services
-          .sort((a, b) => a.price - b.price || a.name.localeCompare(b.name))
-          .slice(0, LANDING_PAGE_SERVICE_LIMIT),
-      }))
-      .filter((group) => group.services.length > 0)
-      .sort(
-        (a, b) =>
-          a.vehicleType.displayOrder - b.vehicleType.displayOrder ||
-          a.vehicleType.name.localeCompare(b.vehicleType.name),
-      );
+    return {
+      categories: Array.from(categoryMap.values())
+        .map((group) => ({
+          ...group,
+          services: group.services
+            .sort(
+              (a, b) =>
+                a.startingPrice - b.startingPrice || a.name.localeCompare(b.name),
+            )
+            .slice(0, LANDING_PAGE_SERVICE_LIMIT),
+        }))
+        .filter((group) => group.services.length > 0)
+        .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name)),
+      addons: addons.sort(
+        (a, b) => a.startingPrice - b.startingPrice || a.name.localeCompare(b.name),
+      ),
+    };
   },
 });
 
@@ -686,6 +921,11 @@ export const create = mutation({
         v.literal("addon"),
       ),
     ),
+    bookingRole: v.optional(bookingRoleValidator),
+    isSubscribable: v.optional(v.boolean()),
+    subscriptionFrequencies: v.optional(v.array(subscriptionFrequencyValidator)),
+    disallowWhenPetHair: v.optional(v.boolean()),
+    disallowWhenDirtyMud: v.optional(v.boolean()),
     categoryId: v.optional(v.id("serviceCategories")), // legacy
     includedServiceIds: v.optional(v.array(v.id("services"))),
     features: v.optional(v.array(v.string())),
@@ -711,6 +951,11 @@ export const create = mutation({
       basePriceLarge: args.basePriceLarge,
       duration: args.duration,
       serviceType: normalizeServiceType(args.serviceType),
+      bookingRole: args.bookingRole,
+      isSubscribable: args.isSubscribable,
+      subscriptionFrequencies: args.subscriptionFrequencies,
+      disallowWhenPetHair: args.disallowWhenPetHair,
+      disallowWhenDirtyMud: args.disallowWhenDirtyMud,
       categoryId: args.categoryId,
       includedServiceIds: args.includedServiceIds,
       features: args.features,
@@ -773,6 +1018,11 @@ export const update = mutation({
         v.literal("addon"),
       ),
     ),
+    bookingRole: v.optional(bookingRoleValidator),
+    isSubscribable: v.optional(v.boolean()),
+    subscriptionFrequencies: v.optional(v.array(subscriptionFrequencyValidator)),
+    disallowWhenPetHair: v.optional(v.boolean()),
+    disallowWhenDirtyMud: v.optional(v.boolean()),
     categoryId: v.optional(v.id("serviceCategories")), // legacy
     includedServiceIds: v.optional(v.array(v.id("services"))),
     features: v.optional(v.array(v.string())),
@@ -820,6 +1070,11 @@ export const update = mutation({
       basePriceLarge: legacyPrices.basePriceLarge,
       duration: legacyDuration,
       serviceType: normalizeServiceType(updates.serviceType),
+      bookingRole: updates.bookingRole,
+      isSubscribable: updates.isSubscribable,
+      subscriptionFrequencies: updates.subscriptionFrequencies,
+      disallowWhenPetHair: updates.disallowWhenPetHair,
+      disallowWhenDirtyMud: updates.disallowWhenDirtyMud,
       categoryId: updates.categoryId,
       includedServiceIds: updates.includedServiceIds,
       features: updates.features,

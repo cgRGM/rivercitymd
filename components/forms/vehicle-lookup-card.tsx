@@ -48,6 +48,7 @@ export type VehicleLookupValue = {
   vehicleTypeName?: string;
   classification?: VehicleClassification;
   hasPet?: boolean;
+  hasHeavySoil?: boolean;
   beforePhotos?: BeforePhoto[];
 };
 
@@ -731,15 +732,29 @@ export function VehicleLookupCard({
           )}
 
           {showPetToggle && (
-            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-              <Label htmlFor={`${title}-pet`} className="mb-0">
-                Pet hair or pet travel
-              </Label>
-              <Switch
-                id={`${title}-pet`}
-                checked={value.hasPet === true}
-                onCheckedChange={(checked) => updateValue({ hasPet: checked })}
-              />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <Label htmlFor={`${title}-pet`} className="mb-0">
+                  Pet hair
+                </Label>
+                <Switch
+                  id={`${title}-pet`}
+                  checked={value.hasPet === true}
+                  onCheckedChange={(checked) => updateValue({ hasPet: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <Label htmlFor={`${title}-soil`} className="mb-0">
+                  Dirt or mud
+                </Label>
+                <Switch
+                  id={`${title}-soil`}
+                  checked={value.hasHeavySoil === true}
+                  onCheckedChange={(checked) =>
+                    updateValue({ hasHeavySoil: checked })
+                  }
+                />
+              </div>
             </div>
           )}
 

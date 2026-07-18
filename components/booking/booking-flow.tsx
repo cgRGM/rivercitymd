@@ -91,6 +91,11 @@ type BookingService = {
   description: string;
   categoryName?: string;
   serviceType?: ServiceType;
+  bookingRole?: "core" | "upgrade" | "addon";
+  isSubscribable?: boolean;
+  subscriptionFrequencies?: Array<"monthly" | "biweekly">;
+  disallowWhenPetHair?: boolean;
+  disallowWhenDirtyMud?: boolean;
   isActive: boolean;
   basePrice?: number;
   basePriceSmall?: number;
@@ -109,6 +114,67 @@ type BookingService = {
   bookableVehicleTypeIds?: Id<"vehicleTypes">[];
   bookableLegacySizes?: Array<"small" | "medium" | "large">;
 };
+
+function getCustomerErrorMessage(error: unknown, fallback: string) {
+  const data = (error as { data?: { message?: string } })?.data;
+  if (typeof data?.message === "string" && data.message.trim()) {
+    return data.message;
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message.includes("Server Error Called by client") ||
+    message.includes("payments:validateBookingPromoCode")
+  ) {
+    return fallback;
+  }
+  return message || fallback;
+}
+
+function getServiceCategorySlug(service: BookingService) {
+  const label = `${service.categoryName ?? ""} ${service.name}`.toLowerCase();
+  if (service.serviceType === "addon" || service.bookingRole === "addon") {
+    return "add-ons";
+  }
+  if (
+    label.includes("ceramic") ||
+    label.includes("wax") ||
+    label.includes("paint enhancement") ||
+    label.includes("protection")
+  ) {
+    return "wax-ceramic";
+  }
+  if (label.includes("interior")) return "interior";
+  if (label.includes("exterior") || label.includes("wash") || label.includes("decon")) {
+    return "exterior";
+  }
+  return "full-detail";
+}
+
+function getBookingRole(service: BookingService) {
+  if (service.bookingRole) return service.bookingRole;
+  if (service.serviceType === "addon") return "addon";
+  return getServiceCategorySlug(service) === "wax-ceramic" ? "upgrade" : "core";
+}
+
+function isServiceAllowedForVehicleCondition(
+  service: BookingService,
+  vehicle: VehicleLookupValue,
+) {
+  const isLevelOne =
+    /\blevel\s*1\b/i.test(service.name) ||
+    service.name.toLowerCase().includes("basic reset");
+  const categorySlug = getServiceCategorySlug(service);
+  const disallowWhenPetHair =
+    service.disallowWhenPetHair ??
+    (isLevelOne && (categorySlug === "full-detail" || categorySlug === "interior"));
+  const disallowWhenDirtyMud =
+    service.disallowWhenDirtyMud ??
+    (isLevelOne && (categorySlug === "full-detail" || categorySlug === "exterior"));
+
+  if (vehicle.hasPet && disallowWhenPetHair) return false;
+  if (vehicle.hasHeavySoil && disallowWhenDirtyMud) return false;
+  return true;
+}
 
 const step1Schema = z.object({
   scheduledDate: z.date({
@@ -156,6 +222,7 @@ const step3Schema = z.object({
           needsAdminReview: z.boolean(),
         }).optional(),
         hasPet: z.boolean().optional(),
+        hasHeavySoil: z.boolean().optional(),
         beforePhotos: z.array(z.object({
           key: z.string(),
           fileName: z.string(),
@@ -216,7 +283,7 @@ export default function BookingFlow() {
   const { user, isLoaded, isSignedIn } = useUser();
   const [expandedVehicleIndex, setExpandedVehicleIndex] = useState<number>(0);
   const [expandedStep4VehicleIndex, setExpandedStep4VehicleIndex] = useState<number>(0);
-  const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "addons" | "subscriptions" | "">>(
+  const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "upgrades" | "addons" | "">>(
     {},
   );
   const [outOfAreaMode, setOutOfAreaMode] = useState<OutOfAreaMode>("idle");
@@ -236,6 +303,7 @@ export default function BookingFlow() {
     licensePlate: "",
     size: "small",
     hasPet: false,
+    hasHeavySoil: false,
   });
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
@@ -380,7 +448,7 @@ export default function BookingFlow() {
           setAppliedCoupon(null);
           setPromoStatus("invalid");
           setPromoMessage(
-            error instanceof Error ? error.message : "This promo code is not valid.",
+            getCustomerErrorMessage(error, "Invalid code or expired."),
           );
         }
       })();
@@ -495,6 +563,7 @@ export default function BookingFlow() {
               color: reviewVehicle.color || undefined,
               licensePlate: reviewVehicle.licensePlate || undefined,
               hasPet: reviewVehicle.hasPet,
+              hasHeavySoil: reviewVehicle.hasHeavySoil,
             }
           : undefined,
       });
@@ -629,6 +698,7 @@ export default function BookingFlow() {
           licensePlate: "",
           size: "small",
           hasPet: false,
+          hasHeavySoil: false,
           beforePhotos: [],
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -828,6 +898,7 @@ export default function BookingFlow() {
         licensePlate: "",
         size: "small" as "small" | "medium" | "large" | undefined,
         hasPet: false,
+        hasHeavySoil: false,
         beforePhotos: [],
       },
     ];
@@ -945,7 +1016,9 @@ export default function BookingFlow() {
             const selectedServices =
               services?.filter((service) => selectedIds.includes(service._id)) ?? [];
             const unavailableService = selectedServices.find(
-              (service) => !isServiceAvailableForVehicle(service, vehicleContext),
+              (service) =>
+                !isServiceAvailableForVehicle(service, vehicleContext) ||
+                !isServiceAllowedForVehicleCondition(service, vehicle),
             );
             if (unavailableService) {
               toast.error(
@@ -955,7 +1028,7 @@ export default function BookingFlow() {
               return;
             }
             const hasStandardPackage = selectedServices.some(
-              (service) => normalizeServiceType(service.serviceType) === "standard",
+              (service) => getBookingRole(service) === "core",
             );
             if (!hasStandardPackage) {
               toast.error("Please choose a package for each vehicle.");
@@ -1056,6 +1129,7 @@ export default function BookingFlow() {
           licensePlate: "",
           size: "small",
           hasPet: false,
+          hasHeavySoil: false,
           beforePhotos: [],
         },
       ],
@@ -1137,6 +1211,7 @@ export default function BookingFlow() {
           color: vehicle.color,
           licensePlate: vehicle.licensePlate,
           hasPet: vehicle.hasPet ?? false,
+          hasHeavySoil: vehicle.hasHeavySoil ?? false,
           beforePhotos: vehicle.beforePhotos ?? [],
           serviceIds: (step4Data?.vehicleServices?.[index.toString()] || []) as Id<"services">[],
         })),
@@ -1174,11 +1249,7 @@ export default function BookingFlow() {
       }
     } catch (error) {
       console.error("Booking error:", error);
-      const maybeConvexError = error as { data?: { message?: string } };
-      toast.error(
-        maybeConvexError?.data?.message ||
-          (error instanceof Error ? error.message : "Failed to create appointment"),
-      );
+      toast.error(getCustomerErrorMessage(error, "Failed to create appointment"));
     } finally {
       setIsLoading(false);
     }
@@ -1766,23 +1837,25 @@ export default function BookingFlow() {
                               vehicleTypeId: vehicle.vehicleTypeId ?? null,
                             };
 
-                            const standardServices = services?.filter(
+                            const vehicleAvailableServices = services?.filter(
+                              (service) =>
+                                isServiceAvailableForVehicle(service, vehiclePricingContext) &&
+                                isServiceAllowedForVehicleCondition(service, vehicle)
+                            ) ?? [];
+
+                            const coreServices = vehicleAvailableServices.filter(
                               (service) =>
                                 normalizeServiceType(service.serviceType) === "standard" &&
-                                isServiceAvailableForVehicle(service, vehiclePricingContext)
-                            ) ?? [];
-
-                            const addonServices = services?.filter(
+                                getBookingRole(service) === "core",
+                            );
+                            const upgradeServices = vehicleAvailableServices.filter(
                               (service) =>
-                                normalizeServiceType(service.serviceType) === "addon" &&
-                                isServiceAvailableForVehicle(service, vehiclePricingContext)
-                            ) ?? [];
-
-                            const subscriptionServices = services?.filter(
-                              (service) =>
-                                normalizeServiceType(service.serviceType) === "subscription" &&
-                                isServiceAvailableForVehicle(service, vehiclePricingContext)
-                            ) ?? [];
+                                normalizeServiceType(service.serviceType) === "standard" &&
+                                getBookingRole(service) === "upgrade",
+                            );
+                            const addonServices = vehicleAvailableServices.filter(
+                              (service) => getBookingRole(service) === "addon",
+                            );
 
                             const getSortedServices = (list: Array<NonNullable<typeof services>[number]>) => {
                               return [...list].sort((a, b) => {
@@ -1792,10 +1865,10 @@ export default function BookingFlow() {
                               });
                             };
 
-                            const sortedStandard = getSortedServices(standardServices);
+                            const sortedCore = getSortedServices(coreServices);
+                            const sortedUpgrades = getSortedServices(upgradeServices);
                             const sortedAddons = getSortedServices(addonServices);
-                            const sortedSubscriptions = getSortedServices(subscriptionServices);
-                            const standardGroups = sortedStandard.reduce(
+                            const standardGroups = sortedCore.reduce(
                               (groups, service) => {
                                 const categoryName =
                                   service.categoryName || "Detail Packages";
@@ -1804,14 +1877,14 @@ export default function BookingFlow() {
                                 groups.set(categoryName, existing);
                                 return groups;
                               },
-                              new Map<string, typeof sortedStandard>(),
+                              new Map<string, typeof sortedCore>(),
                             );
 
                             const availableServiceIds = new Set(
                               [
-                                ...standardServices,
+                                ...coreServices,
+                                ...upgradeServices,
                                 ...addonServices,
-                                ...subscriptionServices,
                               ].map((service) => String(service._id)),
                             );
                             const currentSelection = (field.value?.[vehicleKey] || []).filter(
@@ -1821,19 +1894,17 @@ export default function BookingFlow() {
 
                             const selectedPackageId = currentSelection.find(id => {
                               const s = services?.find(s => s._id === id);
-                              return s && normalizeServiceType(s.serviceType) === "standard";
+                              return s && getBookingRole(s) === "core";
                             });
                             const selectedPackage = services?.find(s => s._id === selectedPackageId);
 
-                            const selectedAddons = services?.filter(s =>
-                              currentSelection.includes(s._id) && normalizeServiceType(s.serviceType) === "addon"
+                            const selectedUpgrades = services?.filter(s =>
+                              currentSelection.includes(s._id) && getBookingRole(s) === "upgrade"
                             ) ?? [];
 
-                            const selectedSubId = currentSelection.find(id => {
-                              const s = services?.find(s => s._id === id);
-                              return s && normalizeServiceType(s.serviceType) === "subscription";
-                            });
-                            const selectedSubscription = services?.find(s => s._id === selectedSubId);
+                            const selectedAddons = services?.filter(s =>
+                              currentSelection.includes(s._id) && getBookingRole(s) === "addon"
+                            ) ?? [];
 
                             const isExpanded = expandedStep4VehicleIndex === vIdx;
                             const nextVehicle = step3Data?.vehicles?.[vIdx + 1];
@@ -1883,7 +1954,7 @@ export default function BookingFlow() {
                                     <button
                                       type="button"
                                       className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
-                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: (activeSection === "packages" ? "" : "packages") as "packages" | "addons" | "subscriptions" | "" }))}
+                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: activeSection === "packages" ? "" : "packages" }))}
                                     >
                                       <span className="flex items-center gap-2">
                                         <span className="bg-accent/10 text-accent px-2 py-0.5 rounded text-[10px] font-bold">REQUIRED</span>
@@ -1929,7 +2000,7 @@ export default function BookingFlow() {
                                                       onSelect={() => {
                                                         const otherServices = currentSelection.filter(id => {
                                                           const s = services?.find(s => s._id === id);
-                                                          return s && normalizeServiceType(s.serviceType) !== "standard";
+                                                          return s && getBookingRole(s) !== "core";
                                                         });
                                                         const nextSelection = [...otherServices, service._id];
                                                         const nextRecord = {
@@ -1938,8 +2009,7 @@ export default function BookingFlow() {
                                                         };
                                                         field.onChange(nextRecord);
 
-                                                        // Auto close Packages & open Addons
-                                                        setActiveServiceSection(prev => ({ ...prev, [vIdx]: "addons" }));
+                                                        setActiveServiceSection(prev => ({ ...prev, [vIdx]: "upgrades" }));
                                                       }}
                                                     />
                                                   );
@@ -1947,22 +2017,87 @@ export default function BookingFlow() {
                                               </div>
                                             </section>
                                           ))}
-                                          {sortedStandard.length === 0 && (
-                                            <p className="text-sm text-muted-foreground italic col-span-full">No packages available for this vehicle size.</p>
+                                          {sortedCore.length === 0 && (
+                                            <p className="text-sm text-muted-foreground italic col-span-full">No packages available for this vehicle.</p>
                                           )}
                                         </div>
                                       </div>
                                     )}
                                   </div>
 
-                                  {/* Section 2: Add-ons (Optional) */}
+                                  {/* Section 2: Wax & Ceramic (Optional) */}
                                   <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
                                     <button
                                       type="button"
                                       className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
-                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: (activeSection === "addons" ? "" : "addons") as "packages" | "addons" | "subscriptions" | "" }))}
+                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: activeSection === "upgrades" ? "" : "upgrades" }))}
                                     >
-                                      <span>2. Add-ons (Optional)</span>
+                                      <span>2. Wax & Ceramic (Optional)</span>
+                                      <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
+                                        {selectedUpgrades.length > 0 ? (
+                                          <span className="text-accent font-semibold">{selectedUpgrades.length} selected</span>
+                                        ) : (
+                                          <span>None</span>
+                                        )}
+                                        {activeSection === "upgrades" ? (
+                                          <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                                        ) : (
+                                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                        )}
+                                      </span>
+                                    </button>
+
+                                    {activeSection === "upgrades" && (
+                                      <div className="p-4 border-t border-border/40 bg-background/5">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          {sortedUpgrades.map(service => {
+                                            const isSelected = currentSelection.includes(service._id);
+                                            return (
+                                              <ServiceCard
+                                                key={service._id}
+                                                service={service}
+                                                vehicleSize={vehiclePricingContext.vehicleSize}
+                                                vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                isSelected={isSelected}
+                                                onSelect={() => {
+                                                  const nextSelection = currentSelection.includes(service._id)
+                                                    ? currentSelection.filter(id => id !== service._id)
+                                                    : [...currentSelection, service._id];
+
+                                                  const nextRecord = {
+                                                    ...field.value,
+                                                    [vehicleKey]: nextSelection,
+                                                  };
+                                                  field.onChange(nextRecord);
+                                                }}
+                                              />
+                                            );
+                                          })}
+                                          {sortedUpgrades.length === 0 && (
+                                            <p className="text-sm text-muted-foreground italic col-span-full">No wax or ceramic upgrades available.</p>
+                                          )}
+                                        </div>
+                                        <div className="mt-4 flex justify-end">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: "addons" }))}
+                                          >
+                                            Next: Add-ons
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Section 3: Add-ons (Optional) */}
+                                  <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
+                                    <button
+                                      type="button"
+                                      className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
+                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: activeSection === "addons" ? "" : "addons" }))}
+                                    >
+                                      <span>3. Add-ons (Optional)</span>
                                       <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
                                         {selectedAddons.length > 0 ? (
                                           <span className="text-accent font-semibold">{selectedAddons.length} selected</span>
@@ -1993,7 +2128,6 @@ export default function BookingFlow() {
                                                   const nextSelection = currentSelection.includes(service._id)
                                                     ? currentSelection.filter(id => id !== service._id)
                                                     : [...currentSelection, service._id];
-
                                                   const nextRecord = {
                                                     ...field.value,
                                                     [vehicleKey]: nextSelection,
@@ -2005,75 +2139,6 @@ export default function BookingFlow() {
                                           })}
                                           {sortedAddons.length === 0 && (
                                             <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
-                                          )}
-                                        </div>
-                                        <div className="mt-4 flex justify-end">
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: "subscriptions" }))}
-                                          >
-                                            Next: Subscriptions
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Section 3: Subscriptions (Optional) */}
-                                  <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
-                                    <button
-                                      type="button"
-                                      className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
-                                      onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: (activeSection === "subscriptions" ? "" : "subscriptions") as "packages" | "addons" | "subscriptions" | "" }))}
-                                    >
-                                      <span>3. Subscriptions (Optional)</span>
-                                      <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
-                                        {selectedSubscription ? (
-                                          <span className="text-accent font-semibold">{selectedSubscription.name}</span>
-                                        ) : (
-                                          <span>None</span>
-                                        )}
-                                        {activeSection === "subscriptions" ? (
-                                          <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                                        ) : (
-                                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                                        )}
-                                      </span>
-                                    </button>
-
-                                    {activeSection === "subscriptions" && (
-                                      <div className="p-4 border-t border-border/40 bg-background/5">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                          {sortedSubscriptions.map(service => {
-                                            const isSelected = selectedSubId === service._id;
-                                            return (
-                                              <ServiceCard
-                                                key={service._id}
-                                                service={service}
-                                                vehicleSize={vehiclePricingContext.vehicleSize}
-                                                vehicleTypeId={vehiclePricingContext.vehicleTypeId}
-                                                isSelected={isSelected}
-                                                onSelect={(selected) => {
-                                                  const otherServices = currentSelection.filter(id => {
-                                                    const s = services?.find(s => s._id === id);
-                                                    return s && normalizeServiceType(s.serviceType) !== "subscription";
-                                                  });
-                                                  const nextSelection = selected
-                                                    ? [...otherServices, service._id]
-                                                    : otherServices;
-
-                                                  const nextRecord = {
-                                                    ...field.value,
-                                                    [vehicleKey]: nextSelection,
-                                                  };
-                                                  field.onChange(nextRecord);
-                                                }}
-                                              />
-                                            );
-                                          })}
-                                          {sortedSubscriptions.length === 0 && (
-                                            <p className="text-sm text-muted-foreground italic col-span-full">No subscriptions available.</p>
                                           )}
                                         </div>
 

@@ -56,6 +56,11 @@ type ServiceRecord = {
   description: string;
   icon?: string;
   serviceType?: "standard" | "addon" | "subscription";
+  bookingRole?: "core" | "upgrade" | "addon";
+  isSubscribable?: boolean;
+  subscriptionFrequencies?: Array<"monthly" | "biweekly">;
+  disallowWhenPetHair?: boolean;
+  disallowWhenDirtyMud?: boolean;
   serviceTypeLabel?: string;
   basePriceSmall?: number;
   basePriceMedium?: number;
@@ -490,6 +495,11 @@ export default function ServicesClient() {
         })),
         duration: service.duration,
         serviceType: service.serviceType ?? "standard",
+        bookingRole: service.bookingRole,
+        isSubscribable: service.isSubscribable,
+        subscriptionFrequencies: service.subscriptionFrequencies,
+        disallowWhenPetHair: service.disallowWhenPetHair,
+        disallowWhenDirtyMud: service.disallowWhenDirtyMud,
         categoryId: service.categoryId,
         includedServiceIds: service.includedServiceIds,
         features: service.features,
@@ -592,11 +602,24 @@ export default function ServicesClient() {
     {
       id: "serviceType",
       accessorFn: (row) => row.serviceType ?? "standard",
-      header: "Type",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Type
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
       cell: ({ row }) => (
-        <span className="min-w-[150px] text-sm text-muted-foreground">
-          {formatTypeLabel(row.original)}
-        </span>
+        <div className="min-w-[150px] space-y-1 text-sm text-muted-foreground">
+          <span>{formatTypeLabel(row.original)}</span>
+          {row.original.bookingRole ? (
+            <Badge variant="outline" className="capitalize">
+              {row.original.bookingRole}
+            </Badge>
+          ) : null}
+        </div>
       ),
     },
     {
@@ -604,6 +627,9 @@ export default function ServicesClient() {
       accessorFn: (row) => formatPricing(row),
       header: "Pricing",
       cell: ({ row }) => <span className="min-w-[170px] text-sm">{formatPricing(row.original)}</span>,
+      meta: {
+        className: "hidden md:table-cell",
+      },
     },
     {
       accessorKey: "duration",

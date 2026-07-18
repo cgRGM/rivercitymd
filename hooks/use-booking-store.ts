@@ -19,6 +19,7 @@ interface Vehicle {
     needsAdminReview: boolean
   }
   hasPet?: boolean
+  hasHeavySoil?: boolean
   beforePhotos?: Array<{
     key: string
     fileName: string

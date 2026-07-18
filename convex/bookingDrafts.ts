@@ -100,6 +100,7 @@ const draftVehicleValidator = v.object({
   color: v.optional(v.string()),
   licensePlate: v.optional(v.string()),
   hasPet: v.optional(v.boolean()),
+  hasHeavySoil: v.optional(v.boolean()),
   beforePhotos: v.optional(v.array(beforePhotoValidator)),
   serviceIds: v.optional(v.array(v.id("services"))),
 });
@@ -129,6 +130,7 @@ const outOfAreaRequestVehicleValidator = v.object({
   color: v.optional(v.string()),
   licensePlate: v.optional(v.string()),
   hasPet: v.optional(v.boolean()),
+  hasHeavySoil: v.optional(v.boolean()),
 });
 
 const bookingPaymentOptionValidator = v.union(
@@ -350,6 +352,7 @@ async function buildDraftPricing(args: {
     vehicleTypeId?: Id<"vehicleTypes">;
     size?: VehicleSize;
     hasPet?: boolean;
+    hasHeavySoil?: boolean;
     serviceIds?: Id<"services">[];
   }>;
   existingVehicleServices?: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }>;
@@ -1404,6 +1407,7 @@ export const getPublicContext = query({
         classification: vehicle.classification,
         size: vehicle.size,
         hasPet: vehicle.hasPet ?? false,
+        hasHeavySoil: vehicle.hasHeavySoil ?? false,
         beforePhotos: vehicle.beforePhotos ?? [],
       })),
       existingVehicleIds: draft.existingVehicleIds,

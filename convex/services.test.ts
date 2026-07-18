@@ -298,19 +298,30 @@ describe("services", () => {
     await t.finishInProgressScheduledFunctions();
 
     const groups = await t.query(api.services.listLandingPagePricing, {});
-    const carGroup = groups.find((group) => group.vehicleType.slug === "car");
-    const motorcycleGroup = groups.find(
-      (group) => group.vehicleType.slug === "motorcycle",
+    const fullDetailGroup = groups.categories.find(
+      (group) => group.slug === "full-detail",
     );
 
-    expect(carGroup?.services.map((service) => service.name)).toEqual([
+    expect(fullDetailGroup?.services.map((service) => service.name)).toEqual([
       "Level 1 - Basic Reset",
-    ]);
-    expect(motorcycleGroup?.services.map((service) => service.name)).toEqual([
       "Motorcycle full detail",
     ]);
+    expect(fullDetailGroup?.services[0].vehiclePrices).toEqual([
+      expect.objectContaining({
+        vehicleTypeName: "Car",
+        price: 90,
+      }),
+    ]);
+    expect(fullDetailGroup?.services[1].vehiclePrices).toEqual([
+      expect.objectContaining({
+        vehicleTypeName: "Motorcycle",
+        price: 200,
+      }),
+    ]);
     expect(
-      groups.flatMap((group) => group.services.map((service) => service.name)),
+      groups.categories.flatMap((group) =>
+        group.services.map((service) => service.name),
+      ),
     ).not.toContain("Admin-only package");
   });
 

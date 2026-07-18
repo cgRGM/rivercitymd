@@ -16,47 +16,60 @@ type LandingPricingService = {
   description?: string;
   icon?: string;
   features?: string[];
-  price: number;
-  duration: number;
+  categorySlug: string;
+  categoryName: string;
+  bookingRole: "core" | "upgrade" | "addon";
+  startingPrice: number;
+  minDuration: number;
+  vehiclePrices: Array<{
+    vehicleTypeId: string;
+    vehicleTypeName: string;
+    price: number;
+    duration: number;
+  }>;
 };
 
-type LandingPricingGroup = {
-  vehicleType: {
-    _id: string;
-    name: string;
-  };
+type LandingPricingCategory = {
+  slug: string;
+  name: string;
+  displayOrder: number;
   services: LandingPricingService[];
+};
+
+type LandingPricingResult = {
+  categories: LandingPricingCategory[];
+  addons: LandingPricingService[];
 };
 
 export function PricingSection() {
   const router = useRouter();
   const pricingQuery = useQuery(api.services.listLandingPagePricing) as
-    | LandingPricingGroup[]
+    | LandingPricingResult
     | undefined
     | null;
   const bookingReadiness = useQuery(
     api.setupReadiness.getPublicBookingReadiness,
   );
 
-  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<
-    string | null
-  >(null);
+  const [selectedCategorySlug, setSelectedCategorySlug] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
-    if (!pricingQuery?.length) return;
-    const hasSelected = pricingQuery.some(
-      (group) => group.vehicleType._id === selectedVehicleTypeId,
+    if (!pricingQuery?.categories.length) return;
+    const hasSelected = pricingQuery.categories.some(
+      (group) => group.slug === selectedCategorySlug,
     );
     if (!hasSelected) {
-      setSelectedVehicleTypeId(pricingQuery[0].vehicleType._id);
+      setSelectedCategorySlug(pricingQuery.categories[0].slug);
     }
-  }, [pricingQuery, selectedVehicleTypeId]);
+  }, [pricingQuery, selectedCategorySlug]);
 
   const selectedGroup =
-    pricingQuery?.find(
-      (group) => group.vehicleType._id === selectedVehicleTypeId,
-    ) ?? pricingQuery?.[0];
+    pricingQuery?.categories.find((group) => group.slug === selectedCategorySlug) ??
+    pricingQuery?.categories[0];
   const mainServices = selectedGroup?.services ?? [];
+  const addons = pricingQuery?.addons ?? [];
 
   const handleBookNow = () => {
     if (bookingReadiness && !bookingReadiness.isReady) {
@@ -145,11 +158,11 @@ export function PricingSection() {
               Mobile detailing packages matched to your vehicle
             </p>
             <p className="text-sm text-muted-foreground">
-              Choose a vehicle type to see the services currently offered for it.
+              Choose a category to compare packages and vehicle pricing.
             </p>
           </motion.div>
 
-          {/* Vehicle Type Tabs */}
+          {/* Service Category Tabs */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -158,26 +171,26 @@ export function PricingSection() {
             className="max-w-xl mx-auto mb-10"
           >
             <p className="text-center text-sm text-muted-foreground mb-5">
-              Select your vehicle type to see accurate pricing
+              Select a service category
             </p>
             <div
               role="tablist"
               className="flex w-full gap-1 overflow-x-auto rounded-lg border border-border/40 bg-secondary/40 p-1"
             >
-              {pricingQuery.map(({ vehicleType }) => (
+              {pricingQuery.categories.map((category) => (
                 <button
-                  key={vehicleType._id}
+                  key={category.slug}
                   role="tab"
-                  aria-selected={selectedGroup?.vehicleType._id === vehicleType._id}
-                  onClick={() => setSelectedVehicleTypeId(vehicleType._id)}
+                  aria-selected={selectedGroup?.slug === category.slug}
+                  onClick={() => setSelectedCategorySlug(category.slug)}
                   className={cn(
-                    "min-w-24 flex-1 rounded-md px-3 py-2.5 text-xs sm:text-sm font-medium transition-colors outline-none focus-visible:outline-none",
-                    selectedGroup?.vehicleType._id === vehicleType._id
+                    "min-w-28 flex-1 whitespace-nowrap rounded-md px-3 py-2.5 text-xs sm:text-sm font-medium transition-colors outline-none focus-visible:outline-none",
+                    selectedGroup?.slug === category.slug
                       ? "bg-background text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {vehicleType.name}
+                  {category.name}
                 </button>
               ))}
             </div>
@@ -197,7 +210,7 @@ export function PricingSection() {
               </div>
             ) : (
               <div
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5"
+                className="flex snap-x gap-4 overflow-x-auto pb-3 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-4"
                 aria-label="Service pricing cards"
               >
               {mainServices.map((service, index) => {
@@ -211,9 +224,9 @@ export function PricingSection() {
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: "-50px" }}
                     transition={{ duration: 0.45, delay: index * 0.1 }}
-                    className="flex flex-col"
+                    className="flex min-w-[280px] snap-start flex-col md:min-w-0"
                   >
-                    <div className="relative flex flex-col flex-1 rounded-xl border border-border/40 bg-background overflow-hidden transition-all duration-300 hover:border-border/70 hover:shadow-md group">
+                    <div className="relative flex flex-col flex-1 rounded-lg border border-border/40 bg-background overflow-hidden transition-all duration-300 hover:border-border/70 hover:shadow-md group">
                       {/* Top accent strip */}
                       <div className="h-[3px] w-full bg-primary/70 flex-shrink-0" />
 
@@ -239,20 +252,23 @@ export function PricingSection() {
 
                         {/* Price */}
                         <div className="mt-4 flex items-baseline justify-center gap-0.5">
+                          <span className="mr-1 text-xs font-medium uppercase text-muted-foreground">
+                            From
+                          </span>
                           <span className="text-sm font-medium text-muted-foreground">
                             $
                           </span>
                           <span className="text-3xl font-bold text-foreground tracking-tight">
-                            {service.price.toFixed(0)}
+                            {service.startingPrice.toFixed(0)}
                           </span>
                           <span className="text-xs font-medium text-muted-foreground">
                             .00
                           </span>
                         </div>
                         <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest mt-1">
-                          Approx.&nbsp;{Math.floor(service.duration / 60)}h
-                          {service.duration % 60 > 0
-                            ? ` ${service.duration % 60}m`
+                          Approx.&nbsp;{Math.floor(service.minDuration / 60)}h
+                          {service.minDuration % 60 > 0
+                            ? ` ${service.minDuration % 60}m`
                             : ""}
                         </p>
                       </div>
@@ -260,9 +276,27 @@ export function PricingSection() {
                       {/* Divider */}
                       <div className="mx-5 h-px bg-border/40" />
 
+                      <div className="px-5 py-4">
+                        <div className="space-y-2">
+                          {service.vehiclePrices.slice(0, 6).map((price) => (
+                            <div
+                              key={`${service._id}-${price.vehicleTypeId}`}
+                              className="flex items-center justify-between gap-3 text-xs"
+                            >
+                              <span className="min-w-0 truncate text-muted-foreground">
+                                {price.vehicleTypeName}
+                              </span>
+                              <span className="font-semibold text-foreground">
+                                ${price.price.toFixed(0)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
                       {/* Features */}
                       {service.features && service.features.length > 0 && (
-                        <div className="px-5 py-4 flex-1">
+                        <div className="px-5 pb-4 flex-1">
                           <ul
                             className={cn(
                               usesTwoColFeatures
@@ -304,6 +338,44 @@ export function PricingSection() {
               </div>
             )}
           </div>
+
+          {addons.length > 0 && (
+            <div className="mx-auto mt-12 max-w-6xl rounded-lg border border-border/40 bg-background p-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-4">
+                <div>
+                  <h3 className="text-xl font-bold">Add-ons</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Extra services available with eligible packages.
+                  </p>
+                </div>
+                <span className="rounded-full border border-border/50 px-3 py-1 text-xs font-medium text-muted-foreground">
+                  Starting prices
+                </span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {addons.map((addon) => (
+                  <div
+                    key={addon._id}
+                    className="flex items-start justify-between gap-4 rounded-md border border-border/40 bg-secondary/20 p-4"
+                  >
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-semibold leading-tight">
+                        {addon.name}
+                      </h4>
+                      {addon.description ? (
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {addon.description}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 text-sm font-bold text-primary">
+                      ${addon.startingPrice.toFixed(0)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Desktop CTA */}
           <motion.div

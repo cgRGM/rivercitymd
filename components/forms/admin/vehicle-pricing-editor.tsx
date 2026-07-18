@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Path, PathValue, UseFormReturn } from "react-hook-form";
 import { useMutation, useQuery } from "convex/react";
-import { Plus, Trash2 } from "lucide-react";
+import { Edit, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+
 import { api } from "@/convex/_generated/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,7 +26,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { toast } from "sonner";
 
 export type VehiclePriceFormRow = {
   vehicleTypeId?: string;
@@ -40,6 +49,12 @@ interface VehiclePricingEditorProps<TForm extends FormWithVehiclePrices> {
   defaultDuration: number;
 }
 
+const emptyDraft = (duration: number): VehiclePriceFormRow => ({
+  price: 0,
+  duration,
+  isAvailable: true,
+});
+
 export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
   form,
   defaultDuration,
@@ -49,10 +64,14 @@ export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
     | undefined;
   const ensureDefaults = useMutation(api.vehicleTypes.ensureDefaults);
   const createVehicleType = useMutation(api.vehicleTypes.create);
-  const [newTypeNameByRow, setNewTypeNameByRow] = useState<Record<number, string>>({});
   const fieldName = "vehiclePrices" as Path<TForm>;
-
   const rows = form.watch(fieldName) as VehiclePriceFormRow[];
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [isPriceDialogOpen, setIsPriceDialogOpen] = useState(false);
+  const [draft, setDraft] = useState<VehiclePriceFormRow>(
+    emptyDraft(defaultDuration),
+  );
+  const [newTypeName, setNewTypeName] = useState("");
 
   useEffect(() => {
     void ensureDefaults().catch(() => {
@@ -60,99 +79,187 @@ export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
     });
   }, [ensureDefaults]);
 
-  useEffect(() => {
-    if (!vehicleTypes || rows.length > 0) return;
-    form.setValue(
-      fieldName,
-      vehicleTypes.map((vehicleType) => ({
-        vehicleTypeId: vehicleType._id,
-        price: 0,
-        duration: defaultDuration,
-        isAvailable: false,
-      })) as PathValue<TForm, Path<TForm>>,
-      { shouldValidate: true },
-    );
-  }, [defaultDuration, form, rows.length, vehicleTypes]);
+  const selectedVehicleTypeIds = useMemo(
+    () =>
+      new Set(
+        rows
+          .map((row, index) =>
+            index === editingIndex ? undefined : row.vehicleTypeId,
+          )
+          .filter(Boolean),
+      ),
+    [editingIndex, rows],
+  );
 
-  const updateRow = (
-    index: number,
-    patch: Partial<VehiclePriceFormRow>,
-  ) => {
-    const nextRows = [...rows];
-    nextRows[index] = { ...nextRows[index], ...patch };
+  const sortedRows = useMemo(() => {
+    const orderById = new Map(vehicleTypes?.map((type, index) => [type._id, index]));
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const orderA = orderById.get(a.row.vehicleTypeId ?? "") ?? 999;
+        const orderB = orderById.get(b.row.vehicleTypeId ?? "") ?? 999;
+        return orderA - orderB;
+      });
+  }, [rows, vehicleTypes]);
+
+  const setRows = (nextRows: VehiclePriceFormRow[]) => {
     form.setValue(fieldName, nextRows as PathValue<TForm, Path<TForm>>, {
       shouldDirty: true,
       shouldValidate: true,
     });
   };
 
-  const addRow = () => {
-    form.setValue(
-      fieldName,
-      [
-        ...rows,
-        {
-          price: 0,
-          duration: defaultDuration,
-          isAvailable: false,
-        },
-      ] as PathValue<TForm, Path<TForm>>,
-      { shouldDirty: true, shouldValidate: true },
-    );
+  const openNew = () => {
+    setEditingIndex(null);
+    setDraft(emptyDraft(defaultDuration));
+    setNewTypeName("");
+    setIsPriceDialogOpen(true);
+  };
+
+  const openEdit = (index: number) => {
+    setEditingIndex(index);
+    setDraft(rows[index] ?? emptyDraft(defaultDuration));
+    setNewTypeName("");
+    setIsPriceDialogOpen(true);
+  };
+
+  const closeDialog = () => {
+    setEditingIndex(null);
+    setDraft(emptyDraft(defaultDuration));
+    setNewTypeName("");
+    setIsPriceDialogOpen(false);
+  };
+
+  const saveDraft = async () => {
+    let nextDraft = { ...draft };
+    if (!nextDraft.vehicleTypeId) {
+      const name = newTypeName.trim() || nextDraft.vehicleTypeName?.trim();
+      if (!name) {
+        toast.error("Choose a vehicle type.");
+        return;
+      }
+      try {
+        const vehicleTypeId = await createVehicleType({ name });
+        nextDraft = { ...nextDraft, vehicleTypeId, vehicleTypeName: undefined };
+      } catch {
+        toast.error("Failed to add vehicle type");
+        return;
+      }
+    }
+
+    if (
+      nextDraft.vehicleTypeId &&
+      rows.some(
+        (row, index) =>
+          index !== editingIndex && row.vehicleTypeId === nextDraft.vehicleTypeId,
+      )
+    ) {
+      toast.error("That vehicle type already has a price.");
+      return;
+    }
+    if (nextDraft.price <= 0 || nextDraft.duration <= 0) {
+      toast.error("Price and minutes must be greater than zero.");
+      return;
+    }
+
+    const nextRows =
+      editingIndex === null
+        ? [...rows, nextDraft]
+        : rows.map((row, index) => (index === editingIndex ? nextDraft : row));
+    setRows(nextRows);
+    closeDialog();
   };
 
   const removeRow = (index: number) => {
-    form.setValue(
-      fieldName,
-      rows.filter((_, rowIndex) => rowIndex !== index) as PathValue<TForm, Path<TForm>>,
-      { shouldDirty: true, shouldValidate: true },
-    );
-  };
-
-  const createTypeForRow = async (index: number) => {
-    const name = newTypeNameByRow[index]?.trim();
-    if (!name) return;
-
-    try {
-      const vehicleTypeId = await createVehicleType({ name });
-      updateRow(index, { vehicleTypeId, vehicleTypeName: undefined });
-      setNewTypeNameByRow((current) => ({ ...current, [index]: "" }));
-      toast.success("Vehicle type added");
-    } catch {
-      toast.error("Failed to add vehicle type");
-    }
+    setRows(rows.filter((_, rowIndex) => rowIndex !== index));
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-medium">Vehicle Pricing</h3>
+          <h3 className="text-sm font-medium">Vehicle pricing</h3>
           <p className="text-xs text-muted-foreground">
-            Set which vehicles this product applies to, plus price and calendar time.
+            Add only the vehicle types this product can service.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={addRow}>
+        <Button type="button" variant="outline" size="sm" onClick={openNew}>
           <Plus className="h-4 w-4" />
           Add price
         </Button>
       </div>
 
-      <div className="space-y-2">
-        {rows.map((row, index) => (
-          <div
-            key={`${row.vehicleTypeId ?? "new"}-${index}`}
-            className="grid gap-2 rounded-md border p-3 md:grid-cols-[minmax(180px,1fr)_120px_120px_92px_40px]"
-          >
-            <div className="space-y-1">
-              <Label className="text-xs">Vehicle type</Label>
+      {rows.length === 0 ? (
+        <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+          No vehicle prices yet.
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {sortedRows.map(({ row, index }) => {
+            const vehicleTypeName =
+              vehicleTypes?.find((type) => type._id === row.vehicleTypeId)?.name ??
+              row.vehicleTypeName ??
+              "Vehicle";
+            return (
+              <div
+                key={`${row.vehicleTypeId ?? row.vehicleTypeName}-${index}`}
+                className="flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-sm"
+              >
+                <span className="font-medium">{vehicleTypeName}</span>
+                <Badge variant={row.isAvailable ? "secondary" : "outline"}>
+                  ${row.price.toFixed(0)} / {row.duration}m
+                </Badge>
+                {!row.isAvailable ? (
+                  <Badge variant="outline">Hidden</Badge>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => openEdit(index)}
+                  aria-label={`Edit ${vehicleTypeName} price`}
+                >
+                  <Edit className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeRow(index)}
+                  aria-label={`Remove ${vehicleTypeName} price`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Dialog open={isPriceDialogOpen} onOpenChange={(open) => !open && closeDialog()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingIndex === null ? "Add vehicle price" : "Edit vehicle price"}
+            </DialogTitle>
+            <DialogDescription>
+              Set the price, calendar minutes, and availability for one vehicle type.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <Label>Vehicle type</Label>
               <Select
-                value={row.vehicleTypeId ?? "new"}
+                value={draft.vehicleTypeId ?? "new"}
                 onValueChange={(value) =>
-                  updateRow(index, {
+                  setDraft((current) => ({
+                    ...current,
                     vehicleTypeId: value === "new" ? undefined : value,
                     vehicleTypeName: undefined,
-                  })
+                  }))
                 }
               >
                 <SelectTrigger>
@@ -160,94 +267,89 @@ export function VehiclePricingEditor<TForm extends FormWithVehiclePrices>({
                 </SelectTrigger>
                 <SelectContent>
                   {vehicleTypes?.map((vehicleType) => (
-                    <SelectItem key={vehicleType._id} value={vehicleType._id}>
+                    <SelectItem
+                      key={vehicleType._id}
+                      value={vehicleType._id}
+                      disabled={selectedVehicleTypeIds.has(vehicleType._id)}
+                    >
                       {vehicleType.name}
                     </SelectItem>
                   ))}
                   <SelectItem value="new">Add new type...</SelectItem>
                 </SelectContent>
               </Select>
-              {!row.vehicleTypeId && (
-                <div className="flex gap-2">
-                  <Input
-                    value={newTypeNameByRow[index] ?? row.vehicleTypeName ?? ""}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setNewTypeNameByRow((current) => ({
-                        ...current,
-                        [index]: value,
-                      }));
-                      updateRow(index, { vehicleTypeName: value });
-                    }}
-                    placeholder="e.g. Van"
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => createTypeForRow(index)}
-                  >
-                    Add
-                  </Button>
-                </div>
-              )}
+              {!draft.vehicleTypeId ? (
+                <Input
+                  value={newTypeName || draft.vehicleTypeName || ""}
+                  onChange={(event) => {
+                    setNewTypeName(event.target.value);
+                    setDraft((current) => ({
+                      ...current,
+                      vehicleTypeName: event.target.value,
+                    }));
+                  }}
+                  placeholder="e.g. Freightliner"
+                />
+              ) : null}
             </div>
 
-            <div className="space-y-1">
-              <Label className="text-xs">Price</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={row.price || ""}
-                onChange={(event) =>
-                  updateRow(index, { price: parseFloat(event.target.value) || 0 })
-                }
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">Minutes</Label>
-              <Input
-                type="number"
-                step="5"
-                value={row.duration || ""}
-                onChange={(event) =>
-                  updateRow(index, { duration: parseInt(event.target.value, 10) || 0 })
-                }
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">Available</Label>
-              <div className="flex h-9 items-center">
-                <Switch
-                  checked={row.isAvailable && row.price > 0 && row.duration > 0}
-                  disabled={row.price <= 0 || row.duration <= 0}
-                  onCheckedChange={(checked) =>
-                    updateRow(index, { isAvailable: checked })
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Price</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={draft.price || ""}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      price: parseFloat(event.target.value) || 0,
+                    }))
                   }
                 />
               </div>
-              {(row.price <= 0 || row.duration <= 0) && (
-                <p className="text-[10px] text-muted-foreground">
-                  Add price and minutes first.
-                </p>
-              )}
+              <div className="space-y-2">
+                <Label>Minutes</Label>
+                <Input
+                  type="number"
+                  step="5"
+                  value={draft.duration || ""}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      duration: parseInt(event.target.value, 10) || 0,
+                    }))
+                  }
+                />
+              </div>
             </div>
 
-            <div className="flex items-end">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => removeRow(index)}
-                aria-label="Remove vehicle price"
-              >
-                <Trash2 className="h-4 w-4" />
+            <label className="flex cursor-pointer items-center justify-between gap-4 rounded-md border p-3">
+              <span>
+                <span className="block text-sm font-medium">Available</span>
+                <span className="block text-xs text-muted-foreground">
+                  Customers can book this vehicle type.
+                </span>
+              </span>
+              <Switch
+                checked={draft.isAvailable}
+                onCheckedChange={(checked) =>
+                  setDraft((current) => ({ ...current, isAvailable: checked }))
+                }
+              />
+            </label>
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={closeDialog}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={saveDraft}>
+                Save price
               </Button>
             </div>
           </div>
-        ))}
-      </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

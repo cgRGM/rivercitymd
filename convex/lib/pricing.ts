@@ -1,4 +1,5 @@
 export type ServiceType = "standard" | "addon" | "subscription";
+export type BookingRole = "core" | "upgrade" | "addon";
 export type VehicleSize = "small" | "medium" | "large";
 export const DEFAULT_PET_FEE_AMOUNT = 50;
 
@@ -20,6 +21,11 @@ type ServicePricingShape = {
   duration?: number;
   isActive?: boolean;
   serviceType?: ServiceType;
+  bookingRole?: BookingRole;
+  disallowWhenPetHair?: boolean;
+  disallowWhenDirtyMud?: boolean;
+  isSubscribable?: boolean;
+  subscriptionFrequencies?: Array<"monthly" | "biweekly">;
   vehiclePrices?: ServiceVehiclePriceShape[];
 };
 
