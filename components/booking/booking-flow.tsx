@@ -65,6 +65,14 @@ import {
 import { TimeSlotPicker } from "@/components/home/time-slot-picker";
 import { ServiceCard } from "@/components/home/service-card";
 
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+type BookingAuthState = {
+  user: ReturnType<typeof useUser>["user"];
+  isLoaded: boolean;
+  isSignedIn: boolean;
+};
+
 interface RadarAddress {
   formattedAddress?: string;
   addressLabel?: string;
@@ -250,7 +258,37 @@ type Step4Data = z.infer<typeof step4Schema>;
 
 type OutOfAreaMode = "idle" | "notify" | "review" | "submitted";
 
+function BookingFlowWithClerk() {
+  const { user, isLoaded, isSignedIn } = useUser();
+
+  return (
+    <BookingFlowContent
+      auth={{
+        user,
+        isLoaded,
+        isSignedIn: Boolean(isSignedIn),
+      }}
+    />
+  );
+}
+
 export default function BookingFlow() {
+  if (!clerkPublishableKey) {
+    return (
+      <BookingFlowContent
+        auth={{
+          user: null,
+          isLoaded: true,
+          isSignedIn: false,
+        }}
+      />
+    );
+  }
+
+  return <BookingFlowWithClerk />;
+}
+
+function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
   const router = useRouter();
   const {
     currentStep,
@@ -280,7 +318,7 @@ export default function BookingFlow() {
     description: string;
     price: number;
   } | null>(null);
-  const { user, isLoaded, isSignedIn } = useUser();
+  const { user, isLoaded, isSignedIn } = auth;
   const [expandedVehicleIndex, setExpandedVehicleIndex] = useState<number>(0);
   const [expandedStep4VehicleIndex, setExpandedStep4VehicleIndex] = useState<number>(0);
   const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "upgrades" | "addons" | "">>(
@@ -1440,6 +1478,93 @@ export default function BookingFlow() {
                 label="Service Address"
                 placeholder="Search for your service address"
               />
+              <div className="grid gap-4 rounded-xl border border-border/50 bg-muted/20 p-4 sm:grid-cols-6">
+                <FormField
+                  control={step1Form.control}
+                  name="street"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-6">
+                      <FormLabel className="text-sm font-semibold text-foreground">
+                        Street Address
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value || ""}
+                          placeholder="123 Main St"
+                          className="bg-background border-border text-foreground"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={step1Form.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-3">
+                      <FormLabel className="text-sm font-semibold text-foreground">
+                        City
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value || ""}
+                          placeholder="Little Rock"
+                          className="bg-background border-border text-foreground"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={step1Form.control}
+                  name="state"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-1">
+                      <FormLabel className="text-sm font-semibold text-foreground">
+                        State
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value || ""}
+                          onBlur={(event) => {
+                            field.onBlur();
+                            field.onChange(normalizeStateCode(event.target.value));
+                          }}
+                          placeholder="AR"
+                          className="bg-background border-border text-foreground uppercase"
+                          maxLength={2}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={step1Form.control}
+                  name="zip"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel className="text-sm font-semibold text-foreground">
+                        ZIP Code
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value || ""}
+                          placeholder="72201"
+                          className="bg-background border-border text-foreground"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               {hasArkansasTravelFee && (
                 <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-100">
                   <div className="flex gap-3">
@@ -1624,54 +1749,6 @@ export default function BookingFlow() {
                   )}
                 </div>
               )}
-              <FormField
-                control={step1Form.control}
-                name="street"
-                render={({ field }) => (
-                  <FormItem className="hidden">
-                    <FormControl>
-                      <Input {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={step1Form.control}
-                name="city"
-                render={({ field }) => (
-                  <FormItem className="hidden">
-                    <FormControl>
-                      <Input {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={step1Form.control}
-                name="state"
-                render={({ field }) => (
-                  <FormItem className="hidden">
-                    <FormControl>
-                      <Input {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={step1Form.control}
-                name="zip"
-                render={({ field }) => (
-                  <FormItem className="hidden">
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
               <FormField
                 control={step1Form.control}
                 name="locationNotes"

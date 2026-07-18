@@ -6,7 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { sanitizeRedirectPath } from "@/lib/auth-routing";
 
-export default function SignUpPage() {
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+function SignUpWithClerk() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isSignedIn } = useAuth();
@@ -37,4 +39,22 @@ export default function SignUpPage() {
       />
     </div>
   );
+}
+
+export default function SignUpPage() {
+  if (!clerkPublishableKey) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-background p-4">
+        <div className="max-w-md rounded-xl border bg-background p-6 text-center shadow-sm">
+          <h1 className="text-xl font-semibold">Account setup unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Online account creation is not configured in this preview. You can
+            still complete booking as a guest.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <SignUpWithClerk />;
 }

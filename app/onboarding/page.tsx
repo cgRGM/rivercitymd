@@ -29,6 +29,8 @@ import {
 } from "@/components/forms/vehicle-lookup-card";
 import AddressInput from "@/components/ui/address-input";
 
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 interface RadarAddress {
   formattedAddress?: string;
   addressLabel?: string;
@@ -50,7 +52,7 @@ type Vehicle = {
   classification?: VehicleClassification;
 };
 
-export default function OnboardingPage() {
+function OnboardingWithClerk() {
   const router = useRouter();
   const { user, isLoaded: isUserLoaded } = useUser();
   const { getToken } = useAuth();
@@ -467,4 +469,29 @@ export default function OnboardingPage() {
       </div>
     </div>
   );
+}
+
+export default function OnboardingPage() {
+  if (!clerkPublishableKey) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-background p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <CardTitle>Account setup unavailable</CardTitle>
+            <CardDescription>
+              Account onboarding is not configured in this preview. You can
+              still book as a guest, and we&apos;ll email your booking details.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Button asChild>
+              <Link href="/book">Book as guest</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return <OnboardingWithClerk />;
 }
