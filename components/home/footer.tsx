@@ -11,7 +11,7 @@ export function Footer() {
   ];
 
   const services = [
-    "Quick Clean",
+    "Express Detail",
     "Full Detail",
     "Paint Correction",
     "Ceramic Coating",

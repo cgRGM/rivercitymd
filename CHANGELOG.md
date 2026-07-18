@@ -4,6 +4,13 @@ All notable changes to the River City Mobile Detailing project are documented in
 
 ---
 
+## [v1.0.6] - 2026-07-18
+### Changed
+- **Invoice Due Dates**: Shortened default remaining-balance invoice due dates from 30 days to 3 days for booked, admin-created, supplemental, and legacy Stripe invoice creation flows.
+- **Service Copy**: Renamed the landing page "Quick Clean" service label to "Express Detail".
+
+---
+
 ## [v1.0.5] - 2026-07-18
 ### Added
 - **Booking Checkout Promo Codes**: Added a promo code input to the booking checkout order summary with live red/green validation feedback. Codes resolve against Stripe promotion codes first, then coupon IDs, enforcing usage rules (active status, expiration, redemption caps, minimum order value). Full-payment checkouts apply the coupon via Stripe `discounts`; deposit bookings apply the discount to the remaining balance invoice.

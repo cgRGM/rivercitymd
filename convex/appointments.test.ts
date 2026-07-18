@@ -453,6 +453,7 @@ describe("appointments", () => {
       appointmentId,
       userId,
       status: "draft",
+      dueDate: "2024-12-05",
       subtotal: 25,
       total: 25,
     });

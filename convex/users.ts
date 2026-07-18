@@ -18,6 +18,10 @@ import {
   type VehicleSize,
 } from "./lib/pricing";
 import {
+  getInvoiceDueDateFromDateKey,
+  REMAINING_BALANCE_DUE_DAYS,
+} from "./lib/invoices";
+import {
   DEFAULT_USER_NOTIFICATION_PREFERENCES,
   normalizeUserNotificationPreferences,
   userNotificationPreferencesValidator,
@@ -1658,9 +1662,7 @@ export const createUserWithAppointment = mutation({
     const invoiceNumber: string = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
 
     // Create invoice date
-    const appointmentDate = new Date(`${scheduledDateKey}T00:00:00.000Z`);
-    const dueDate = new Date(appointmentDate);
-    dueDate.setDate(dueDate.getDate() + 30);
+    const dueDate = getInvoiceDueDateFromDateKey(scheduledDateKey);
 
     // Adjust invoice fields based on payment option
     const paymentOption = args.paymentOption ?? "deposit";
@@ -1688,7 +1690,7 @@ export const createUserWithAppointment = mutation({
       tax,
       total,
       status: "draft", // Start as draft, will be sent after deposit is paid
-      dueDate: dueDate.toISOString().split("T")[0],
+      dueDate,
       notes: `Invoice for appointment on ${scheduledDateKey}`,
       depositAmount: invoiceDepositAmount,
       depositPaid: invoiceDepositPaid,
@@ -2040,9 +2042,7 @@ export const createUserAppointmentInvoice = action({
     }
 
     // Create the invoice
-    const appointmentDate = new Date(args.scheduledDate);
-    const dueDate = new Date(appointmentDate);
-    dueDate.setDate(dueDate.getDate() + 30);
+    const dueDate = getInvoiceDueDateFromDateKey(args.scheduledDate);
 
     const invoiceResponse: Response = await fetch(
       "https://api.stripe.com/v1/invoices",
@@ -2055,7 +2055,7 @@ export const createUserAppointmentInvoice = action({
         body: new URLSearchParams({
           customer: stripeCustomerId!,
           collection_method: "send_invoice",
-          days_until_due: "30",
+          days_until_due: String(REMAINING_BALANCE_DUE_DAYS),
           auto_advance: "true",
           description: `Mobile detailing service - ${args.scheduledDate}`,
         }),
@@ -2134,7 +2134,7 @@ export const createUserAppointmentInvoice = action({
       tax,
       total,
       status: "draft", // Start as draft, will be sent after deposit is paid
-      dueDate: dueDate.toISOString().split("T")[0],
+      dueDate,
       stripeInvoiceId: sentInvoice.id,
       stripeInvoiceUrl: sentInvoice.hosted_invoice_url,
       notes: `Invoice for appointment on ${args.scheduledDate}`,

@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 const services = [
   {
     icon: Zap,
-    title: "Quick Clean",
+    title: "Express Detail",
     description:
       "Full exterior wash, interior vacuum, and quick wax for a fast refresh.",
     features: [
