@@ -219,9 +219,6 @@ export function PricingSection() {
                 aria-label="Service pricing cards"
               >
               {mainServices.map((service, index) => {
-                const usesTwoColFeatures =
-                  service.features && service.features.length >= 4;
-
                 return (
                   <motion.div
                     key={service._id}
@@ -296,19 +293,16 @@ export function PricingSection() {
                       {/* Features */}
                       {service.features && service.features.length > 0 && (
                         <div className="mx-5 border-t border-border/40 py-4 flex-1">
-                          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                            Includes
+                          <p className="mb-3 text-xs font-semibold text-foreground">
+                            Includes:
                           </p>
-                          <ul className="flex flex-wrap gap-2">
+                          <ul className="grid grid-cols-2 gap-1.5 xl:grid-cols-3">
                             {service.features.map((feature, i) => (
                               <li
                                 key={i}
-                                className={cn(
-                                  "inline-flex max-w-full items-center rounded-lg border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-foreground/75 transition-colors group-hover:bg-primary/20 group-hover:text-foreground",
-                                  usesTwoColFeatures ? "max-w-[calc(50%-0.25rem)]" : "",
-                                )}
+                                className="inline-flex min-h-6 items-center justify-center rounded-lg bg-primary px-2 py-1 text-center text-[10px] font-semibold leading-tight text-primary-foreground"
                               >
-                                <span className="min-w-0 truncate leading-tight">
+                                <span className="break-words">
                                   {feature}
                                 </span>
                               </li>
