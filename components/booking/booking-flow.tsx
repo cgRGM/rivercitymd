@@ -64,7 +64,6 @@ import {
 } from "@/components/forms/vehicle-lookup-card";
 import { TimeSlotPicker } from "@/components/home/time-slot-picker";
 import { ServiceCard } from "@/components/home/service-card";
-import { cn } from "@/lib/utils";
 
 const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -345,7 +344,6 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
     hasHeavySoil: false,
   });
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
-  const [isAddressSearchAvailable, setIsAddressSearchAvailable] = useState(true);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [promoStatus, setPromoStatus] = useState<
     "idle" | "checking" | "valid" | "invalid"
@@ -1477,31 +1475,15 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
 
               <AddressInput
                 onAddressSelect={handleAddressSelect}
-                onAutocompleteAvailabilityChange={setIsAddressSearchAvailable}
                 label="Service Address"
                 placeholder="Search for your service address"
               />
-              {isAddressSearchAvailable && (
-                <div className="text-sm text-destructive">
-                  {step1Form.formState.errors.street?.message ||
-                    step1Form.formState.errors.city?.message ||
-                    step1Form.formState.errors.state?.message ||
-                    step1Form.formState.errors.zip?.message}
-                </div>
-              )}
-              <div
-                className={cn(
-                  "grid gap-4 sm:grid-cols-6",
-                  isAddressSearchAvailable
-                    ? "hidden"
-                    : "rounded-xl border border-border/50 bg-muted/20 p-4",
-                )}
-              >
+              <div className="hidden">
                 <FormField
                   control={step1Form.control}
                   name="street"
                   render={({ field }) => (
-                    <FormItem className="sm:col-span-6">
+                    <FormItem>
                       <FormLabel className="text-sm font-semibold text-foreground">
                         Street Address
                       </FormLabel>
@@ -1521,7 +1503,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                   control={step1Form.control}
                   name="city"
                   render={({ field }) => (
-                    <FormItem className="sm:col-span-3">
+                    <FormItem>
                       <FormLabel className="text-sm font-semibold text-foreground">
                         City
                       </FormLabel>
@@ -1541,7 +1523,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                   control={step1Form.control}
                   name="state"
                   render={({ field }) => (
-                    <FormItem className="sm:col-span-1">
+                    <FormItem>
                       <FormLabel className="text-sm font-semibold text-foreground">
                         State
                       </FormLabel>
@@ -1566,7 +1548,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                   control={step1Form.control}
                   name="zip"
                   render={({ field }) => (
-                    <FormItem className="sm:col-span-2">
+                    <FormItem>
                       <FormLabel className="text-sm font-semibold text-foreground">
                         ZIP Code
                       </FormLabel>
