@@ -21,6 +21,7 @@ import {
   normalizeServiceType,
   type VehicleSize,
 } from "./lib/pricing";
+import { calculateTravelBufferMinutesForMiles } from "./lib/travelFees";
 import {
   getInvoiceDueDateFromDate,
   getInvoiceDueDateFromDateKey,
@@ -103,6 +104,35 @@ async function buildPetFeeItems(
     petFeeVehicleCount: activePetFeeSizes.length,
     petFeeTimeMinutes:
       petFeeSettings.isActive === false ? 0 : petFeeSettings.timeAddMinutes,
+  };
+}
+
+async function buildStoredTravelFeePricing(
+  ctx: any,
+  appointment: Pick<Doc<"appointments">, "travelDistanceMiles" | "travelFee">,
+) {
+  const distanceMiles = appointment.travelDistanceMiles;
+  const fee = appointment.travelFee ?? 0;
+
+  if (distanceMiles === undefined || fee <= 0) {
+    return { items: [] as InvoiceItem[], travelBufferMinutes: 0 };
+  }
+
+  const settings = await ctx.runQuery(internal.travelFeeSettings.getInternal, {});
+  return {
+    items: [
+      {
+        itemType: "travel_fee" as const,
+        serviceName: `Travel fee (${distanceMiles.toFixed(1)} miles)`,
+        quantity: 1,
+        unitPrice: fee,
+        totalPrice: fee,
+      },
+    ],
+    travelBufferMinutes: calculateTravelBufferMinutesForMiles(
+      distanceMiles,
+      settings,
+    ),
   };
 }
 
@@ -215,6 +245,7 @@ async function buildAdjustmentPricing(
   vehicleIds: Id<"vehicles">[],
   serviceIds: Id<"services">[],
   petFeeVehicleIds: Id<"vehicles">[],
+  storedTravel?: Pick<Doc<"appointments">, "travelDistanceMiles" | "travelFee">,
 ) {
   if (vehicleIds.length === 0) {
     throw new ConvexError({
@@ -255,12 +286,20 @@ async function buildAdjustmentPricing(
 
   const servicePricing = await buildVehicleServiceItems(ctx, services, vehicles);
   const petFee = await buildPetFeeItems(ctx, vehicles, petFeeVehicleIds);
-  const items: InvoiceItem[] = [...servicePricing.items, ...petFee.items];
+  const travel = storedTravel
+    ? await buildStoredTravelFeePricing(ctx, storedTravel)
+    : { items: [] as InvoiceItem[], travelBufferMinutes: 0 };
+  const items: InvoiceItem[] = [
+    ...servicePricing.items,
+    ...petFee.items,
+    ...travel.items,
+  ];
   const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
   const duration = calculateSchedulingDuration({
     serviceDurations: [servicePricing.duration],
     petFeeVehicleCount: petFee.petFeeVehicleCount,
     petFeeTimeMinutes: petFee.petFeeTimeMinutes,
+    travelBufferMinutes: travel.travelBufferMinutes,
   });
 
   return { items, totalPrice, duration, vehicles };
@@ -1030,12 +1069,15 @@ export const update = mutation({
     const serviceItems = servicePricing.items;
     const petFee = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
     const petFeeItems = petFee.items;
-    const items = [...serviceItems, ...petFeeItems];
+    const travel = await buildStoredTravelFeePricing(ctx, existingAppointment);
+    const travelFeeItems = travel.items;
+    const items = [...serviceItems, ...petFeeItems, ...travelFeeItems];
     const totalPrice = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const duration = calculateSchedulingDuration({
       serviceDurations: [servicePricing.duration],
       petFeeVehicleCount: petFee.petFeeVehicleCount,
       petFeeTimeMinutes: petFee.petFeeTimeMinutes,
+      travelBufferMinutes: travel.travelBufferMinutes,
     });
 
     const normalizedScheduledDate = normalizeDateKey(updates.scheduledDate);
@@ -1188,12 +1230,14 @@ export const previewWorkAdjustment = query({
       appointment.vehicleIds,
       appointment.serviceIds,
       oldPetFeeVehicleIds,
+      appointment,
     );
     const newPricing = await buildAdjustmentPricing(
       ctx,
       args.vehicleIds,
       args.serviceIds,
       args.petFeeVehicleIds ?? [],
+      appointment,
     );
     const invoice = await ctx.db
       .query("invoices")
@@ -1274,6 +1318,7 @@ export const applyWorkAdjustment = mutation({
       appointment.vehicleIds,
       appointment.serviceIds,
       oldPetFeeVehicleIds,
+      appointment,
     );
     const newPetFeeVehicleIds = args.petFeeVehicleIds ?? [];
     const newPricing = await buildAdjustmentPricing(
@@ -1281,6 +1326,7 @@ export const applyWorkAdjustment = mutation({
       args.vehicleIds,
       args.serviceIds,
       newPetFeeVehicleIds,
+      appointment,
     );
     const priceDelta = Math.round((newPricing.totalPrice - appointment.totalPrice) * 100) / 100;
     const durationDelta = newPricing.duration - appointment.duration;
