@@ -257,7 +257,7 @@ export function PricingSection() {
                           </h3>
                         </div>
 
-                        <p className="mx-auto min-h-10 max-w-[15rem] text-xs leading-snug text-muted-foreground">
+                        <p className="mx-auto line-clamp-3 min-h-10 max-w-[15rem] text-xs leading-snug text-muted-foreground">
                           {service.description}
                         </p>
 
