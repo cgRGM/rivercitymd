@@ -123,6 +123,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const updateStatus = useMutation(api.appointments.updateStatus);
   const updateAppointment = useMutation(api.appointments.update);
   const applyWorkAdjustment = useMutation(api.appointments.applyWorkAdjustment);
+  const updateTravelFee = useMutation(api.appointments.updateTravelFee);
   const updateVehicle = useMutation(api.vehicles.updateVehicle);
   const createVehicle = useMutation(api.vehicles.create);
   const updateBillingSettings = useMutation(api.invoices.updateBillingSettings);
@@ -136,6 +137,9 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     "send_invoice" | "charge_automatically"
   >("send_invoice");
   const [billingLoading, setBillingLoading] = useState(false);
+  const [travelFeeInput, setTravelFeeInput] = useState<number | "">("");
+  const [travelDistanceInput, setTravelDistanceInput] = useState<number | "">("");
+  const [travelFeeLoading, setTravelFeeLoading] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<{
     url: string;
     fileName: string;
@@ -301,6 +305,12 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       data.invoice.remainingBalanceCollectionMethod ?? "send_invoice",
     );
   }, [data?.invoice]);
+
+  useEffect(() => {
+    if (!data) return;
+    setTravelFeeInput(data.travelFee ?? "");
+    setTravelDistanceInput(data.travelDistanceMiles ?? "");
+  }, [data]);
 
   if (data === undefined) {
     return (
@@ -576,6 +586,47 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     }
   };
 
+  const handleTravelFeeSave = async () => {
+    const travelFee = travelFeeInput === "" ? 0 : Number(travelFeeInput);
+    if (!Number.isFinite(travelFee) || travelFee < 0) {
+      toast.error("Travel fee must be zero or greater");
+      return;
+    }
+
+    const travelDistanceMiles =
+      travelDistanceInput === "" ? undefined : Number(travelDistanceInput);
+    if (
+      travelDistanceMiles !== undefined &&
+      (!Number.isFinite(travelDistanceMiles) || travelDistanceMiles < 0)
+    ) {
+      toast.error("Miles must be zero or greater");
+      return;
+    }
+
+    setTravelFeeLoading(true);
+    try {
+      const result = await updateTravelFee({
+        appointmentId,
+        travelFee,
+        travelDistanceMiles,
+      });
+      if (result.invoiceAction === "supplemental_invoice_created") {
+        toast.success("Travel fee added with a supplemental invoice");
+      } else if (result.invoiceAction === "updated_open_invoice") {
+        toast.success("Travel fee saved and invoice updated");
+      } else {
+        toast.success("Travel fee saved");
+      }
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save travel fee",
+      );
+    } finally {
+      setTravelFeeLoading(false);
+    }
+  };
+
   const { user, invoice, tripLog, location } = data;
   const services = typedServices;
   const vehicles = typedVehicles;
@@ -602,6 +653,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     !!invoice &&
     canEdit &&
     (invoice.status !== "paid" || (invoice.remainingBalance ?? 0) > 0);
+  const canEditTravelFee = canEdit && !!invoice;
   const canReissueBilling = canEditBilling && !!invoice?.stripeInvoiceId;
   const adjustmentBlockedByCredit =
     adjustmentPreview?.invoicePaid === true && adjustmentPreview.priceDelta < 0;
@@ -1254,6 +1306,17 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                     <span className="font-semibold">{formatCurrency(invoice.remainingBalance)}</span>
                   </div>
                 )}
+                {(data.travelFee ?? 0) > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Travel fee</span>
+                    <span>
+                      {formatCurrency(data.travelFee ?? 0)}
+                      {data.travelDistanceMiles !== undefined
+                        ? ` (${data.travelDistanceMiles.toFixed(1)} mi)`
+                        : ""}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Collection</span>
                   <span className="capitalize">
@@ -1268,6 +1331,72 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
             )}
             {!invoice && (
               <p className="text-sm text-muted-foreground">No invoice created yet</p>
+            )}
+            {canEditTravelFee && (
+              <div className="space-y-3 rounded-md border p-3 bg-muted/20 mt-4">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  Travel Fee
+                </h4>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="appointment-travel-fee" className="text-xs">
+                      Fee
+                    </Label>
+                    <Input
+                      id="appointment-travel-fee"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={travelFeeInput}
+                      onChange={(event) =>
+                        setTravelFeeInput(
+                          event.target.value === "" ? "" : Number(event.target.value),
+                        )
+                      }
+                      className="h-8 text-xs"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="appointment-travel-miles" className="text-xs">
+                      Miles
+                    </Label>
+                    <Input
+                      id="appointment-travel-miles"
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      value={travelDistanceInput}
+                      onChange={(event) =>
+                        setTravelDistanceInput(
+                          event.target.value === "" ? "" : Number(event.target.value),
+                        )
+                      }
+                      className="h-8 text-xs"
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+                {invoice.status === "paid" && (
+                  <p className="text-xs text-muted-foreground">
+                    Increases create a supplemental invoice.
+                  </p>
+                )}
+                {invoice.status !== "paid" && invoice.stripeInvoiceId && (
+                  <p className="text-xs text-muted-foreground">
+                    Saving reissues the remaining-balance invoice.
+                  </p>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleTravelFeeSave()}
+                  disabled={travelFeeLoading}
+                >
+                  {travelFeeLoading ? "Saving..." : "Save Travel Fee"}
+                </Button>
+              </div>
             )}
             {canEditBilling && (
               <div className="space-y-3 rounded-md border p-3">

@@ -45,6 +45,12 @@ type InvoiceItem = {
   totalPrice: number;
 };
 
+type InvoiceAction =
+  | "none"
+  | "updated_open_invoice"
+  | "supplemental_invoice_created"
+  | "manual_credit_required";
+
 const workAdjustmentArgs = {
   appointmentId: v.id("appointments"),
   vehicleIds: v.array(v.id("vehicles")),
@@ -107,6 +113,40 @@ async function buildPetFeeItems(
   };
 }
 
+function getTravelFeeLineItem(
+  distanceMiles: number | undefined,
+  fee: number,
+): InvoiceItem | null {
+  if (fee <= 0) return null;
+  return {
+    itemType: "travel_fee",
+    serviceName:
+      distanceMiles === undefined
+        ? "Travel fee"
+        : `Travel fee (${distanceMiles.toFixed(1)} miles)`,
+    quantity: 1,
+    unitPrice: fee,
+    totalPrice: fee,
+  };
+}
+
+function getTravelFeeTotalFromItems(items: InvoiceItem[] | undefined) {
+  return (items ?? [])
+    .filter((item) => item.itemType === "travel_fee")
+    .reduce((sum, item) => sum + item.totalPrice, 0);
+}
+
+function getInvoiceTotalAfterDiscount(
+  subtotal: number,
+  tax: number,
+  discountAmount: number | undefined,
+) {
+  return Math.max(
+    0,
+    Math.round((subtotal + tax - (discountAmount ?? 0)) * 100) / 100,
+  );
+}
+
 async function buildStoredTravelFeePricing(
   ctx: any,
   appointment: Pick<Doc<"appointments">, "travelDistanceMiles" | "travelFee">,
@@ -114,25 +154,18 @@ async function buildStoredTravelFeePricing(
   const distanceMiles = appointment.travelDistanceMiles;
   const fee = appointment.travelFee ?? 0;
 
-  if (distanceMiles === undefined || fee <= 0) {
+  const item = getTravelFeeLineItem(distanceMiles, fee);
+  if (!item) {
     return { items: [] as InvoiceItem[], travelBufferMinutes: 0 };
   }
 
   const settings = await ctx.runQuery(internal.travelFeeSettings.getInternal, {});
   return {
-    items: [
-      {
-        itemType: "travel_fee" as const,
-        serviceName: `Travel fee (${distanceMiles.toFixed(1)} miles)`,
-        quantity: 1,
-        unitPrice: fee,
-        totalPrice: fee,
-      },
-    ],
-    travelBufferMinutes: calculateTravelBufferMinutesForMiles(
-      distanceMiles,
-      settings,
-    ),
+    items: [item],
+    travelBufferMinutes:
+      distanceMiles === undefined
+        ? 0
+        : calculateTravelBufferMinutesForMiles(distanceMiles, settings),
   };
 }
 
@@ -1479,6 +1512,218 @@ export const applyWorkAdjustment = mutation({
       adjustmentId,
       invoiceAction,
       supplementalInvoiceId,
+    };
+  },
+});
+
+export const updateTravelFee = mutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    travelFee: v.number(),
+    travelDistanceMiles: v.optional(v.number()),
+  },
+  returns: v.object({
+    invoiceAction: v.union(
+      v.literal("none"),
+      v.literal("updated_open_invoice"),
+      v.literal("supplemental_invoice_created"),
+      v.literal("manual_credit_required"),
+    ),
+    invoiceId: v.optional(v.id("invoices")),
+    supplementalInvoiceId: v.optional(v.id("invoices")),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    invoiceAction: InvoiceAction;
+    invoiceId?: Id<"invoices">;
+    supplementalInvoiceId?: Id<"invoices">;
+  }> => {
+    await requireAdmin(ctx);
+
+    const fee = Math.round(args.travelFee * 100) / 100;
+    if (!Number.isFinite(fee) || fee < 0) {
+      throw new ConvexError({
+        code: "INVALID_TRAVEL_FEE",
+        message: "Travel fee must be zero or greater.",
+      });
+    }
+
+    const distanceMiles =
+      args.travelDistanceMiles === undefined
+        ? undefined
+        : Math.round(args.travelDistanceMiles * 10) / 10;
+    if (
+      distanceMiles !== undefined &&
+      (!Number.isFinite(distanceMiles) || distanceMiles < 0)
+    ) {
+      throw new ConvexError({
+        code: "INVALID_TRAVEL_DISTANCE",
+        message: "Travel distance must be zero or greater.",
+      });
+    }
+
+    const appointment = await ctx.db.get(args.appointmentId);
+    if (!appointment) {
+      throw new Error("Appointment not found");
+    }
+    if (appointment.status === "cancelled") {
+      throw new Error("Cancelled appointments cannot be billed.");
+    }
+
+    const invoice = await ctx.db
+      .query("invoices")
+      .withIndex("by_appointment", (q) => q.eq("appointmentId", args.appointmentId))
+      .first();
+
+    const invoiceTravelFee = invoice
+      ? getTravelFeeTotalFromItems(invoice.items)
+      : undefined;
+    const existingAppointmentTravelFee =
+      appointment.travelFee ?? invoiceTravelFee ?? 0;
+    const appointmentPriceDelta = Math.round(
+      (fee - existingAppointmentTravelFee) * 100,
+    ) / 100;
+    const invoicePriceDelta =
+      invoiceTravelFee === undefined
+        ? 0
+        : Math.round((fee - invoiceTravelFee) * 100) / 100;
+    const nextTravelItem = getTravelFeeLineItem(distanceMiles, fee);
+    const needsTravelBufferSettings =
+      distanceMiles !== undefined || appointment.travelDistanceMiles !== undefined;
+    const travelFeeSettings = needsTravelBufferSettings
+      ? await ctx.runQuery(internal.travelFeeSettings.getInternal, {})
+      : undefined;
+    const nextTravelBufferMinutes =
+      distanceMiles === undefined
+        ? 0
+        : calculateTravelBufferMinutesForMiles(distanceMiles, travelFeeSettings);
+    const previousTravelBufferMinutes =
+      appointment.travelDistanceMiles === undefined
+        ? 0
+        : calculateTravelBufferMinutesForMiles(
+            appointment.travelDistanceMiles,
+            travelFeeSettings,
+          );
+    const durationDelta = nextTravelBufferMinutes - previousTravelBufferMinutes;
+
+    await ctx.db.patch(args.appointmentId, {
+      totalPrice: Math.max(
+        0,
+        Math.round((appointment.totalPrice + appointmentPriceDelta) * 100) / 100,
+      ),
+      duration: Math.max(0, appointment.duration + durationDelta),
+      travelDistanceMiles: distanceMiles,
+      travelFee: fee > 0 ? fee : undefined,
+    });
+
+    if (!invoice) {
+      return { invoiceAction: "none" };
+    }
+
+    if (invoice.status === "paid") {
+      if (appointmentPriceDelta < 0) {
+        throw new Error(
+          "This lowers a paid invoice. Create an explicit refund or credit before changing the travel fee.",
+        );
+      }
+      if (appointmentPriceDelta === 0) {
+        return { invoiceAction: "none", invoiceId: invoice._id };
+      }
+
+      const invoiceCount = (
+        await ctx.runQuery(internal.invoices.getCountInternal, {})
+      ).count;
+      const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
+      const dueDate = getInvoiceDueDateFromDate(new Date());
+      const supplementalInvoiceId = await ctx.db.insert("invoices", {
+        appointmentId: args.appointmentId,
+        userId: appointment.userId,
+        invoiceNumber,
+        items: [
+          {
+            itemType: "travel_fee",
+            serviceName:
+              distanceMiles === undefined
+                ? "Supplemental travel fee"
+                : `Supplemental travel fee (${distanceMiles.toFixed(1)} miles)`,
+            quantity: 1,
+            unitPrice: appointmentPriceDelta,
+            totalPrice: appointmentPriceDelta,
+          },
+        ],
+        subtotal: appointmentPriceDelta,
+        tax: 0,
+        total: appointmentPriceDelta,
+        status: "draft",
+        dueDate,
+        notes: `Supplemental travel fee for ${invoice.invoiceNumber}`,
+        depositAmount: 0,
+        depositPaid: true,
+        remainingBalance: appointmentPriceDelta,
+        paymentOption: "deposit",
+        remainingBalanceCollectionMethod:
+          invoice.remainingBalanceCollectionMethod ?? "send_invoice",
+      });
+
+      await ctx.scheduler.runAfter(
+        0,
+        internal.payments.createStripeInvoiceAfterDeposit,
+        {
+          appointmentId: args.appointmentId,
+          invoiceId: supplementalInvoiceId,
+        },
+      );
+
+      return {
+        invoiceAction: "supplemental_invoice_created",
+        invoiceId: invoice._id,
+        supplementalInvoiceId,
+      };
+    }
+
+    const nextItems = [
+      ...invoice.items.filter((item) => item.itemType !== "travel_fee"),
+      ...(nextTravelItem ? [nextTravelItem] : []),
+    ];
+    const subtotal = nextItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const total = getInvoiceTotalAfterDiscount(
+      subtotal,
+      invoice.tax,
+      invoice.discountAmount,
+    );
+    const remainingBalance = Math.max(
+      0,
+      Math.round((total - (invoice.depositAmount || 0)) * 100) / 100,
+    );
+
+    await ctx.db.patch(invoice._id, {
+      items: nextItems,
+      subtotal,
+      total,
+      remainingBalance,
+      stripeInvoiceId: undefined,
+      stripeInvoiceUrl: undefined,
+      finalPaymentIntentId: undefined,
+      status: invoice.depositPaid ? "draft" : invoice.status,
+      invoiceGenerationError: undefined,
+    });
+
+    if (invoice.depositPaid && (invoice.paymentOption ?? "deposit") === "deposit") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.payments.createStripeInvoiceAfterDeposit,
+        {
+          appointmentId: args.appointmentId,
+          invoiceId: invoice._id,
+        },
+      );
+    }
+
+    return {
+      invoiceAction: invoicePriceDelta === 0 ? "none" : "updated_open_invoice",
+      invoiceId: invoice._id,
     };
   },
 });
