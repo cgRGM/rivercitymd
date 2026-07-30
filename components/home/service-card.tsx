@@ -34,6 +34,7 @@ interface ServiceCardProps {
   vehicleTypeId?: string | null;
   isSelected: boolean;
   onSelect: (selected: boolean) => void;
+  badgeLabel?: string;
 }
 
 export function ServiceCard({
@@ -42,6 +43,7 @@ export function ServiceCard({
   vehicleTypeId,
   isSelected,
   onSelect,
+  badgeLabel,
 }: ServiceCardProps) {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const pricing = getEffectiveServicePricingForVehicle(service, {
@@ -74,6 +76,11 @@ export function ServiceCard({
             {isSubscription && (
               <Badge variant="secondary" className="text-[10px] px-1.5 h-5">
                 Monthly
+              </Badge>
+            )}
+            {badgeLabel && (
+              <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                {badgeLabel}
               </Badge>
             )}
           </div>

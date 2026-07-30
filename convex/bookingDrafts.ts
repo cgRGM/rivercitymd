@@ -28,6 +28,7 @@ import { isArkansasState } from "./lib/address";
 import {
   getEffectivePetFeePrice,
   getEffectiveServicePrice,
+  isServiceAllowedForCondition,
   type VehicleSize,
 } from "./lib/pricing";
 import { getInvoiceDueDateFromDateKey } from "./lib/invoices";
@@ -404,6 +405,21 @@ async function buildDraftPricing(args: {
 
     const vehicleServices = services.filter((s) => vehicleServiceIds.includes(s._id));
     assertBookableServices(vehicleServices, vehicleServiceIds, vehicle.size ?? args.vehicleSize);
+    const vehicleCondition =
+      "hasPet" in vehicle || "hasHeavySoil" in vehicle
+        ? {
+            hasPet: vehicle.hasPet,
+            hasHeavySoil: vehicle.hasHeavySoil,
+          }
+        : {};
+    for (const service of vehicleServices) {
+      if (!isServiceAllowedForCondition(service, vehicleCondition)) {
+        throw new ConvexError({
+          code: "SERVICE_NOT_BOOKABLE",
+          message: `${service.name} is not recommended for this vehicle condition. Please choose a higher-level service.`,
+        });
+      }
+    }
 
     for (const service of vehicleServices) {
       let unitPrice = getEffectiveServicePrice(service, vehicle.size ?? args.vehicleSize);

@@ -1,9 +1,10 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { r2 } from "./r2";
 import schema from "./schema";
 import { modules } from "./test.setup";
+import { seedBookingSetup } from "./testUtils/bookingSetup";
 
 describe("bookingDrafts out-of-area requests", () => {
   test("creates upload URLs for mobile HEIC before photos", async () => {
@@ -93,5 +94,55 @@ describe("bookingDrafts out-of-area requests", () => {
     await expect(
       t.mutation(api.bookingDrafts.saveOutOfAreaLead, payload),
     ).rejects.toThrow(/RATE_LIMITED|several requests/i);
+  });
+});
+
+describe("bookingDrafts pricing validation", () => {
+  test("rejects services blocked by vehicle condition before checkout", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, { includeBookableService: false });
+
+    const serviceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("services", {
+        name: "Level 1 - Interior Detail",
+        description: "Entry interior package.",
+        basePrice: 75,
+        basePriceSmall: 75,
+        basePriceMedium: 90,
+        basePriceLarge: 110,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+        disallowWhenPetHair: true,
+      });
+    });
+
+    await expect(
+      t.mutation(internal.bookingDrafts.createOrUpdateInternal, {
+        name: "Pet Hair Booker",
+        email: "pet-hair@example.com",
+        phone: "555-0100",
+        address: {
+          street: "100 Main St",
+          city: "Little Rock",
+          state: "AR",
+          zip: "72201",
+        },
+        vehicles: [
+          {
+            year: 2020,
+            make: "Toyota",
+            model: "Camry",
+            size: "medium",
+            hasPet: true,
+            serviceIds: [serviceId],
+          },
+        ],
+        serviceIds: [serviceId],
+        scheduledDate: "2026-08-03",
+        scheduledTime: "10:00",
+        travelDistanceMiles: 0,
+      }),
+    ).rejects.toThrow(/higher-level service|SERVICE_NOT_BOOKABLE/i);
   });
 });

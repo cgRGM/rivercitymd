@@ -9,7 +9,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { calculateSchedulingDuration } from "@/convex/lib/booking";
 import {
   getEffectiveServicePricingForVehicle,
+  getServiceBookingRole,
   isServiceAvailableForVehicle,
+  isServiceAllowedForCondition,
   normalizeServiceType,
   type ServiceType,
   type VehicleSize,
@@ -99,6 +101,7 @@ type BookingService = {
   name: string;
   description: string;
   categoryName?: string;
+  categorySlug?: string;
   serviceType?: ServiceType;
   bookingRole?: "core" | "upgrade" | "addon";
   isSubscribable?: boolean;
@@ -124,6 +127,13 @@ type BookingService = {
   bookableLegacySizes?: Array<"small" | "medium" | "large">;
 };
 
+const PACKAGE_CATEGORY_ORDER = ["full-detail", "interior", "exterior"] as const;
+const PACKAGE_CATEGORY_LABELS: Record<(typeof PACKAGE_CATEGORY_ORDER)[number], string> = {
+  "full-detail": "Full Detail",
+  interior: "Interior",
+  exterior: "Exterior",
+};
+
 function getCustomerErrorMessage(error: unknown, fallback: string) {
   const data = (error as { data?: { message?: string } })?.data;
   if (typeof data?.message === "string" && data.message.trim()) {
@@ -139,50 +149,31 @@ function getCustomerErrorMessage(error: unknown, fallback: string) {
   return message || fallback;
 }
 
-function getServiceCategorySlug(service: BookingService) {
-  const label = `${service.categoryName ?? ""} ${service.name}`.toLowerCase();
-  if (service.serviceType === "addon" || service.bookingRole === "addon") {
-    return "add-ons";
-  }
+function getBookingRole(service: BookingService) {
+  return getServiceBookingRole(service);
+}
+
+function getPackageCategorySlug(service: BookingService) {
   if (
-    label.includes("ceramic") ||
-    label.includes("wax") ||
-    label.includes("paint enhancement") ||
-    label.includes("protection")
+    service.categorySlug === "full-detail" ||
+    service.categorySlug === "interior" ||
+    service.categorySlug === "exterior"
   ) {
-    return "wax-ceramic";
-  }
-  if (label.includes("interior")) return "interior";
-  if (label.includes("exterior") || label.includes("wash") || label.includes("decon")) {
-    return "exterior";
+    return service.categorySlug;
   }
   return "full-detail";
 }
 
-function getBookingRole(service: BookingService) {
-  if (service.bookingRole) return service.bookingRole;
-  if (service.serviceType === "addon") return "addon";
-  return getServiceCategorySlug(service) === "wax-ceramic" ? "upgrade" : "core";
+function getServiceLevel(service: BookingService) {
+  const levelMatch = service.name.match(/\blevel\s*(\d+)\b/i);
+  return levelMatch?.[1] ? Number(levelMatch[1]) : 0;
 }
 
 function isServiceAllowedForVehicleCondition(
   service: BookingService,
   vehicle: VehicleLookupValue,
 ) {
-  const isLevelOne =
-    /\blevel\s*1\b/i.test(service.name) ||
-    service.name.toLowerCase().includes("basic reset");
-  const categorySlug = getServiceCategorySlug(service);
-  const disallowWhenPetHair =
-    service.disallowWhenPetHair ??
-    (isLevelOne && (categorySlug === "full-detail" || categorySlug === "interior"));
-  const disallowWhenDirtyMud =
-    service.disallowWhenDirtyMud ??
-    (isLevelOne && (categorySlug === "full-detail" || categorySlug === "exterior"));
-
-  if (vehicle.hasPet && disallowWhenPetHair) return false;
-  if (vehicle.hasHeavySoil && disallowWhenDirtyMud) return false;
-  return true;
+  return isServiceAllowedForCondition(service, vehicle);
 }
 
 const step1Schema = z.object({
@@ -322,7 +313,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
   const { user, isLoaded, isSignedIn } = auth;
   const [expandedVehicleIndex, setExpandedVehicleIndex] = useState<number>(0);
   const [expandedStep4VehicleIndex, setExpandedStep4VehicleIndex] = useState<number>(0);
-  const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "upgrades" | "addons" | "">>(
+  const [activeServiceSection, setActiveServiceSection] = useState<Record<number, "packages" | "upgrades" | "subscriptions" | "addons" | "">>(
     {},
   );
   const [outOfAreaMode, setOutOfAreaMode] = useState<OutOfAreaMode>("idle");
@@ -765,7 +756,6 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
     step3Data.vehicles.forEach((vehicle, idx) => {
       const vehicleKey = idx.toString();
       const currentSelection = nextVehicleServices[vehicleKey] || [];
-      if (currentSelection.length === 0) return;
 
       const vehiclePricingContext = {
         vehicleSize: (vehicle.size ?? "medium") as VehicleSize,
@@ -774,8 +764,36 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
 
       const nextSelection = currentSelection.filter((serviceId) => {
         const service = services.find((s) => s._id === serviceId);
-        return service && isServiceAvailableForVehicle(service, vehiclePricingContext);
+        return (
+          service &&
+          isServiceAvailableForVehicle(service, vehiclePricingContext) &&
+          isServiceAllowedForVehicleCondition(service, vehicle)
+        );
       });
+
+      const hasCorePackage = nextSelection.some((serviceId) => {
+        const service = services.find((candidate) => candidate._id === serviceId);
+        return service ? getBookingRole(service) === "core" : false;
+      });
+      if (!hasCorePackage && vehicle.hasPet && vehicle.hasHeavySoil) {
+        const recommendedPackage = services
+          .filter(
+            (service) =>
+              getBookingRole(service) === "core" &&
+              isServiceAvailableForVehicle(service, vehiclePricingContext) &&
+              isServiceAllowedForVehicleCondition(service, vehicle),
+          )
+          .sort((a, b) => {
+            const levelDelta = getServiceLevel(b) - getServiceLevel(a);
+            if (levelDelta !== 0) return levelDelta;
+            const priceA = getEffectiveServicePricingForVehicle(a, vehiclePricingContext).price;
+            const priceB = getEffectiveServicePricingForVehicle(b, vehiclePricingContext).price;
+            return priceB - priceA;
+          })[0];
+        if (recommendedPackage) {
+          nextSelection.push(recommendedPackage._id);
+        }
+      }
 
       if (nextSelection.length !== currentSelection.length) {
         nextVehicleServices[vehicleKey] = nextSelection;
@@ -1951,6 +1969,10 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                             const addonServices = vehicleAvailableServices.filter(
                               (service) => getBookingRole(service) === "addon",
                             );
+                            const subscriptionServices = vehicleAvailableServices.filter(
+                              (service) =>
+                                normalizeServiceType(service.serviceType) === "subscription",
+                            );
 
                             const getSortedServices = (list: Array<NonNullable<typeof services>[number]>) => {
                               return [...list].sort((a, b) => {
@@ -1963,23 +1985,32 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                             const sortedCore = getSortedServices(coreServices);
                             const sortedUpgrades = getSortedServices(upgradeServices);
                             const sortedAddons = getSortedServices(addonServices);
-                            const standardGroups = sortedCore.reduce(
-                              (groups, service) => {
-                                const categoryName =
-                                  service.categoryName || "Detail Packages";
-                                const existing = groups.get(categoryName) ?? [];
-                                existing.push(service);
-                                groups.set(categoryName, existing);
-                                return groups;
-                              },
-                              new Map<string, typeof sortedCore>(),
-                            );
+                            const sortedSubscriptions = getSortedServices(subscriptionServices);
+                            const standardGroups = PACKAGE_CATEGORY_ORDER.map((slug) => ({
+                              slug,
+                              name: PACKAGE_CATEGORY_LABELS[slug],
+                              services: sortedCore.filter(
+                                (service) => getPackageCategorySlug(service) === slug,
+                              ),
+                            })).filter((group) => group.services.length > 0);
+                            const highestPackage =
+                              [...sortedCore].sort((a, b) => {
+                                const levelDelta = getServiceLevel(b) - getServiceLevel(a);
+                                if (levelDelta !== 0) return levelDelta;
+                                const priceA = getEffectiveServicePricingForVehicle(a, vehiclePricingContext).price;
+                                const priceB = getEffectiveServicePricingForVehicle(b, vehiclePricingContext).price;
+                                return priceB - priceA;
+                              })[0] ?? null;
+                            const shouldRecommendHighest =
+                              Boolean(vehicle.hasPet && vehicle.hasHeavySoil) ||
+                              sortedCore.length === 1;
 
                             const availableServiceIds = new Set(
                               [
                                 ...coreServices,
                                 ...upgradeServices,
                                 ...addonServices,
+                                ...subscriptionServices,
                               ].map((service) => String(service._id)),
                             );
                             const currentSelection = (field.value?.[vehicleKey] || []).filter(
@@ -1999,6 +2030,11 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
 
                             const selectedAddons = services?.filter(s =>
                               currentSelection.includes(s._id) && getBookingRole(s) === "addon"
+                            ) ?? [];
+
+                            const selectedSubscriptions = services?.filter(s =>
+                              currentSelection.includes(s._id) &&
+                              normalizeServiceType(s.serviceType) === "subscription"
                             ) ?? [];
 
                             const isExpanded = expandedStep4VehicleIndex === vIdx;
@@ -2072,41 +2108,46 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                                     {activeSection === "packages" && (
                                       <div className="p-4 border-t border-border/40 bg-background/5">
                                         <div className="space-y-5">
-                                          {Array.from(standardGroups.entries()).map(([categoryName, categoryServices]) => (
-                                            <section key={categoryName} className="space-y-3">
+                                          {standardGroups.map((group) => (
+                                            <section key={group.slug} className="space-y-3">
                                               <div className="flex items-center justify-between gap-3">
                                                 <h4 className="text-sm font-semibold text-foreground">
-                                                  {categoryName}
+                                                  {group.name}
                                                 </h4>
                                                 <span className="text-xs text-muted-foreground">
-                                                  {categoryServices.length} option{categoryServices.length === 1 ? "" : "s"}
+                                                  {group.services.length} option{group.services.length === 1 ? "" : "s"}
                                                 </span>
                                               </div>
-                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                {categoryServices.map(service => {
+                                              <div className="flex snap-x gap-3 overflow-x-auto pb-2">
+                                                {group.services.map(service => {
                                                   const isSelected = selectedPackageId === service._id;
+                                                  const isRecommended =
+                                                    shouldRecommendHighest &&
+                                                    highestPackage?._id === service._id;
                                                   return (
-                                                    <ServiceCard
-                                                      key={service._id}
-                                                      service={service}
-                                                      vehicleSize={vehiclePricingContext.vehicleSize}
-                                                      vehicleTypeId={vehiclePricingContext.vehicleTypeId}
-                                                      isSelected={isSelected}
-                                                      onSelect={() => {
-                                                        const otherServices = currentSelection.filter(id => {
-                                                          const s = services?.find(s => s._id === id);
-                                                          return s && getBookingRole(s) !== "core";
-                                                        });
-                                                        const nextSelection = [...otherServices, service._id];
-                                                        const nextRecord = {
-                                                          ...field.value,
-                                                          [vehicleKey]: nextSelection,
-                                                        };
-                                                        field.onChange(nextRecord);
+                                                    <div key={service._id} className="min-w-[17.5rem] snap-start md:min-w-[18.5rem]">
+                                                      <ServiceCard
+                                                        service={service}
+                                                        vehicleSize={vehiclePricingContext.vehicleSize}
+                                                        vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                        isSelected={isSelected}
+                                                        badgeLabel={isRecommended ? "Recommended" : undefined}
+                                                        onSelect={() => {
+                                                          const otherServices = currentSelection.filter(id => {
+                                                            const s = services?.find(s => s._id === id);
+                                                            return s && getBookingRole(s) !== "core";
+                                                          });
+                                                          const nextSelection = [...otherServices, service._id];
+                                                          const nextRecord = {
+                                                            ...field.value,
+                                                            [vehicleKey]: nextSelection,
+                                                          };
+                                                          field.onChange(nextRecord);
 
-                                                        setActiveServiceSection(prev => ({ ...prev, [vIdx]: "upgrades" }));
-                                                      }}
-                                                    />
+                                                          setActiveServiceSection(prev => ({ ...prev, [vIdx]: "upgrades" }));
+                                                        }}
+                                                      />
+                                                    </div>
                                                   );
                                                 })}
                                               </div>
@@ -2176,14 +2217,87 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                                           <Button
                                             type="button"
                                             size="sm"
-                                            onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: "addons" }))}
+                                            onClick={() =>
+                                              setActiveServiceSection(prev => ({
+                                                ...prev,
+                                                [vIdx]:
+                                                  sortedSubscriptions.length > 0
+                                                    ? "subscriptions"
+                                                    : "addons",
+                                              }))
+                                            }
                                           >
-                                            Next: Add-ons
+                                            {sortedSubscriptions.length > 0
+                                              ? "Next: Memberships"
+                                              : "Next: Add-ons"}
                                           </Button>
                                         </div>
                                       </div>
                                     )}
                                   </div>
+
+                                  {sortedSubscriptions.length > 0 && (
+                                    <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
+                                      <button
+                                        type="button"
+                                        className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
+                                        onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: activeSection === "subscriptions" ? "" : "subscriptions" }))}
+                                      >
+                                        <span>3. Memberships (Optional)</span>
+                                        <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
+                                          {selectedSubscriptions.length > 0 ? (
+                                            <span className="text-accent font-semibold">{selectedSubscriptions.length} selected</span>
+                                          ) : (
+                                            <span>None</span>
+                                          )}
+                                          {activeSection === "subscriptions" ? (
+                                            <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                                          ) : (
+                                            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                          )}
+                                        </span>
+                                      </button>
+
+                                      {activeSection === "subscriptions" && (
+                                        <div className="p-4 border-t border-border/40 bg-background/5">
+                                          <div className="flex snap-x gap-3 overflow-x-auto pb-2">
+                                            {sortedSubscriptions.map(service => {
+                                              const isSelected = currentSelection.includes(service._id);
+                                              return (
+                                                <div key={service._id} className="min-w-[17.5rem] snap-start md:min-w-[18.5rem]">
+                                                  <ServiceCard
+                                                    service={service}
+                                                    vehicleSize={vehiclePricingContext.vehicleSize}
+                                                    vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                    isSelected={isSelected}
+                                                    onSelect={() => {
+                                                      const nextSelection = currentSelection.includes(service._id)
+                                                        ? currentSelection.filter(id => id !== service._id)
+                                                        : [...currentSelection, service._id];
+                                                      const nextRecord = {
+                                                        ...field.value,
+                                                        [vehicleKey]: nextSelection,
+                                                      };
+                                                      field.onChange(nextRecord);
+                                                    }}
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                          <div className="mt-4 flex justify-end">
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: "addons" }))}
+                                            >
+                                              Next: Add-ons
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   {/* Section 3: Add-ons (Optional) */}
                                   <div className="border border-border/40 rounded-xl overflow-hidden bg-background/30">
@@ -2192,7 +2306,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                                       className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors font-medium text-sm text-foreground text-left"
                                       onClick={() => setActiveServiceSection(prev => ({ ...prev, [vIdx]: activeSection === "addons" ? "" : "addons" }))}
                                     >
-                                      <span>3. Add-ons (Optional)</span>
+                                      <span>{sortedSubscriptions.length > 0 ? "4" : "3"}. Add-ons (Optional)</span>
                                       <span className="text-muted-foreground text-xs font-normal flex items-center gap-1.5">
                                         {selectedAddons.length > 0 ? (
                                           <span className="text-accent font-semibold">{selectedAddons.length} selected</span>

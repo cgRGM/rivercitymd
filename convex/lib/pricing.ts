@@ -1,7 +1,21 @@
 export type ServiceType = "standard" | "addon" | "subscription";
 export type BookingRole = "core" | "upgrade" | "addon";
+export type ServiceCategorySlug =
+  | "full-detail"
+  | "interior"
+  | "exterior"
+  | "wax-ceramic"
+  | "add-ons";
 export type VehicleSize = "small" | "medium" | "large";
 export const DEFAULT_PET_FEE_AMOUNT = 50;
+
+const SERVICE_CATEGORY_LABELS: Record<ServiceCategorySlug, string> = {
+  "full-detail": "Full Detail",
+  interior: "Interior",
+  exterior: "Exterior",
+  "wax-ceramic": "Wax & Ceramic",
+  "add-ons": "Add-ons",
+};
 
 export type ServiceVehiclePriceShape = {
   vehicleTypeId?: string;
@@ -14,6 +28,9 @@ export type ServiceVehiclePriceShape = {
 };
 
 type ServicePricingShape = {
+  name?: string;
+  categoryName?: string;
+  categorySlug?: ServiceCategorySlug | string;
   basePrice?: number;
   basePriceSmall?: number;
   basePriceMedium?: number;
@@ -38,6 +55,92 @@ type PetFeePricingShape = {
 
 export function normalizeServiceType(serviceType?: ServiceType): ServiceType {
   return serviceType ?? "standard";
+}
+
+function normalizeText(value?: string) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+export function getServiceCategoryLabel(slug: ServiceCategorySlug): string {
+  return SERVICE_CATEGORY_LABELS[slug];
+}
+
+export function inferServiceCategorySlug(
+  service: Pick<
+    ServicePricingShape,
+    "name" | "categoryName" | "categorySlug" | "serviceType" | "bookingRole"
+  >,
+): ServiceCategorySlug {
+  if (service.categorySlug && service.categorySlug in SERVICE_CATEGORY_LABELS) {
+    return service.categorySlug as ServiceCategorySlug;
+  }
+
+  const serviceType = normalizeServiceType(service.serviceType);
+  if (serviceType === "addon" || service.bookingRole === "addon") {
+    return "add-ons";
+  }
+
+  const label = `${service.categoryName ?? ""} ${service.name ?? ""}`.toLowerCase();
+  if (
+    label.includes("ceramic") ||
+    label.includes("wax") ||
+    label.includes("paint enhancement") ||
+    label.includes("protection")
+  ) {
+    return "wax-ceramic";
+  }
+  if (label.includes("interior")) return "interior";
+  if (
+    label.includes("exterior") ||
+    label.includes("wash") ||
+    label.includes("decon")
+  ) {
+    return "exterior";
+  }
+  return "full-detail";
+}
+
+export function getServiceBookingRole(
+  service: Pick<
+    ServicePricingShape,
+    "name" | "categoryName" | "categorySlug" | "serviceType" | "bookingRole"
+  >,
+): BookingRole {
+  if (service.bookingRole) return service.bookingRole;
+  if (normalizeServiceType(service.serviceType) === "addon") return "addon";
+  return inferServiceCategorySlug(service) === "wax-ceramic" ? "upgrade" : "core";
+}
+
+export function serviceHasLevelOneName(service: Pick<ServicePricingShape, "name">): boolean {
+  const name = normalizeText(service.name);
+  return /\blevel\s*1\b/.test(name) || name.includes("basic reset");
+}
+
+export function isServiceAllowedForCondition(
+  service: Pick<
+    ServicePricingShape,
+    | "name"
+    | "categoryName"
+    | "categorySlug"
+    | "serviceType"
+    | "bookingRole"
+    | "disallowWhenPetHair"
+    | "disallowWhenDirtyMud"
+  >,
+  vehicle: { hasPet?: boolean; hasHeavySoil?: boolean },
+): boolean {
+  const isLevelOne = serviceHasLevelOneName(service);
+  const categorySlug = inferServiceCategorySlug(service);
+  const disallowWhenPetHair =
+    service.disallowWhenPetHair ??
+    (isLevelOne && (categorySlug === "full-detail" || categorySlug === "interior"));
+  const disallowWhenDirtyMud =
+    service.disallowWhenDirtyMud ??
+    (isLevelOne && (categorySlug === "full-detail" || categorySlug === "exterior"));
+
+  if (vehicle.hasPet && disallowWhenPetHair) return false;
+  if (vehicle.hasHeavySoil && disallowWhenDirtyMud) return false;
+  return true;
 }
 
 export function getEffectiveServicePrice(

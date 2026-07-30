@@ -11,9 +11,13 @@ import { ConvexError, v } from "convex/values";
 import { getUserIdFromIdentity, requireAdmin } from "./auth";
 import { internal } from "./_generated/api";
 import {
+  getServiceBookingRole,
+  getServiceCategoryLabel,
   hasAnyAvailableVehicleTypePrice,
   hasAnyPositiveServicePrice,
+  inferServiceCategorySlug,
   normalizeServiceType,
+  serviceHasLevelOneName,
   type VehicleSize,
 } from "./lib/pricing";
 
@@ -236,48 +240,25 @@ async function getServiceVehiclePricesForPresentation(
 
 async function getServiceCategoryName(ctx: any, service: Doc<"services">) {
   if (!service.categoryId) {
-    return SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)];
+    return getServiceCategoryLabel(inferServiceCategorySlug(service));
   }
   const category = await ctx.db.get(service.categoryId);
-  return category?.name ?? SERVICE_TYPE_LABELS[normalizeServiceType(service.serviceType)];
-}
-
-function getStoredCategorySlug(category: Doc<"serviceCategories"> | null) {
-  return category?.slug || (category?.name ? slugify(category.name) : "");
-}
-
-function inferServiceCategorySlug(service: Doc<"services">) {
-  const name = service.name.toLowerCase();
-  const type = normalizeServiceType(service.serviceType);
-  if (type === "addon" || service.bookingRole === "addon") return ADDON_CATEGORY.slug;
-  if (
-    name.includes("ceramic") ||
-    name.includes("wax") ||
-    name.includes("paint enhancement") ||
-    name.includes("protection")
-  ) {
-    return "wax-ceramic";
-  }
-  if (name.includes("interior")) return "interior";
-  if (
-    name.includes("exterior") ||
-    name.includes("wash") ||
-    name.includes("decon")
-  ) {
-    return "exterior";
-  }
-  return "full-detail";
+  return category?.name ?? getServiceCategoryLabel(inferServiceCategorySlug(service));
 }
 
 function getLandingCategory(slug: string) {
   return LANDING_CATEGORIES.find((category) => category.slug === slug);
 }
 
+function getStoredCategorySlug(category: Doc<"serviceCategories"> | null) {
+  return category?.slug || (category?.name ? slugify(category.name) : "");
+}
+
 function getPublicLandingCategorySlug(
   service: Doc<"services">,
   category: Doc<"serviceCategories"> | null,
 ) {
-  const storedSlug = getStoredCategorySlug(category);
+  const storedSlug = category?.slug || (category?.name ? slugify(category.name) : "");
   if (storedSlug === ADDON_CATEGORY.slug) return ADDON_CATEGORY.slug;
   if (storedSlug) {
     return getLandingCategory(storedSlug)?.slug;
@@ -303,17 +284,6 @@ function getServiceSortWeight(service: LandingPageService) {
   if (levelMatch?.[1]) return Number(levelMatch[1]);
   if (service.name.toLowerCase().includes("level")) return 20;
   return 100;
-}
-
-function inferServiceBookingRole(service: Doc<"services">) {
-  const type = normalizeServiceType(service.serviceType);
-  if (type === "addon") return "addon" as const;
-  return service.bookingRole ?? (inferServiceCategorySlug(service) === "wax-ceramic" ? "upgrade" : "core");
-}
-
-function serviceHasLevelOneName(service: Doc<"services">) {
-  const name = service.name.toLowerCase();
-  return /\blevel\s*1\b/.test(name) || name.includes("basic reset");
 }
 
 function calculateLegacyPrices(
@@ -733,7 +703,7 @@ export const seedServicePresentationData = mutation({
     for (const service of services) {
       const categorySlug = inferServiceCategorySlug(service);
       const categoryId = categoryIds.get(categorySlug);
-      const bookingRole = inferServiceBookingRole(service);
+      const bookingRole = getServiceBookingRole(service);
       const isLevelOne = serviceHasLevelOneName(service);
       const disallowWhenPetHair =
         service.disallowWhenPetHair ??
@@ -811,6 +781,8 @@ export const listWithCategories = query({
         ...service,
         serviceType: normalizeServiceType(service.serviceType),
         categoryName: await getServiceCategoryName(ctx, service),
+        categorySlug: inferServiceCategorySlug(service),
+        bookingRole: getServiceBookingRole(service),
         vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
       })),
     );
@@ -827,6 +799,8 @@ export const list = query({
         ...service,
         serviceType: normalizeServiceType(service.serviceType),
         categoryName: await getServiceCategoryName(ctx, service),
+        categorySlug: inferServiceCategorySlug(service),
+        bookingRole: getServiceBookingRole(service),
         vehiclePrices: await getServiceVehiclePricesForPresentation(ctx, service),
       })),
     );
@@ -866,7 +840,7 @@ export const listLandingPagePricing = query({
       const fallbackCategory = [...LANDING_CATEGORIES, ADDON_CATEGORY].find(
         (candidate) => candidate.slug === categorySlug,
       );
-      const bookingRole = inferServiceBookingRole(service);
+      const bookingRole = getServiceBookingRole(service);
       const vehiclePrices = await getServiceVehiclePricesForPresentation(ctx, service);
       const availablePrices = vehiclePrices
         .filter(
