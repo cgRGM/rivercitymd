@@ -34,7 +34,6 @@ interface ServiceCardProps {
   vehicleTypeId?: string | null;
   isSelected: boolean;
   onSelect: (selected: boolean) => void;
-  badgeLabel?: string;
 }
 
 export function ServiceCard({
@@ -43,7 +42,6 @@ export function ServiceCard({
   vehicleTypeId,
   isSelected,
   onSelect,
-  badgeLabel,
 }: ServiceCardProps) {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const pricing = getEffectiveServicePricingForVehicle(service, {
@@ -56,7 +54,7 @@ export function ServiceCard({
     <div
       onClick={() => onSelect(!isSelected)}
       className={cn(
-        "group relative flex cursor-pointer rounded-xl border-2 transition-all duration-200 hover:shadow-md overflow-hidden bg-card text-card-foreground",
+        "group relative flex h-full min-h-[13rem] cursor-pointer overflow-hidden rounded-xl border-2 bg-card text-card-foreground transition-all duration-200 hover:shadow-md",
         isSelected
           ? "border-primary bg-primary/5 shadow-sm"
           : "border-muted hover:border-primary/50"
@@ -67,44 +65,43 @@ export function ServiceCard({
         isSelected ? "bg-primary" : "bg-transparent"
       )} />
       
-      <div className="flex-1 p-4 flex flex-col">
-        <div className="flex-1 space-y-1">
-          <div className="flex items-center gap-2">
-            <h4 className={cn("font-semibold text-base leading-none", isSelected ? "text-primary" : "")}>
+      <div className="flex flex-1 flex-col p-4">
+        <div className="flex-1">
+          <div className="flex min-h-10 items-start gap-2">
+            <h4 className={cn("line-clamp-2 text-base font-semibold leading-tight", isSelected ? "text-primary" : "")}>
               {service.name}
             </h4>
             {isSubscription && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 h-5">
+              <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">
                 Monthly
               </Badge>
             )}
-            {badgeLabel && (
-              <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-                {badgeLabel}
-              </Badge>
-            )}
           </div>
-          <p className={cn(
-            "text-sm text-muted-foreground leading-relaxed mt-2",
-            !isDescriptionExpanded && "line-clamp-3"
-          )}>
-            {service.description}
-          </p>
-          {service.description && service.description.length > 120 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsDescriptionExpanded(!isDescriptionExpanded);
-              }}
-              className="text-xs text-primary font-medium hover:underline mt-1 focus:outline-none"
-            >
-              {isDescriptionExpanded ? "Show less" : "Read more"}
-            </button>
-          )}
+          <div className={cn("mt-2", isDescriptionExpanded ? "min-h-[5.75rem]" : "h-[5.75rem]")}>
+            <p className={cn(
+              "text-sm text-muted-foreground leading-relaxed",
+              !isDescriptionExpanded && "line-clamp-3"
+            )}>
+              {service.description}
+            </p>
+            <div className="mt-1 h-5">
+              {service.description && service.description.length > 120 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsDescriptionExpanded(!isDescriptionExpanded);
+                  }}
+                  className="text-xs font-medium text-primary hover:underline focus:outline-none"
+                >
+                  {isDescriptionExpanded ? "Show less" : "Read more"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
         
-        <div className="mt-4 pt-3 border-t border-border/50 flex items-end justify-between">
+        <div className="mt-4 flex items-end justify-between border-t border-border/50 pt-3">
            <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
              {isSubscription ? "Per Month" : "Total"}
            </div>
