@@ -25,6 +25,7 @@ interface RadarAddress {
 
 interface AddressInputProps {
   onAddressSelect?: (address: RadarAddress) => void;
+  onAutocompleteAvailabilityChange?: (isAvailable: boolean) => void;
   label?: string;
   placeholder?: string;
   className?: string;
@@ -32,6 +33,7 @@ interface AddressInputProps {
 
 export default function AddressInput({
   onAddressSelect,
+  onAutocompleteAvailabilityChange,
   placeholder = "Search for your address",
   label = "Service Address",
   className = "",
@@ -39,21 +41,24 @@ export default function AddressInput({
   const [selectedAddress, setSelectedAddress] = useState<RadarAddress | null>(
     null,
   );
+  const [isAutocompleteAvailable, setIsAutocompleteAvailable] = useState(true);
   const autocompleteRef = useRef<{ remove: () => void } | null>(null);
 
   useEffect(() => {
-    // Initialize Radar with your publishable key
     const radarKey = process.env.NEXT_PUBLIC_RADAR_PUBLISHABLE_KEY;
     if (!radarKey) {
+      setIsAutocompleteAvailable(false);
+      onAutocompleteAvailabilityChange?.(false);
       console.warn(
         "Radar publishable key not found. Please add NEXT_PUBLIC_RADAR_PUBLISHABLE_KEY to your .env.local",
       );
       return;
     }
 
+    setIsAutocompleteAvailable(true);
+    onAutocompleteAvailabilityChange?.(true);
     Radar.initialize(radarKey);
 
-    // Create autocomplete - following the docs exactly
     autocompleteRef.current = Radar.ui.autocomplete({
       container: "radar-address-autocomplete",
       showMarkers: true,
@@ -70,17 +75,18 @@ export default function AddressInput({
         onAddressSelect?.(address);
       },
       onError: (error: unknown) => {
+        setIsAutocompleteAvailable(false);
+        onAutocompleteAvailabilityChange?.(false);
         console.error("Radar autocomplete error:", error);
       },
     });
 
-    // Cleanup on unmount
     return () => {
       if (autocompleteRef.current) {
         autocompleteRef.current.remove();
       }
     };
-  }, [placeholder, onAddressSelect]);
+  }, [placeholder, onAddressSelect, onAutocompleteAvailabilityChange]);
 
   const clearSelection = () => {
     setSelectedAddress(null);
@@ -90,10 +96,13 @@ export default function AddressInput({
     <div className={`space-y-4 ${className}`}>
       {label && <Label>{label}</Label>}
 
-      {/* Radar Autocomplete Input - follows docs exactly */}
       <div id="radar-address-autocomplete" className="w-full" />
+      {!isAutocompleteAvailable && (
+        <p className="text-xs text-muted-foreground">
+          Address search is unavailable. Enter the service address below.
+        </p>
+      )}
 
-      {/* Selected Address Display */}
       {selectedAddress && (
         <div className="p-3 bg-green-50 border border-green-200 rounded-md">
           <div className="flex items-start justify-between">
