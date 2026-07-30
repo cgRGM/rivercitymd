@@ -860,6 +860,9 @@ export const listLandingPagePricing = query({
         (min, row) => Math.min(min, row.price),
         availablePrices[0].price,
       );
+      if (categorySlug === "wax-ceramic" && startingPrice <= 200) {
+        continue;
+      }
       const minDuration = availablePrices.reduce(
         (min, row) => Math.min(min, row.duration),
         availablePrices[0].duration,
