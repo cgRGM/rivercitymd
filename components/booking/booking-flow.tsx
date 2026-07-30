@@ -133,6 +133,11 @@ const PACKAGE_CATEGORY_LABELS: Record<(typeof PACKAGE_CATEGORY_ORDER)[number], s
   interior: "Interior",
   exterior: "Exterior",
 };
+const ADDON_CATEGORY_ORDER = ["interior", "exterior"] as const;
+const ADDON_CATEGORY_LABELS: Record<(typeof ADDON_CATEGORY_ORDER)[number], string> = {
+  interior: "Interior",
+  exterior: "Exterior",
+};
 
 function getCustomerErrorMessage(error: unknown, fallback: string) {
   const data = (error as { data?: { message?: string } })?.data;
@@ -162,6 +167,10 @@ function getPackageCategorySlug(service: BookingService) {
     return service.categorySlug;
   }
   return "full-detail";
+}
+
+function getAddonCategorySlug(service: BookingService) {
+  return service.categorySlug === "interior" ? "interior" : "exterior";
 }
 
 function getServiceLevel(service: BookingService) {
@@ -1987,6 +1996,13 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                                 (service) => getPackageCategorySlug(service) === slug,
                               ),
                             })).filter((group) => group.services.length > 0);
+                            const addonGroups = ADDON_CATEGORY_ORDER.map((slug) => ({
+                              slug,
+                              name: ADDON_CATEGORY_LABELS[slug],
+                              services: sortedAddons.filter(
+                                (service) => getAddonCategorySlug(service) === slug,
+                              ),
+                            })).filter((group) => group.services.length > 0);
                             const availableServiceIds = new Set(
                               [
                                 ...coreServices,
@@ -2227,29 +2243,43 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
 
                                     {activeSection === "addons" && (
                                       <div className="p-4 border-t border-border/40 bg-background/5">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                          {sortedAddons.map(service => {
-                                            const isSelected = currentSelection.includes(service._id);
-                                            return (
-                                              <ServiceCard
-                                                key={service._id}
-                                                service={service}
-                                                vehicleSize={vehiclePricingContext.vehicleSize}
-                                                vehicleTypeId={vehiclePricingContext.vehicleTypeId}
-                                                isSelected={isSelected}
-                                                onSelect={() => {
-                                                  const nextSelection = currentSelection.includes(service._id)
-                                                    ? currentSelection.filter(id => id !== service._id)
-                                                    : [...currentSelection, service._id];
-                                                  const nextRecord = {
-                                                    ...field.value,
-                                                    [vehicleKey]: nextSelection,
-                                                  };
-                                                  field.onChange(nextRecord);
-                                                }}
-                                              />
-                                            );
-                                          })}
+                                        <div className="space-y-5">
+                                          {addonGroups.map((group) => (
+                                            <section key={group.slug} className="space-y-3">
+                                              <div className="flex items-center justify-between gap-3">
+                                                <h4 className="text-sm font-semibold text-foreground">
+                                                  {group.name}
+                                                </h4>
+                                                <span className="text-xs text-muted-foreground">
+                                                  {group.services.length} option{group.services.length === 1 ? "" : "s"}
+                                                </span>
+                                              </div>
+                                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                                {group.services.map(service => {
+                                                  const isSelected = currentSelection.includes(service._id);
+                                                  return (
+                                                    <ServiceCard
+                                                      key={service._id}
+                                                      service={service}
+                                                      vehicleSize={vehiclePricingContext.vehicleSize}
+                                                      vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                      isSelected={isSelected}
+                                                      onSelect={() => {
+                                                        const nextSelection = currentSelection.includes(service._id)
+                                                          ? currentSelection.filter(id => id !== service._id)
+                                                          : [...currentSelection, service._id];
+                                                        const nextRecord = {
+                                                          ...field.value,
+                                                          [vehicleKey]: nextSelection,
+                                                        };
+                                                        field.onChange(nextRecord);
+                                                      }}
+                                                    />
+                                                  );
+                                                })}
+                                              </div>
+                                            </section>
+                                          ))}
                                           {sortedAddons.length === 0 && (
                                             <p className="text-sm text-muted-foreground italic col-span-full">No add-ons available.</p>
                                           )}

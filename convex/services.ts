@@ -27,8 +27,6 @@ const SERVICE_TYPE_LABELS = {
   subscription: "Subscription Plans",
 } as const;
 
-const LANDING_PAGE_SERVICE_LIMIT = 4;
-
 const LANDING_CATEGORIES = [
   { slug: "full-detail", name: "Full Detail", displayOrder: 10 },
   { slug: "interior", name: "Interior", displayOrder: 20 },
@@ -905,8 +903,7 @@ export const listLandingPagePricing = query({
                 getServiceSortWeight(a) - getServiceSortWeight(b) ||
                 a.startingPrice - b.startingPrice ||
                 a.name.localeCompare(b.name),
-            )
-            .slice(0, LANDING_PAGE_SERVICE_LIMIT),
+            ),
         }))
         .filter((group) => group.services.length > 0)
         .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name)),

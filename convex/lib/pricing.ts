@@ -76,11 +76,41 @@ export function inferServiceCategorySlug(
   }
 
   const serviceType = normalizeServiceType(service.serviceType);
+  const label = `${service.categoryName ?? ""} ${service.name ?? ""}`.toLowerCase();
   if (serviceType === "addon" || service.bookingRole === "addon") {
+    if (
+      label.includes("engine bay") ||
+      label.includes("interior") ||
+      label.includes("leather") ||
+      label.includes("steam") ||
+      label.includes("pet") ||
+      label.includes("odor") ||
+      label.includes("stain") ||
+      label.includes("carpet") ||
+      label.includes("seat")
+    ) {
+      return "interior";
+    }
+    if (
+      label.includes("ceramic") ||
+      label.includes("wax") ||
+      label.includes("decon") ||
+      label.includes("clay") ||
+      label.includes("chrome") ||
+      label.includes("muffler") ||
+      label.includes("trim") ||
+      label.includes("headlight") ||
+      label.includes("paint") ||
+      label.includes("scratch") ||
+      label.includes("correction") ||
+      label.includes("wheel") ||
+      label.includes("window")
+    ) {
+      return "exterior";
+    }
     return "add-ons";
   }
 
-  const label = `${service.categoryName ?? ""} ${service.name ?? ""}`.toLowerCase();
   if (
     label.includes("ceramic") ||
     label.includes("wax") ||

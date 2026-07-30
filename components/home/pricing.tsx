@@ -46,6 +46,15 @@ function pluralizeVehicleType(name: string) {
   return `${name}s`;
 }
 
+const ADDON_GROUPS = [
+  { slug: "interior", name: "Interior" },
+  { slug: "exterior", name: "Exterior" },
+] as const;
+
+function getAddonGroupSlug(addon: LandingPricingService) {
+  return addon.categorySlug === "interior" ? "interior" : "exterior";
+}
+
 export function PricingSection() {
   const router = useRouter();
   const pricingQuery = useQuery(api.services.listLandingPagePricing) as
@@ -75,6 +84,10 @@ export function PricingSection() {
     pricingQuery?.categories[0];
   const mainServices = selectedGroup?.services ?? [];
   const addons = pricingQuery?.addons ?? [];
+  const addonGroups = ADDON_GROUPS.map((group) => ({
+    ...group,
+    services: addons.filter((addon) => getAddonGroupSlug(addon) === group.slug),
+  })).filter((group) => group.services.length > 0);
   const visibleCardCount = Math.min(mainServices.length, 4);
   const cardGridClass = cn(
     "flex snap-x gap-4 overflow-x-auto pb-3 md:grid md:justify-center md:overflow-visible",
@@ -352,26 +365,38 @@ export function PricingSection() {
                   Starting prices
                 </span>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {addons.map((addon) => (
-                  <div
-                    key={addon._id}
-                    className="flex items-start justify-between gap-4 rounded-md border border-border/40 bg-secondary/20 p-4"
-                  >
-                    <div className="min-w-0">
-                      <h4 className="text-sm font-semibold leading-tight">
-                        {addon.name}
-                      </h4>
-                      {addon.description ? (
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {addon.description}
-                        </p>
-                      ) : null}
+              <div className="space-y-6">
+                {addonGroups.map((group) => (
+                  <section key={group.slug} className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold">{group.name}</h4>
+                      <span className="text-xs text-muted-foreground">
+                        {group.services.length} option{group.services.length === 1 ? "" : "s"}
+                      </span>
                     </div>
-                    <span className="shrink-0 text-sm font-bold text-primary">
-                      ${addon.startingPrice.toFixed(0)}
-                    </span>
-                  </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {group.services.map((addon) => (
+                        <div
+                          key={addon._id}
+                          className="flex items-start justify-between gap-4 rounded-md border border-border/40 bg-secondary/20 p-4"
+                        >
+                          <div className="min-w-0">
+                            <h5 className="text-sm font-semibold leading-tight">
+                              {addon.name}
+                            </h5>
+                            {addon.description ? (
+                              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                {addon.description}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="shrink-0 text-sm font-bold text-primary">
+                            ${addon.startingPrice.toFixed(0)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             </div>
