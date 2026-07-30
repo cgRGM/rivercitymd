@@ -28,6 +28,7 @@ import { isArkansasState } from "./lib/address";
 import {
   getEffectivePetFeePrice,
   getEffectiveServicePrice,
+  isServiceAllowedForCondition,
   type VehicleSize,
 } from "./lib/pricing";
 import { getInvoiceDueDateFromDateKey } from "./lib/invoices";
@@ -100,6 +101,7 @@ const draftVehicleValidator = v.object({
   color: v.optional(v.string()),
   licensePlate: v.optional(v.string()),
   hasPet: v.optional(v.boolean()),
+  hasHeavySoil: v.optional(v.boolean()),
   beforePhotos: v.optional(v.array(beforePhotoValidator)),
   serviceIds: v.optional(v.array(v.id("services"))),
 });
@@ -129,6 +131,7 @@ const outOfAreaRequestVehicleValidator = v.object({
   color: v.optional(v.string()),
   licensePlate: v.optional(v.string()),
   hasPet: v.optional(v.boolean()),
+  hasHeavySoil: v.optional(v.boolean()),
 });
 
 const bookingPaymentOptionValidator = v.union(
@@ -350,6 +353,7 @@ async function buildDraftPricing(args: {
     vehicleTypeId?: Id<"vehicleTypes">;
     size?: VehicleSize;
     hasPet?: boolean;
+    hasHeavySoil?: boolean;
     serviceIds?: Id<"services">[];
   }>;
   existingVehicleServices?: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }>;
@@ -401,6 +405,21 @@ async function buildDraftPricing(args: {
 
     const vehicleServices = services.filter((s) => vehicleServiceIds.includes(s._id));
     assertBookableServices(vehicleServices, vehicleServiceIds, vehicle.size ?? args.vehicleSize);
+    const vehicleCondition =
+      "hasPet" in vehicle || "hasHeavySoil" in vehicle
+        ? {
+            hasPet: vehicle.hasPet,
+            hasHeavySoil: vehicle.hasHeavySoil,
+          }
+        : {};
+    for (const service of vehicleServices) {
+      if (!isServiceAllowedForCondition(service, vehicleCondition)) {
+        throw new ConvexError({
+          code: "SERVICE_NOT_BOOKABLE",
+          message: `${service.name} is not recommended for this vehicle condition. Please choose a higher-level service.`,
+        });
+      }
+    }
 
     for (const service of vehicleServices) {
       let unitPrice = getEffectiveServicePrice(service, vehicle.size ?? args.vehicleSize);
@@ -1404,6 +1423,7 @@ export const getPublicContext = query({
         classification: vehicle.classification,
         size: vehicle.size,
         hasPet: vehicle.hasPet ?? false,
+        hasHeavySoil: vehicle.hasHeavySoil ?? false,
         beforePhotos: vehicle.beforePhotos ?? [],
       })),
       existingVehicleIds: draft.existingVehicleIds,

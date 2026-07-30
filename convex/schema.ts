@@ -124,11 +124,13 @@ const schema = defineSchema({
   // Service Categories
   serviceCategories: defineTable({
     name: v.string(),
+    slug: v.optional(v.string()),
     type: v.union(
       v.literal("standard"),
       v.literal("subscription"),
       v.literal("addon"),
     ),
+    displayOrder: v.optional(v.number()),
   }),
 
   // Deposit Settings (global deposit product)
@@ -183,6 +185,19 @@ const schema = defineSchema({
         v.literal("addon"),
       ),
     ),
+    bookingRole: v.optional(
+      v.union(
+        v.literal("core"),
+        v.literal("upgrade"),
+        v.literal("addon"),
+      ),
+    ),
+    isSubscribable: v.optional(v.boolean()),
+    subscriptionFrequencies: v.optional(
+      v.array(v.union(v.literal("monthly"), v.literal("biweekly"))),
+    ),
+    disallowWhenPetHair: v.optional(v.boolean()),
+    disallowWhenDirtyMud: v.optional(v.boolean()),
     categoryId: v.optional(v.id("serviceCategories")), // legacy field
     includedServiceIds: v.optional(v.array(v.id("services"))),
     isActive: v.boolean(),
@@ -403,6 +418,7 @@ const schema = defineSchema({
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
         hasPet: v.optional(v.boolean()),
+        hasHeavySoil: v.optional(v.boolean()),
         beforePhotos: v.optional(v.array(bookingBeforePhotoValidator)),
         serviceIds: v.optional(v.array(v.id("services"))),
       }),
@@ -825,6 +841,7 @@ const schema = defineSchema({
         color: v.optional(v.string()),
         licensePlate: v.optional(v.string()),
         hasPet: v.optional(v.boolean()),
+        hasHeavySoil: v.optional(v.boolean()),
       }),
     ),
     estimatedDistanceMiles: v.optional(v.number()),

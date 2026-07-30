@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateStringLong, formatTime12h } from "@/lib/time";
 
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 function buildAuthHref(pathname: "/sign-in" | "/sign-up", token: string, email?: string) {
   const params = new URLSearchParams();
   params.set("redirect_url", `/booking/claim?token=${token}`);
@@ -21,10 +23,44 @@ function buildAuthHref(pathname: "/sign-in" | "/sign-up", token: string, email?:
   return `${pathname}?${params.toString()}`;
 }
 
+type BookingSuccessAuthState = {
+  isLoaded: boolean;
+  isSignedIn: boolean;
+};
+
+function BookingSuccessWithClerk() {
+  const { isLoaded, isSignedIn } = useUser();
+
+  return (
+    <BookingSuccessContent
+      auth={{ isLoaded, isSignedIn: Boolean(isSignedIn) }}
+    />
+  );
+}
+
 export default function BookingSuccessPage() {
+  if (!clerkPublishableKey) {
+    return (
+      <BookingSuccessContent
+        auth={{
+          isLoaded: true,
+          isSignedIn: false,
+        }}
+      />
+    );
+  }
+
+  return <BookingSuccessWithClerk />;
+}
+
+function BookingSuccessContent({
+  auth,
+}: {
+  auth: BookingSuccessAuthState;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn } = auth;
   const token = searchParams.get("token");
   const draftContext = useQuery(api.bookingDrafts.getPublicContext, token ? { token } : "skip");
   const [mounted, setMounted] = useState(false);

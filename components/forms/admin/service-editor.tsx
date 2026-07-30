@@ -57,6 +57,11 @@ const formSchema = z
     features: z.array(z.string()).optional(),
     icon: z.string().optional(),
     categoryId: z.string().optional(),
+    bookingRole: z.enum(["core", "upgrade", "addon"]),
+    isSubscribable: z.boolean(),
+    subscriptionFrequencies: z.array(z.enum(["monthly", "biweekly"])),
+    disallowWhenPetHair: z.boolean(),
+    disallowWhenDirtyMud: z.boolean(),
     includedServiceIds: z.array(z.string()).optional(),
     isActive: z.boolean(),
     showOnLandingPage: z.boolean(),
@@ -67,6 +72,18 @@ const formSchema = z
     {
       message:
         "At least one vehicle type price must be available and greater than $0.",
+      path: ["vehiclePrices"],
+    },
+  )
+  .refine(
+    (data) => {
+      const vehicleTypeIds = data.vehiclePrices
+        .map((row) => row.vehicleTypeId)
+        .filter(Boolean);
+      return new Set(vehicleTypeIds).size === vehicleTypeIds.length;
+    },
+    {
+      message: "Each vehicle type can only be priced once.",
       path: ["vehiclePrices"],
     },
   );
@@ -96,6 +113,11 @@ type ServiceEditorRecord = {
   features?: string[];
   icon?: string;
   categoryId?: Id<"serviceCategories">;
+  bookingRole?: "core" | "upgrade" | "addon";
+  isSubscribable?: boolean;
+  subscriptionFrequencies?: Array<"monthly" | "biweekly">;
+  disallowWhenPetHair?: boolean;
+  disallowWhenDirtyMud?: boolean;
   includedServiceIds?: Id<"services">[];
   isActive: boolean;
   showOnLandingPage?: boolean;
@@ -106,6 +128,8 @@ type ServiceCategoryOption = {
   _id: Id<"serviceCategories">;
   name: string;
   type: ServiceEditorType;
+  slug?: string;
+  displayOrder?: number;
 };
 
 const TYPE_LABELS: Record<ServiceEditorType, string> = {
@@ -149,6 +173,11 @@ export function ServiceEditor({
       features: [],
       icon: "",
       categoryId: "",
+      bookingRole: initialType === "addon" ? "addon" : "core",
+      isSubscribable: initialType === "standard",
+      subscriptionFrequencies: ["monthly", "biweekly"],
+      disallowWhenPetHair: false,
+      disallowWhenDirtyMud: false,
       includedServiceIds: [],
       isActive: true,
       showOnLandingPage: true,
@@ -171,6 +200,14 @@ export function ServiceEditor({
       features: service.features ?? [],
       icon: service.icon ?? "",
       categoryId: service.categoryId ?? "",
+      bookingRole:
+        service.bookingRole ??
+        (service.serviceType === "addon" ? "addon" : "core"),
+      isSubscribable: service.isSubscribable ?? false,
+      subscriptionFrequencies:
+        service.subscriptionFrequencies ?? ["monthly", "biweekly"],
+      disallowWhenPetHair: service.disallowWhenPetHair ?? false,
+      disallowWhenDirtyMud: service.disallowWhenDirtyMud ?? false,
       includedServiceIds: service.includedServiceIds?.map(String) ?? [],
       isActive: service.isActive,
       showOnLandingPage: service.showOnLandingPage ?? true,
@@ -222,6 +259,13 @@ export function ServiceEditor({
           vehiclePrices,
           duration: data.duration,
           serviceType,
+          bookingRole: data.bookingRole,
+          isSubscribable: data.isSubscribable,
+          subscriptionFrequencies: data.isSubscribable
+            ? data.subscriptionFrequencies
+            : [],
+          disallowWhenPetHair: data.disallowWhenPetHair,
+          disallowWhenDirtyMud: data.disallowWhenDirtyMud,
           categoryId: data.categoryId
             ? (data.categoryId as Id<"serviceCategories">)
             : undefined,
@@ -242,6 +286,13 @@ export function ServiceEditor({
           vehiclePrices,
           duration: data.duration,
           serviceType,
+          bookingRole: data.bookingRole,
+          isSubscribable: data.isSubscribable,
+          subscriptionFrequencies: data.isSubscribable
+            ? data.subscriptionFrequencies
+            : [],
+          disallowWhenPetHair: data.disallowWhenPetHair,
+          disallowWhenDirtyMud: data.disallowWhenDirtyMud,
           categoryId: data.categoryId
             ? (data.categoryId as Id<"serviceCategories">)
             : undefined,
@@ -390,6 +441,85 @@ export function ServiceEditor({
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="bookingRole"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Booking role</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose role" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="core">Core service</SelectItem>
+                          <SelectItem value="upgrade">Wax/Ceramic upgrade</SelectItem>
+                          <SelectItem value="addon">Add-on</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Customers choose one core service, then optional upgrades
+                        and add-ons.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="space-y-3">
+                  <FormLabel>Rules</FormLabel>
+                  <div className="grid gap-2">
+                    <FormField
+                      control={form.control}
+                      name="disallowWhenPetHair"
+                      render={({ field }) => (
+                        <FormItem>
+                          <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
+                            <span>
+                              <span className="text-sm font-medium">
+                                Hide for pet hair
+                              </span>
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                Useful for Level 1 full or interior services.
+                              </span>
+                            </span>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={(checked) =>
+                                field.onChange(checked === true)
+                              }
+                            />
+                          </label>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="disallowWhenDirtyMud"
+                      render={({ field }) => (
+                        <FormItem>
+                          <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3">
+                            <span>
+                              <span className="text-sm font-medium">
+                                Hide for dirt or mud
+                              </span>
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                Useful for Level 1 full or exterior services.
+                              </span>
+                            </span>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={(checked) =>
+                                field.onChange(checked === true)
+                              }
+                            />
+                          </label>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -578,6 +708,74 @@ export function ServiceEditor({
                       </FormItem>
                     )}
                   />
+                )}
+                {form.watch("bookingRole") === "core" && (
+                  <div className="space-y-3 rounded-md border p-3">
+                    <FormField
+                      control={form.control}
+                      name="isSubscribable"
+                      render={({ field }) => (
+                        <FormItem>
+                          <label className="flex cursor-pointer items-start gap-3">
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={(checked) =>
+                                field.onChange(checked === true)
+                              }
+                            />
+                            <span>
+                              <span className="text-sm font-medium">
+                                Eligible for recurring service
+                              </span>
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                Booking can offer this product monthly or
+                                bi-weekly.
+                              </span>
+                            </span>
+                          </label>
+                        </FormItem>
+                      )}
+                    />
+                    {form.watch("isSubscribable") && (
+                      <FormField
+                        control={form.control}
+                        name="subscriptionFrequencies"
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel>Frequencies</FormLabel>
+                            {(["monthly", "biweekly"] as const).map((frequency) => {
+                              const checked = field.value.includes(frequency);
+                              return (
+                                <label
+                                  key={frequency}
+                                  className="flex cursor-pointer items-center gap-2 text-sm"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(nextChecked) => {
+                                      field.onChange(
+                                        nextChecked
+                                          ? [...field.value, frequency]
+                                          : field.value.filter(
+                                              (value) => value !== frequency,
+                                            ),
+                                      );
+                                    }}
+                                  />
+                                  <span>
+                                    {frequency === "monthly"
+                                      ? "Monthly"
+                                      : "Bi-weekly"}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>

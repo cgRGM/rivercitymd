@@ -658,6 +658,75 @@ describe("appointments", () => {
     ]);
   });
 
+  test("admin appointment updates preserve stored travel fee invoice line", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      userId,
+      vehicleId,
+      baseServiceId,
+    } = await createAdjustmentFixture(t);
+
+    await t.run(async (ctx: any) => {
+      const travelItem = {
+        itemType: "travel_fee" as const,
+        serviceName: "Travel fee (55.0 miles)",
+        quantity: 1,
+        unitPrice: 50,
+        totalPrice: 50,
+      };
+      await ctx.db.patch(appointmentId, {
+        totalPrice: 150,
+        duration: 180,
+        travelDistanceMiles: 55,
+        travelFee: 50,
+      });
+      const invoice = await ctx.db.get(invoiceId);
+      await ctx.db.patch(invoiceId, {
+        items: [...(invoice?.items ?? []), travelItem],
+        subtotal: 150,
+        total: 150,
+        remainingBalance: 150,
+      });
+    });
+
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72205",
+    });
+
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db.get(invoiceId);
+      return { appointment, invoice };
+    });
+
+    expect(updated.appointment?.totalPrice).toBe(150);
+    expect(updated.appointment?.duration).toBe(180);
+    expect(updated.invoice?.total).toBe(150);
+    expect(updated.invoice?.remainingBalance).toBe(150);
+    expect(updated.invoice?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "travel_fee",
+          serviceName: "Travel fee (55.0 miles)",
+          unitPrice: 50,
+          totalPrice: 50,
+        }),
+      ]),
+    );
+  });
+
   test("work adjustment updates an unpaid invoice and records an audit snapshot", async () => {
     const t = convexTest(schema, modules);
     const {
@@ -708,6 +777,191 @@ describe("appointments", () => {
       durationDelta: 30,
       invoiceAction: "updated_open_invoice",
     });
+  });
+
+  test("work adjustments preserve stored travel fee when rebuilding an invoice", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      vehicleId,
+      baseServiceId,
+    } = await createAdjustmentFixture(t);
+
+    await t.run(async (ctx: any) => {
+      const travelItem = {
+        itemType: "travel_fee" as const,
+        serviceName: "Travel fee (55.0 miles)",
+        quantity: 1,
+        unitPrice: 50,
+        totalPrice: 50,
+      };
+      await ctx.db.patch(appointmentId, {
+        totalPrice: 150,
+        duration: 180,
+        travelDistanceMiles: 55,
+        travelFee: 50,
+      });
+      const invoice = await ctx.db.get(invoiceId);
+      await ctx.db.patch(invoiceId, {
+        items: [...(invoice?.items ?? []), travelItem],
+        subtotal: 150,
+        total: 150,
+        remainingBalance: 150,
+      });
+    });
+
+    const result = await asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId],
+      petFeeVehicleIds: [vehicleId],
+      reason: "Pet hair found on arrival",
+    });
+
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db.get(invoiceId);
+      const adjustment = await ctx.db
+        .query("appointmentAdjustments")
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
+        .unique();
+      return { appointment, invoice, adjustment };
+    });
+
+    expect(result.invoiceAction).toBe("updated_open_invoice");
+    expect(updated.appointment?.totalPrice).toBe(200);
+    expect(updated.appointment?.duration).toBe(210);
+    expect(updated.invoice?.total).toBe(200);
+    expect(updated.invoice?.remainingBalance).toBe(200);
+    expect(updated.invoice?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemType: "pet_fee",
+          totalPrice: 50,
+        }),
+        expect.objectContaining({
+          itemType: "travel_fee",
+          serviceName: "Travel fee (55.0 miles)",
+          totalPrice: 50,
+        }),
+      ]),
+    );
+    expect(updated.adjustment).toMatchObject({
+      priceDelta: 50,
+      durationDelta: 30,
+    });
+  });
+
+  test("admin can add a travel fee to an open appointment invoice", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+    } = await createAdjustmentFixture(t);
+
+    const result = await asAdmin.mutation(api.appointments.updateTravelFee, {
+      appointmentId,
+      travelFee: 50,
+      travelDistanceMiles: 55,
+    });
+
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoice = await ctx.db.get(invoiceId);
+      return { appointment, invoice };
+    });
+
+    expect(result).toMatchObject({
+      invoiceAction: "updated_open_invoice",
+      invoiceId,
+    });
+    expect(updated.appointment?.travelFee).toBe(50);
+    expect(updated.appointment?.travelDistanceMiles).toBe(55);
+    expect(updated.appointment?.totalPrice).toBe(150);
+    expect(updated.appointment?.duration).toBe(180);
+    expect(updated.invoice?.subtotal).toBe(150);
+    expect(updated.invoice?.total).toBe(150);
+    expect(updated.invoice?.remainingBalance).toBe(150);
+    expect(updated.invoice?.items.filter((item: any) => item.itemType === "travel_fee")).toEqual([
+      expect.objectContaining({
+        serviceName: "Travel fee (55.0 miles)",
+        quantity: 1,
+        unitPrice: 50,
+        totalPrice: 50,
+      }),
+    ]);
+  });
+
+  test("admin travel fee creates supplemental invoice when original is paid", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+    } = await createAdjustmentFixture(t, {
+      invoiceStatus: "paid",
+      depositPaid: true,
+    });
+
+    const result = await asAdmin.mutation(api.appointments.updateTravelFee, {
+      appointmentId,
+      travelFee: 50,
+      travelDistanceMiles: 55,
+    });
+
+    const updated = await t.run(async (ctx: any) => {
+      const appointment = await ctx.db.get(appointmentId);
+      const invoices = await ctx.db
+        .query("invoices")
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
+        .collect();
+      return { appointment, invoices };
+    });
+
+    expect(result.invoiceAction).toBe("supplemental_invoice_created");
+    expect(result.invoiceId).toBe(invoiceId);
+    expect(result.supplementalInvoiceId).toBeDefined();
+    expect(updated.appointment?.travelFee).toBe(50);
+    expect(updated.appointment?.travelDistanceMiles).toBe(55);
+    expect(updated.appointment?.totalPrice).toBe(150);
+    expect(updated.appointment?.duration).toBe(180);
+    expect(updated.invoices).toHaveLength(2);
+    const supplemental = updated.invoices.find(
+      (invoice: any) => invoice._id === result.supplementalInvoiceId,
+    );
+    expect(supplemental).toMatchObject({
+      status: "draft",
+      subtotal: 50,
+      total: 50,
+      remainingBalance: 50,
+      depositPaid: true,
+      paymentOption: "deposit",
+    });
+    expect(supplemental?.items).toEqual([
+      expect.objectContaining({
+        itemType: "travel_fee",
+        serviceName: "Supplemental travel fee (55.0 miles)",
+        totalPrice: 50,
+      }),
+    ]);
+
+    const repeatResult = await asAdmin.mutation(api.appointments.updateTravelFee, {
+      appointmentId,
+      travelFee: 50,
+      travelDistanceMiles: 55,
+    });
+    const repeatInvoices = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("invoices")
+        .withIndex("by_appointment", (q: any) => q.eq("appointmentId", appointmentId))
+        .collect(),
+    );
+
+    expect(repeatResult.invoiceAction).toBe("none");
+    expect(repeatInvoices).toHaveLength(2);
   });
 
   test("work adjustment is available before an appointment is confirmed", async () => {

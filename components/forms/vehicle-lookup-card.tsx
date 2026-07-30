@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 
 type VehicleSize = "small" | "medium" | "large";
 
@@ -48,6 +47,7 @@ export type VehicleLookupValue = {
   vehicleTypeName?: string;
   classification?: VehicleClassification;
   hasPet?: boolean;
+  hasHeavySoil?: boolean;
   beforePhotos?: BeforePhoto[];
 };
 
@@ -731,15 +731,47 @@ export function VehicleLookupCard({
           )}
 
           {showPetToggle && (
-            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-              <Label htmlFor={`${title}-pet`} className="mb-0">
-                Pet hair or pet travel
-              </Label>
-              <Switch
-                id={`${title}-pet`}
-                checked={value.hasPet === true}
-                onCheckedChange={(checked) => updateValue({ hasPet: checked })}
-              />
+            <div className="rounded-md border bg-muted/10 p-3">
+              <div className="mb-3 space-y-1">
+                <Label className="mb-0">Anything we should plan extra time for?</Label>
+                <p className="text-xs text-muted-foreground">
+                  These answers help us recommend the right package level.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  variant={value.hasPet ? "default" : "outline"}
+                  className="h-auto justify-start gap-2 px-3 py-2 text-left"
+                  onClick={() => updateValue({ hasPet: !value.hasPet })}
+                >
+                  {value.hasPet && <Check className="h-4 w-4 shrink-0" />}
+                  <span>
+                    <span className="block text-sm font-semibold">
+                      Pet hair or odor?
+                    </span>
+                    <span className="block text-xs font-normal opacity-80">
+                      Helps match interior cleanup needs.
+                    </span>
+                  </span>
+                </Button>
+                <Button
+                  type="button"
+                  variant={value.hasHeavySoil ? "default" : "outline"}
+                  className="h-auto justify-start gap-2 px-3 py-2 text-left"
+                  onClick={() => updateValue({ hasHeavySoil: !value.hasHeavySoil })}
+                >
+                  {value.hasHeavySoil && <Check className="h-4 w-4 shrink-0" />}
+                  <span>
+                    <span className="block text-sm font-semibold">
+                      Heavy dirt, mud, or trash?
+                    </span>
+                    <span className="block text-xs font-normal opacity-80">
+                      Helps match exterior and cleanup depth.
+                    </span>
+                  </span>
+                </Button>
+              </div>
             </div>
           )}
 

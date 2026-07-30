@@ -4,11 +4,17 @@ import { redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { getRoleHomePath } from "@/lib/auth-routing";
 
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 export default async function OnboardingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  if (!clerkPublishableKey) {
+    return <>{children}</>;
+  }
+
   const { sessionClaims, getToken } = await auth();
   let redirectPath: string | null = null;
 

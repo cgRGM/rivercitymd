@@ -11,7 +11,9 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { getPostVerificationRedirectPath } from "@/lib/auth-routing";
 
-export default function SignUpVerifyPage() {
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+function SignUpVerifyWithClerk() {
   const { isLoaded, isSignedIn, user } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -185,4 +187,26 @@ export default function SignUpVerifyPage() {
       </Card>
     </div>
   );
+}
+
+export default function SignUpVerifyPage() {
+  if (!clerkPublishableKey) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-2xl text-center">
+              Account setup unavailable
+            </CardTitle>
+            <CardDescription className="text-center">
+              Online account creation is not configured in this preview. Your
+              booking can still be completed as a guest.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  return <SignUpVerifyWithClerk />;
 }

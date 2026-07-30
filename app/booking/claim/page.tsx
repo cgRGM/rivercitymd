@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateStringLong, formatTime12h } from "@/lib/time";
 
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 function buildAuthHref(pathname: "/sign-in" | "/sign-up", token: string, email?: string) {
   const params = new URLSearchParams();
   params.set("redirect_url", `/booking/claim?token=${token}`);
@@ -29,10 +31,50 @@ function getErrorMessage(error: unknown) {
   return "We couldn't attach this booking to your account.";
 }
 
-export default function BookingClaimPage() {
-  const searchParams = useSearchParams();
+type BookingClaimAuthState = {
+  isLoaded: boolean;
+  isSignedIn: boolean;
+  signOut: (redirectUrl: string) => Promise<void>;
+};
+
+function BookingClaimWithClerk() {
   const { isLoaded, isSignedIn } = useUser();
   const clerk = useClerk();
+
+  return (
+    <BookingClaimContent
+      auth={{
+        isLoaded,
+        isSignedIn: Boolean(isSignedIn),
+        signOut: async (redirectUrl) => {
+          await clerk.signOut({ redirectUrl });
+        },
+      }}
+    />
+  );
+}
+
+export default function BookingClaimPage() {
+  if (!clerkPublishableKey) {
+    return (
+      <BookingClaimContent
+        auth={{
+          isLoaded: true,
+          isSignedIn: false,
+          signOut: async (redirectUrl) => {
+            window.location.href = redirectUrl;
+          },
+        }}
+      />
+    );
+  }
+
+  return <BookingClaimWithClerk />;
+}
+
+function BookingClaimContent({ auth }: { auth: BookingClaimAuthState }) {
+  const searchParams = useSearchParams();
+  const { isLoaded, isSignedIn } = auth;
   const claimBooking = useMutation(api.bookingDrafts.claimConvertedDraft);
   const token = searchParams.get("token");
   const claimContext = useQuery(api.bookingDrafts.getPublicContext, token ? { token } : "skip");
@@ -89,7 +131,7 @@ export default function BookingClaimPage() {
   }, [claimBooking, claimContext, isLoaded, isSignedIn, status, token]);
 
   const handleSwitchAccount = async () => {
-    await clerk.signOut({ redirectUrl: signInHref });
+    await auth.signOut(signInHref);
   };
 
   if (!token) {
