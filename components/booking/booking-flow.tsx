@@ -2110,32 +2110,31 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                                                   {group.services.length} option{group.services.length === 1 ? "" : "s"}
                                                 </span>
                                               </div>
-                                              <div className="flex snap-x items-stretch gap-3 overflow-x-auto pb-2">
+                                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                                 {group.services.map(service => {
                                                   const isSelected = selectedPackageId === service._id;
                                                   return (
-                                                    <div key={service._id} className="flex min-w-[17.5rem] snap-start md:min-w-[18.5rem]">
-                                                      <ServiceCard
-                                                        service={service}
-                                                        vehicleSize={vehiclePricingContext.vehicleSize}
-                                                        vehicleTypeId={vehiclePricingContext.vehicleTypeId}
-                                                        isSelected={isSelected}
-                                                        onSelect={() => {
-                                                          const otherServices = currentSelection.filter(id => {
-                                                            const s = services?.find(s => s._id === id);
-                                                            return s && getBookingRole(s) !== "core";
-                                                          });
-                                                          const nextSelection = [...otherServices, service._id];
-                                                          const nextRecord = {
-                                                            ...field.value,
-                                                            [vehicleKey]: nextSelection,
-                                                          };
-                                                          field.onChange(nextRecord);
+                                                    <ServiceCard
+                                                      key={service._id}
+                                                      service={service}
+                                                      vehicleSize={vehiclePricingContext.vehicleSize}
+                                                      vehicleTypeId={vehiclePricingContext.vehicleTypeId}
+                                                      isSelected={isSelected}
+                                                      onSelect={() => {
+                                                        const otherServices = currentSelection.filter(id => {
+                                                          const s = services?.find(s => s._id === id);
+                                                          return s && getBookingRole(s) !== "core";
+                                                        });
+                                                        const nextSelection = [...otherServices, service._id];
+                                                        const nextRecord = {
+                                                          ...field.value,
+                                                          [vehicleKey]: nextSelection,
+                                                        };
+                                                        field.onChange(nextRecord);
 
-                                                          setActiveServiceSection(prev => ({ ...prev, [vIdx]: "upgrades" }));
-                                                        }}
-                                                      />
-                                                    </div>
+                                                        setActiveServiceSection(prev => ({ ...prev, [vIdx]: "upgrades" }));
+                                                      }}
+                                                    />
                                                   );
                                                 })}
                                               </div>
