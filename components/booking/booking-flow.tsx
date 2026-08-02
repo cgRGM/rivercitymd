@@ -185,6 +185,34 @@ function isServiceAllowedForVehicleCondition(
   return isServiceAllowedForCondition(service, vehicle);
 }
 
+function getBookingPhoneDigits(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1);
+  }
+
+  return digits;
+}
+
+function formatBookingPhoneNumber(value: string) {
+  const digits = getBookingPhoneDigits(value).slice(0, 10);
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 6) {
+    return `(${digits.slice(0, 3)})-${digits.slice(3)}`;
+  }
+
+  return `(${digits.slice(0, 3)})-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function isValidBookingEmail(value: string) {
+  return z.string().trim().email().safeParse(value).success;
+}
+
 const step1Schema = z.object({
   scheduledDate: z.date({
     message: "A date of service is required.",
@@ -203,9 +231,11 @@ const step2Schema = z.object({
   name: z.string().min(1, "Name is required"),
   phone: z
     .string()
-    .min(10, "Phone number must be at least 10 digits")
-    .regex(/^[\d\s()+-]+$/, "Phone number contains invalid characters"),
-  email: z.string().email("Please enter a valid email"),
+    .refine(
+      (value) => getBookingPhoneDigits(value).length === 10,
+      "Please enter a 10-digit phone number",
+    ),
+  email: z.string().trim().email("Please enter a valid email"),
   smsOptIn: z.boolean(),
 });
 
@@ -331,7 +361,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
   const [reviewContact, setReviewContact] = useState({
     name: step2Data?.name || "",
     email: step2Data?.email || "",
-    phone: step2Data?.phone || "",
+    phone: step2Data?.phone ? formatBookingPhoneNumber(step2Data.phone) : "",
     smsOptIn: step2Data?.smsOptIn ?? false,
   });
   const [reviewVehicle, setReviewVehicle] = useState<VehicleLookupValue>({
@@ -549,11 +579,11 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
       toast.error("Please enter your name.");
       return;
     }
-    if (!reviewContact.email.includes("@")) {
+    if (!isValidBookingEmail(reviewContact.email)) {
       toast.error("Please enter a valid email address.");
       return;
     }
-    if (reviewContact.phone.replace(/\D/g, "").length < 10) {
+    if (getBookingPhoneDigits(reviewContact.phone).length !== 10) {
       toast.error("Please enter a valid phone number.");
       return;
     }
@@ -717,7 +747,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
     resolver: zodResolver(step2Schema),
     defaultValues: {
       name: step2Data?.name || "",
-      phone: step2Data?.phone || "",
+      phone: step2Data?.phone ? formatBookingPhoneNumber(step2Data.phone) : "",
       email: step2Data?.email || "",
       smsOptIn:
         step2Data?.smsOptIn ??
@@ -843,7 +873,7 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
           ...step2Data,
           name: fullName,
           email: email,
-          phone: step2Data?.phone || "",
+          phone: step2Data?.phone ? formatBookingPhoneNumber(step2Data.phone) : "",
           smsOptIn:
             step2Data?.smsOptIn ??
             currentUser?.notificationPreferences?.operationalSmsConsent
@@ -1223,6 +1253,11 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
   const onSubmit = async () => {
     if (!step2Data?.phone || !step2Data?.email || !step2Data?.name) {
       toast.error("Please go back and enter your contact details.");
+      return;
+    }
+
+    if (!step2Schema.safeParse(step2Data).success) {
+      toast.error("Please go back and enter a valid email address and phone number.");
       return;
     }
 
@@ -1744,9 +1779,11 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                                 onChange={(event) =>
                                   setReviewContact((current) => ({
                                     ...current,
-                                    phone: event.target.value,
+                                    phone: formatBookingPhoneNumber(event.target.value),
                                   }))
                                 }
+                                inputMode="tel"
+                                placeholder="(123)-456-7890"
                                 className="bg-background"
                               />
                             </div>
@@ -1843,7 +1880,9 @@ function BookingFlowContent({ auth }: { auth: BookingAuthState }) {
                         {...field}
                         value={field.value || ""}
                         type="tel"
-                        placeholder="123-456-7890"
+                        inputMode="tel"
+                        placeholder="(123)-456-7890"
+                        onChange={(event) => field.onChange(formatBookingPhoneNumber(event.target.value))}
                         className="bg-background border-border text-foreground"
                       />
                     </FormControl>
