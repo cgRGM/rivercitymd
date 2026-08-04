@@ -8,11 +8,14 @@ export const travelFeeSettingsValidator = v.object({
   originLatitude: v.number(),
   originLongitude: v.number(),
   freeRadiusMiles: v.number(),
+  shortRangeMaxMiles: v.number(),
   midRangeMaxMiles: v.number(),
   longRangeMaxMiles: v.number(),
+  shortRangeFee: v.number(),
   midRangeFee: v.number(),
   longRangeFee: v.number(),
   perMileRateAfterLongRange: v.number(),
+  shortRangeBufferMinutes: v.number(),
   midRangeBufferMinutes: v.number(),
   longRangeBufferMinutes: v.number(),
   isActive: v.boolean(),
@@ -26,11 +29,14 @@ export type TravelFeeSettings = {
   originLatitude: number;
   originLongitude: number;
   freeRadiusMiles: number;
+  shortRangeMaxMiles: number;
   midRangeMaxMiles: number;
   longRangeMaxMiles: number;
+  shortRangeFee: number;
   midRangeFee: number;
   longRangeFee: number;
   perMileRateAfterLongRange: number;
+  shortRangeBufferMinutes: number;
   midRangeBufferMinutes: number;
   longRangeBufferMinutes: number;
   isActive: boolean;
@@ -43,12 +49,15 @@ export const defaultTravelFeeSettings: TravelFeeSettings = {
   originZip: "72205",
   originLatitude: 34.752258,
   originLongitude: -92.329768,
-  freeRadiusMiles: 20,
+  freeRadiusMiles: 14,
+  shortRangeMaxMiles: 20,
   midRangeMaxMiles: 35,
   longRangeMaxMiles: 50,
+  shortRangeFee: 15,
   midRangeFee: 25,
   longRangeFee: 50,
   perMileRateAfterLongRange: 2,
+  shortRangeBufferMinutes: 15,
   midRangeBufferMinutes: 30,
   longRangeBufferMinutes: 60,
   isActive: true,
@@ -78,8 +87,12 @@ export function normalizeTravelFeeSettings(
     settings.freeRadiusMiles,
     defaultTravelFeeSettings.freeRadiusMiles,
   );
-  const midRangeMaxMiles = Math.max(
+  const shortRangeMaxMiles = Math.max(
     freeRadiusMiles + 1,
+    cleanNumber(settings.shortRangeMaxMiles, defaultTravelFeeSettings.shortRangeMaxMiles),
+  );
+  const midRangeMaxMiles = Math.max(
+    shortRangeMaxMiles + 1,
     cleanNumber(settings.midRangeMaxMiles, defaultTravelFeeSettings.midRangeMaxMiles),
   );
   const longRangeMaxMiles = Math.max(
@@ -107,8 +120,13 @@ export function normalizeTravelFeeSettings(
       defaultTravelFeeSettings.originLongitude,
     ),
     freeRadiusMiles,
+    shortRangeMaxMiles,
     midRangeMaxMiles,
     longRangeMaxMiles,
+    shortRangeFee: cleanMoney(
+      settings.shortRangeFee,
+      defaultTravelFeeSettings.shortRangeFee,
+    ),
     midRangeFee: cleanMoney(settings.midRangeFee, defaultTravelFeeSettings.midRangeFee),
     longRangeFee: cleanMoney(
       settings.longRangeFee,
@@ -117,6 +135,10 @@ export function normalizeTravelFeeSettings(
     perMileRateAfterLongRange: cleanMoney(
       settings.perMileRateAfterLongRange,
       defaultTravelFeeSettings.perMileRateAfterLongRange,
+    ),
+    shortRangeBufferMinutes: cleanMinutes(
+      settings.shortRangeBufferMinutes,
+      defaultTravelFeeSettings.shortRangeBufferMinutes,
     ),
     midRangeBufferMinutes: cleanMinutes(
       settings.midRangeBufferMinutes,
@@ -156,6 +178,7 @@ export function calculateTravelFeeForMiles(
   const settings = normalizeTravelFeeSettings(settingsInput);
   if (!settings.isActive) return 0;
   if (distanceMiles <= settings.freeRadiusMiles) return 0;
+  if (distanceMiles <= settings.shortRangeMaxMiles) return settings.shortRangeFee;
   if (distanceMiles <= settings.midRangeMaxMiles) return settings.midRangeFee;
   if (distanceMiles <= settings.longRangeMaxMiles) return settings.longRangeFee;
   const fee =
@@ -172,6 +195,9 @@ export function calculateTravelBufferMinutesForMiles(
   const settings = normalizeTravelFeeSettings(settingsInput);
   if (!settings.isActive) return 0;
   if (distanceMiles <= settings.freeRadiusMiles) return 0;
+  if (distanceMiles <= settings.shortRangeMaxMiles) {
+    return settings.shortRangeBufferMinutes;
+  }
   if (distanceMiles <= settings.midRangeMaxMiles) {
     return settings.midRangeBufferMinutes;
   }
