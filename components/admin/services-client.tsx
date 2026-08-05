@@ -148,15 +148,19 @@ export default function ServicesClient() {
     originZip: "72205",
     originLatitude: 34.752258,
     originLongitude: -92.329768,
-    freeRadiusMiles: 20,
+    freeRadiusMiles: 14,
+    shortRangeMaxMiles: 20,
     midRangeMaxMiles: 35,
     longRangeMaxMiles: 50,
+    shortRangeFee: 15,
     midRangeFee: 25,
     longRangeFee: 50,
     perMileRateAfterLongRange: 2,
+    shortRangeBufferMinutes: 15,
     midRangeBufferMinutes: 30,
     longRangeBufferMinutes: 60,
     isActive: true,
+    tier0Min: 15,
     tier1Min: 21,
     tier2Min: 36,
   });
@@ -181,7 +185,8 @@ export default function ServicesClient() {
     if (travelFeeSettings) {
       setTravelFeeValues({
         ...travelFeeSettings,
-        tier1Min: travelFeeSettings.freeRadiusMiles + 1,
+        tier0Min: travelFeeSettings.freeRadiusMiles + 1,
+        tier1Min: travelFeeSettings.shortRangeMaxMiles + 1,
         tier2Min: travelFeeSettings.midRangeMaxMiles + 1,
       });
     }
@@ -190,13 +195,17 @@ export default function ServicesClient() {
   const travelFeeValidationMessage = useMemo(() => {
     const requiredNumbers = [
       travelFeeValues.freeRadiusMiles,
+      travelFeeValues.shortRangeMaxMiles,
       travelFeeValues.midRangeMaxMiles,
       travelFeeValues.longRangeMaxMiles,
+      travelFeeValues.shortRangeFee,
       travelFeeValues.midRangeFee,
       travelFeeValues.longRangeFee,
       travelFeeValues.perMileRateAfterLongRange,
+      travelFeeValues.shortRangeBufferMinutes,
       travelFeeValues.midRangeBufferMinutes,
       travelFeeValues.longRangeBufferMinutes,
+      travelFeeValues.tier0Min,
       travelFeeValues.tier1Min,
       travelFeeValues.tier2Min,
     ];
@@ -206,29 +215,42 @@ export default function ServicesClient() {
     }
 
     // Gap / Overlap validation for Tier 1 start relative to freeRadiusMiles
-    if (travelFeeValues.tier1Min > travelFeeValues.freeRadiusMiles + 1) {
-      return `Gap detected: There is a missing range between Free Travel (0-${travelFeeValues.freeRadiusMiles} mi) and Tier 1 (starts at ${travelFeeValues.tier1Min} mi). Tier 1 must start at ${travelFeeValues.freeRadiusMiles + 1} mi.`;
+    if (travelFeeValues.tier0Min > travelFeeValues.freeRadiusMiles + 1) {
+      return `Gap detected: There is a missing range between Free Travel (0-${travelFeeValues.freeRadiusMiles} mi) and Tier 1 (starts at ${travelFeeValues.tier0Min} mi). Tier 1 must start at ${travelFeeValues.freeRadiusMiles + 1} mi.`;
     }
-    if (travelFeeValues.tier1Min <= travelFeeValues.freeRadiusMiles) {
-      return `Overlap detected: Tier 1 starts at ${travelFeeValues.tier1Min} mi but Free Travel goes up to ${travelFeeValues.freeRadiusMiles} mi. Tier 1 must start at ${travelFeeValues.freeRadiusMiles + 1} mi.`;
+    if (travelFeeValues.tier0Min <= travelFeeValues.freeRadiusMiles) {
+      return `Overlap detected: Tier 1 starts at ${travelFeeValues.tier0Min} mi but Free Travel goes up to ${travelFeeValues.freeRadiusMiles} mi. Tier 1 must start at ${travelFeeValues.freeRadiusMiles + 1} mi.`;
     }
 
     // Ordering validation for Tier 1
-    if (travelFeeValues.midRangeMaxMiles < travelFeeValues.tier1Min) {
+    if (travelFeeValues.shortRangeMaxMiles < travelFeeValues.tier0Min) {
       return "Tier 1 end miles must be greater than or equal to its start miles.";
     }
 
     // Gap / Overlap validation for Tier 2 start relative to Tier 1 end
-    if (travelFeeValues.tier2Min > travelFeeValues.midRangeMaxMiles + 1) {
-      return `Gap detected: There is a missing range between Tier 1 (ends at ${travelFeeValues.midRangeMaxMiles} mi) and Tier 2 (starts at ${travelFeeValues.tier2Min} mi). Tier 2 must start at ${travelFeeValues.midRangeMaxMiles + 1} mi.`;
+    if (travelFeeValues.tier1Min > travelFeeValues.shortRangeMaxMiles + 1) {
+      return `Gap detected: There is a missing range between Tier 1 (ends at ${travelFeeValues.shortRangeMaxMiles} mi) and Tier 2 (starts at ${travelFeeValues.tier1Min} mi). Tier 2 must start at ${travelFeeValues.shortRangeMaxMiles + 1} mi.`;
     }
-    if (travelFeeValues.tier2Min <= travelFeeValues.midRangeMaxMiles) {
-      return `Overlap detected: Tier 2 starts at ${travelFeeValues.tier2Min} mi but Tier 1 goes up to ${travelFeeValues.midRangeMaxMiles} mi. Tier 2 must start at ${travelFeeValues.midRangeMaxMiles + 1} mi.`;
+    if (travelFeeValues.tier1Min <= travelFeeValues.shortRangeMaxMiles) {
+      return `Overlap detected: Tier 2 starts at ${travelFeeValues.tier1Min} mi but Tier 1 goes up to ${travelFeeValues.shortRangeMaxMiles} mi. Tier 2 must start at ${travelFeeValues.shortRangeMaxMiles + 1} mi.`;
     }
 
     // Ordering validation for Tier 2
-    if (travelFeeValues.longRangeMaxMiles < travelFeeValues.tier2Min) {
+    if (travelFeeValues.midRangeMaxMiles < travelFeeValues.tier1Min) {
       return "Tier 2 end miles must be greater than or equal to its start miles.";
+    }
+
+    // Gap / Overlap validation for Tier 3 start relative to Tier 2 end
+    if (travelFeeValues.tier2Min > travelFeeValues.midRangeMaxMiles + 1) {
+      return `Gap detected: There is a missing range between Tier 2 (ends at ${travelFeeValues.midRangeMaxMiles} mi) and Tier 3 (starts at ${travelFeeValues.tier2Min} mi). Tier 3 must start at ${travelFeeValues.midRangeMaxMiles + 1} mi.`;
+    }
+    if (travelFeeValues.tier2Min <= travelFeeValues.midRangeMaxMiles) {
+      return `Overlap detected: Tier 3 starts at ${travelFeeValues.tier2Min} mi but Tier 2 goes up to ${travelFeeValues.midRangeMaxMiles} mi. Tier 3 must start at ${travelFeeValues.midRangeMaxMiles + 1} mi.`;
+    }
+
+    // Ordering validation for Tier 3
+    if (travelFeeValues.longRangeMaxMiles < travelFeeValues.tier2Min) {
+      return "Tier 3 end miles must be greater than or equal to its start miles.";
     }
 
     return "";
@@ -237,13 +259,17 @@ export default function ServicesClient() {
   const updateTravelNumber = (
     key:
       | "freeRadiusMiles"
+      | "shortRangeMaxMiles"
       | "midRangeMaxMiles"
       | "longRangeMaxMiles"
+      | "shortRangeFee"
       | "midRangeFee"
       | "longRangeFee"
       | "perMileRateAfterLongRange"
+      | "shortRangeBufferMinutes"
       | "midRangeBufferMinutes"
       | "longRangeBufferMinutes"
+      | "tier0Min"
       | "tier1Min"
       | "tier2Min",
     value: number,
@@ -261,7 +287,8 @@ export default function ServicesClient() {
     if (travelFeeSettings) {
       setTravelFeeValues({
         ...travelFeeSettings,
-        tier1Min: travelFeeSettings.freeRadiusMiles + 1,
+        tier0Min: travelFeeSettings.freeRadiusMiles + 1,
+        tier1Min: travelFeeSettings.shortRangeMaxMiles + 1,
         tier2Min: travelFeeSettings.midRangeMaxMiles + 1,
       });
     }
@@ -366,6 +393,10 @@ export default function ServicesClient() {
     return `0-${
       settings.freeRadiusMiles
     } mi free • ${settings.freeRadiusMiles + 1}-${
+      settings.shortRangeMaxMiles
+    } mi $${settings.shortRangeFee.toFixed(0)} • ${
+      settings.shortRangeMaxMiles + 1
+    }-${
       settings.midRangeMaxMiles
     } mi $${settings.midRangeFee.toFixed(0)} • ${
       settings.midRangeMaxMiles + 1
@@ -396,11 +427,14 @@ export default function ServicesClient() {
 
   const travelRulePayload = {
     freeRadiusMiles: travelFeeValues.freeRadiusMiles,
+    shortRangeMaxMiles: travelFeeValues.shortRangeMaxMiles,
     midRangeMaxMiles: travelFeeValues.midRangeMaxMiles,
     longRangeMaxMiles: travelFeeValues.longRangeMaxMiles,
+    shortRangeFee: travelFeeValues.shortRangeFee,
     midRangeFee: travelFeeValues.midRangeFee,
     longRangeFee: travelFeeValues.longRangeFee,
     perMileRateAfterLongRange: travelFeeValues.perMileRateAfterLongRange,
+    shortRangeBufferMinutes: travelFeeValues.shortRangeBufferMinutes,
     midRangeBufferMinutes: travelFeeValues.midRangeBufferMinutes,
     longRangeBufferMinutes: travelFeeValues.longRangeBufferMinutes,
     isActive: travelFeeValues.isActive,
@@ -990,6 +1024,80 @@ export default function ServicesClient() {
                     <div>
                       <p className="text-sm font-medium">Tier 1</p>
                       <p className="text-xs text-muted-foreground">
+                        {travelFeeValues.tier0Min}-{travelFeeValues.shortRangeMaxMiles} miles
+                      </p>
+                    </div>
+                    <Badge variant="secondary">
+                      +{travelFeeValues.shortRangeBufferMinutes} min
+                    </Badge>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>{travelFeeValues.tier0Min} mi</span>
+                      <span>{travelFeeValues.shortRangeMaxMiles} mi</span>
+                    </div>
+                    <Slider
+                      min={0}
+                      max={Math.max(100, travelFeeValues.longRangeMaxMiles + 20)}
+                      step={1}
+                      minStepsBetweenThumbs={1}
+                      value={[
+                        travelFeeValues.tier0Min,
+                        travelFeeValues.shortRangeMaxMiles,
+                      ]}
+                      onValueChange={(value) => {
+                        const minVal = value[0] ?? travelFeeValues.tier0Min;
+                        const maxVal = value[1] ?? travelFeeValues.shortRangeMaxMiles;
+                        setTravelFeeValues((current) => ({
+                          ...current,
+                          tier0Min: minVal,
+                          shortRangeMaxMiles: maxVal,
+                          tier1Min: maxVal + 1,
+                        }));
+                      }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Fee ($)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={travelFeeValues.shortRangeFee}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "shortRangeFee",
+                            Number.parseFloat(event.target.value) || 0,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Extra Time (min)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="5"
+                        value={travelFeeValues.shortRangeBufferMinutes}
+                        onChange={(event) =>
+                          updateTravelNumber(
+                            "shortRangeBufferMinutes",
+                            Math.floor(Number.parseFloat(event.target.value) || 0),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-3 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Tier 2</p>
+                      <p className="text-xs text-muted-foreground">
                         {travelFeeValues.tier1Min}-{travelFeeValues.midRangeMaxMiles} miles
                       </p>
                     </div>
@@ -1019,6 +1127,7 @@ export default function ServicesClient() {
                           ...current,
                           tier1Min: minVal,
                           midRangeMaxMiles: maxVal,
+                          tier2Min: maxVal + 1,
                         }));
                       }}
                     />
@@ -1061,7 +1170,7 @@ export default function ServicesClient() {
                 <div className="rounded-md border p-3 space-y-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium">Tier 2</p>
+                      <p className="text-sm font-medium">Tier 3</p>
                       <p className="text-xs text-muted-foreground">
                         {travelFeeValues.tier2Min}-{travelFeeValues.longRangeMaxMiles} miles
                       </p>
@@ -1135,9 +1244,9 @@ export default function ServicesClient() {
                   <div className="mb-3 flex items-start gap-2">
                     <Clock className="mt-0.5 h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium">Over Tier 2</p>
+                      <p className="text-sm font-medium">Over Tier 3</p>
                       <p className="text-xs text-muted-foreground">
-                        After {travelFeeValues.longRangeMaxMiles} miles, charge Tier 2
+                        After {travelFeeValues.longRangeMaxMiles} miles, charge Tier 3
                         plus a per-mile rate.
                       </p>
                     </div>

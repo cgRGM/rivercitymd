@@ -15,7 +15,9 @@ describe("travelFees", () => {
   });
 
   test("uses tiered fees for estimated travel distance", () => {
-    expect(calculateTravelFeeForMiles(20)).toBe(0);
+    expect(calculateTravelFeeForMiles(14)).toBe(0);
+    expect(calculateTravelFeeForMiles(14.1)).toBe(15);
+    expect(calculateTravelFeeForMiles(20)).toBe(15);
     expect(calculateTravelFeeForMiles(20.1)).toBe(25);
     expect(calculateTravelFeeForMiles(35)).toBe(25);
     expect(calculateTravelFeeForMiles(35.1)).toBe(50);
@@ -46,18 +48,22 @@ describe("travelFees", () => {
       originLatitude: 34.752258,
       originLongitude: -92.329768,
       freeRadiusMiles: 20,
+      shortRangeMaxMiles: 25,
       midRangeMaxMiles: 30,
       longRangeMaxMiles: 40,
+      shortRangeFee: 15,
       midRangeFee: 25,
       longRangeFee: 45,
       perMileRateAfterLongRange: 3,
-      midRangeBufferMinutes: 20,
+      shortRangeBufferMinutes: 20,
+      midRangeBufferMinutes: 30,
       longRangeBufferMinutes: 75,
       isActive: true,
     });
 
     const settings = await t.query(api.travelFeeSettings.get, {});
     expect(calculateTravelFeeForMiles(45, settings)).toBe(60);
+    expect(calculateTravelFeeForMiles(22, settings)).toBe(15);
     expect(calculateTravelBufferMinutesForMiles(25, settings)).toBe(20);
     expect(calculateTravelBufferMinutesForMiles(45, settings)).toBe(75);
   });
@@ -84,11 +90,14 @@ describe("travelFees", () => {
       originLatitude: 36.06258,
       originLongitude: -94.15743,
       freeRadiusMiles: 20,
+      shortRangeMaxMiles: 25,
       midRangeMaxMiles: 35,
       longRangeMaxMiles: 50,
+      shortRangeFee: 15,
       midRangeFee: 25,
       longRangeFee: 50,
       perMileRateAfterLongRange: 2,
+      shortRangeBufferMinutes: 15,
       midRangeBufferMinutes: 30,
       longRangeBufferMinutes: 60,
       isActive: true,
@@ -144,11 +153,14 @@ describe("travelFees", () => {
       originState: "AR",
       originZip: "72701",
       freeRadiusMiles: 20,
+      shortRangeMaxMiles: 25,
       midRangeMaxMiles: 35,
       longRangeMaxMiles: 50,
+      shortRangeFee: 15,
       midRangeFee: 25,
       longRangeFee: 50,
       perMileRateAfterLongRange: 2,
+      shortRangeBufferMinutes: 15,
       midRangeBufferMinutes: 30,
       longRangeBufferMinutes: 60,
       isActive: true,
@@ -183,11 +195,14 @@ describe("travelFees", () => {
       originLatitude: 36.06258,
       originLongitude: -94.15743,
       freeRadiusMiles: 20,
+      shortRangeMaxMiles: 25,
       midRangeMaxMiles: 35,
       longRangeMaxMiles: 50,
+      shortRangeFee: 15,
       midRangeFee: 25,
       longRangeFee: 50,
       perMileRateAfterLongRange: 2,
+      shortRangeBufferMinutes: 15,
       midRangeBufferMinutes: 30,
       longRangeBufferMinutes: 60,
       isActive: true,
@@ -195,11 +210,14 @@ describe("travelFees", () => {
 
     await asAdmin.mutation(api.travelFeeSettings.updateRules, {
       freeRadiusMiles: 18,
+      shortRangeMaxMiles: 25,
       midRangeMaxMiles: 32,
       longRangeMaxMiles: 52,
+      shortRangeFee: 15,
       midRangeFee: 25,
       longRangeFee: 50,
       perMileRateAfterLongRange: 2,
+      shortRangeBufferMinutes: 15,
       midRangeBufferMinutes: 30,
       longRangeBufferMinutes: 60,
       isActive: true,
@@ -229,20 +247,25 @@ describe("travelFees", () => {
     await expect(
       asAdmin.mutation(api.travelFeeSettings.updateRules, {
         freeRadiusMiles: 20,
+        shortRangeMaxMiles: 25,
         midRangeMaxMiles: 20,
         longRangeMaxMiles: 50,
+        shortRangeFee: 15,
         midRangeFee: 25,
         longRangeFee: 50,
         perMileRateAfterLongRange: 2,
+        shortRangeBufferMinutes: 15,
         midRangeBufferMinutes: 30,
         longRangeBufferMinutes: 60,
         isActive: true,
       }),
-    ).rejects.toThrow("Tier 1 must end");
+    ).rejects.toThrow("Tier 2 must end");
   });
 
   test("uses travel buffers for appointment blocking", () => {
-    expect(calculateTravelBufferMinutesForMiles(20)).toBe(0);
+    expect(calculateTravelBufferMinutesForMiles(14)).toBe(0);
+    expect(calculateTravelBufferMinutesForMiles(14.1)).toBe(15);
+    expect(calculateTravelBufferMinutesForMiles(20)).toBe(15);
     expect(calculateTravelBufferMinutesForMiles(20.1)).toBe(30);
     expect(calculateTravelBufferMinutesForMiles(35)).toBe(30);
     expect(calculateTravelBufferMinutesForMiles(35.1)).toBe(60);

@@ -22,11 +22,14 @@ const travelFeeSettingsArgs = {
   originState: v.string(),
   originZip: v.string(),
   freeRadiusMiles: v.number(),
+  shortRangeMaxMiles: v.number(),
   midRangeMaxMiles: v.number(),
   longRangeMaxMiles: v.number(),
+  shortRangeFee: v.number(),
   midRangeFee: v.number(),
   longRangeFee: v.number(),
   perMileRateAfterLongRange: v.number(),
+  shortRangeBufferMinutes: v.number(),
   midRangeBufferMinutes: v.number(),
   longRangeBufferMinutes: v.number(),
   isActive: v.boolean(),
@@ -34,11 +37,14 @@ const travelFeeSettingsArgs = {
 
 const travelFeeRuleArgs = {
   freeRadiusMiles: v.number(),
+  shortRangeMaxMiles: v.number(),
   midRangeMaxMiles: v.number(),
   longRangeMaxMiles: v.number(),
+  shortRangeFee: v.number(),
   midRangeFee: v.number(),
   longRangeFee: v.number(),
   perMileRateAfterLongRange: v.number(),
+  shortRangeBufferMinutes: v.number(),
   midRangeBufferMinutes: v.number(),
   longRangeBufferMinutes: v.number(),
   isActive: v.boolean(),
@@ -53,11 +59,14 @@ const travelFeeSettingsWithOriginArgs = {
 type TravelFeeRuleValues = Pick<
   TravelFeeSettings,
   | "freeRadiusMiles"
+  | "shortRangeMaxMiles"
   | "midRangeMaxMiles"
   | "longRangeMaxMiles"
+  | "shortRangeFee"
   | "midRangeFee"
   | "longRangeFee"
   | "perMileRateAfterLongRange"
+  | "shortRangeBufferMinutes"
   | "midRangeBufferMinutes"
   | "longRangeBufferMinutes"
 >;
@@ -65,13 +74,16 @@ type TravelFeeRuleValues = Pick<
 function assertValidTravelFeeRules(settings: TravelFeeRuleValues) {
   const numericFields: Array<[keyof TravelFeeRuleValues, string]> = [
     ["freeRadiusMiles", "Default service cutoff"],
-    ["midRangeMaxMiles", "Tier 1 max miles"],
-    ["longRangeMaxMiles", "Tier 2 max miles"],
-    ["midRangeFee", "Tier 1 fee"],
-    ["longRangeFee", "Tier 2 fee"],
+    ["shortRangeMaxMiles", "Tier 1 max miles"],
+    ["midRangeMaxMiles", "Tier 2 max miles"],
+    ["longRangeMaxMiles", "Tier 3 max miles"],
+    ["shortRangeFee", "Tier 1 fee"],
+    ["midRangeFee", "Tier 2 fee"],
+    ["longRangeFee", "Tier 3 fee"],
     ["perMileRateAfterLongRange", "Overage per-mile rate"],
-    ["midRangeBufferMinutes", "Tier 1 travel time"],
-    ["longRangeBufferMinutes", "Tier 2 travel time"],
+    ["shortRangeBufferMinutes", "Tier 1 travel time"],
+    ["midRangeBufferMinutes", "Tier 2 travel time"],
+    ["longRangeBufferMinutes", "Tier 3 travel time"],
   ];
 
   for (const [field, label] of numericFields) {
@@ -84,17 +96,24 @@ function assertValidTravelFeeRules(settings: TravelFeeRuleValues) {
     }
   }
 
-  if (settings.midRangeMaxMiles < settings.freeRadiusMiles + 1) {
+  if (settings.shortRangeMaxMiles < settings.freeRadiusMiles + 1) {
     throw new ConvexError({
       code: "INVALID_TRAVEL_FEE_SETTINGS",
       message: "Tier 1 must end at least 1 mile after the free service cutoff.",
     });
   }
 
-  if (settings.longRangeMaxMiles < settings.midRangeMaxMiles + 1) {
+  if (settings.midRangeMaxMiles < settings.shortRangeMaxMiles + 1) {
     throw new ConvexError({
       code: "INVALID_TRAVEL_FEE_SETTINGS",
       message: "Tier 2 must end at least 1 mile after Tier 1.",
+    });
+  }
+
+  if (settings.longRangeMaxMiles < settings.midRangeMaxMiles + 1) {
+    throw new ConvexError({
+      code: "INVALID_TRAVEL_FEE_SETTINGS",
+      message: "Tier 3 must end at least 1 mile after Tier 2.",
     });
   }
 }
