@@ -727,6 +727,89 @@ describe("appointments", () => {
     );
   });
 
+  test("appointment update preserves existing discount on invoice total and remaining balance", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      userId,
+      vehicleId,
+      baseServiceId,
+      appointmentId,
+      invoiceId,
+    } = await createAdjustmentFixture(t, { depositPaid: true });
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        subtotal: 170,
+        couponCode: "20PERCENT",
+        discountAmount: 34,
+        total: 136,
+        remainingBalance: 86,
+      });
+    });
+
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72205",
+      notes: "Updated appointment notes",
+    });
+
+    const updatedInvoice = await t.run(async (ctx: any) => {
+      return await ctx.db.get(invoiceId);
+    });
+
+    expect(updatedInvoice?.subtotal).toBe(100);
+    expect(updatedInvoice?.discountAmount).toBe(34);
+    expect(updatedInvoice?.total).toBe(66);
+    expect(updatedInvoice?.remainingBalance).toBe(16);
+  });
+
+  test("work adjustment preserves existing discount on invoice total and remaining balance", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      vehicleId,
+      baseServiceId,
+    } = await createAdjustmentFixture(t, { depositPaid: true });
+
+    await t.run(async (ctx: any) => {
+      await ctx.db.patch(invoiceId, {
+        subtotal: 170,
+        couponCode: "20PERCENT",
+        discountAmount: 34,
+        total: 136,
+        remainingBalance: 86,
+      });
+    });
+
+    await asAdmin.mutation(api.appointments.applyWorkAdjustment, {
+      appointmentId,
+      vehicleIds: [vehicleId],
+      serviceIds: [baseServiceId],
+      petFeeVehicleIds: [vehicleId],
+      reason: "Added pet hair fee",
+    });
+
+    const updatedInvoice = await t.run(async (ctx: any) => {
+      return await ctx.db.get(invoiceId);
+    });
+
+    expect(updatedInvoice?.subtotal).toBe(150);
+    expect(updatedInvoice?.discountAmount).toBe(34);
+    expect(updatedInvoice?.total).toBe(116);
+    expect(updatedInvoice?.remainingBalance).toBe(66);
+  });
+
   test("work adjustment updates an unpaid invoice and records an audit snapshot", async () => {
     const t = convexTest(schema, modules);
     const {
