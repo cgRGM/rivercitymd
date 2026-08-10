@@ -2,6 +2,12 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.0.9] - 2026-08-10
+### Fixed
+- **Invoice Discount Preservation on Edit**: Updated `appointments.update` and `appointments.applyWorkAdjustment` in `convex/appointments.ts` to compute invoice totals via `getInvoiceTotalAfterDiscount`. This ensures existing coupon discounts (e.g. 20% biweekly client discounts) are preserved and subtracted when admins edit appointment details, add pet hair fees, or update travel distance.
+
+---
+
 ## [v1.0.8] - 2026-08-10
 ### Fixed
 - **Client Error Toast Handling**: Added `getErrorMessage` helper to extract structured error payloads (`error.data.message` or `error.data`) from Convex `ConvexError` instances, preventing generic `"Server Error Called by client"` internal wrapper messages from displaying on client error toasts.
