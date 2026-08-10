@@ -145,4 +145,71 @@ describe("bookingDrafts pricing validation", () => {
       }),
     ).rejects.toThrow(/higher-level service|SERVICE_NOT_BOOKABLE/i);
   });
+
+  test("calculates correct scheduling duration for multi-vehicle draft without double-counting", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, { includeBookableService: false });
+
+    const [service1Id, service2Id] = await t.run(async (ctx) => {
+      const s1 = await ctx.db.insert("services", {
+        name: "Service A",
+        description: "60-minute service",
+        basePrice: 100,
+        duration: 60,
+        serviceType: "standard",
+        isActive: true,
+      });
+      const s2 = await ctx.db.insert("services", {
+        name: "Service B",
+        description: "30-minute service",
+        basePrice: 80,
+        duration: 30,
+        serviceType: "standard",
+        isActive: true,
+      });
+      return [s1, s2];
+    });
+
+    const draft = await t.mutation(internal.bookingDrafts.createOrUpdateInternal, {
+      name: "Multi Vehicle",
+      email: "multi@example.com",
+      phone: "555-0199",
+      address: {
+        street: "100 Main St",
+        city: "Little Rock",
+        state: "AR",
+        zip: "72201",
+      },
+      vehicles: [
+        {
+          year: 2022,
+          make: "Honda",
+          model: "Civic",
+          size: "small",
+          serviceIds: [service1Id],
+        },
+        {
+          year: 2023,
+          make: "Ford",
+          model: "F-150",
+          size: "large",
+          serviceIds: [service2Id],
+        },
+      ],
+      serviceIds: [service1Id, service2Id],
+      scheduledDate: "2026-08-03",
+      scheduledTime: "10:00",
+      travelDistanceMiles: 0,
+    });
+
+    const schedulingDuration = await t.query(
+      internal.bookingDrafts.getSchedulingDurationInternal,
+      { draftId: draft.draftId },
+    );
+
+    // Vehicle 1 has 60 min, Vehicle 2 has 30 min => sum = 90 min.
+    // BOOKING_BLOCK_MINUTES is 120, so max(90, 120) = 120.
+    // If it was double-counted (all services for all vehicles): (60+30) * 2 = 180 min.
+    expect(schedulingDuration).toBe(120);
+  });
 });
