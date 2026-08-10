@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 import {
   Dialog,
@@ -252,8 +253,8 @@ export function AddAppointmentForm({
       form.reset();
       setPetFeeVehicleIds([]);
       onOpenChange(false);
-    } catch {
-      toast.error("Failed to create appointment");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to create appointment"));
     } finally {
       setIsLoading(false);
     }

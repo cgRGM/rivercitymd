@@ -214,7 +214,7 @@ async function getMatrixPriceForServiceAndVehicle(
     const vehicleType = await ctx.db.get(vehicle.vehicleTypeId);
     throw new ConvexError({
       code: "SERVICE_NOT_BOOKABLE",
-      message: `Service "${service.name}" is not available for ${vehicleType?.name ?? "this vehicle type"}.`,
+      message: `Service "${service.name.trim()}" is not available for ${vehicleType?.name ?? "this vehicle type"}.`,
     });
   }
 
@@ -229,13 +229,21 @@ async function buildVehicleServiceItems(
   ctx: any,
   services: Array<Doc<"services">>,
   vehicles: Array<Doc<"vehicles">>,
+  vehicleServices?: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }>,
 ) {
   const items = [];
   let duration = 0;
 
   for (const vehicle of vehicles) {
     const vehicleLabel = formatVehicleLabel(vehicle);
-    for (const service of services) {
+    let vehicleServiceList = services;
+    if (vehicleServices) {
+      const mapping = vehicleServices.find((m) => m.vehicleId === vehicle._id);
+      if (mapping && mapping.serviceIds.length > 0) {
+        vehicleServiceList = services.filter((s) => mapping.serviceIds.includes(s._id));
+      }
+    }
+    for (const service of vehicleServiceList) {
       const pricing = await getMatrixPriceForServiceAndVehicle(ctx, service, vehicle);
       duration += pricing.duration;
       items.push({
@@ -757,19 +765,32 @@ export const getByIdWithDetails = query({
           return {
             ...s,
             effectivePrice: getEffectiveServicePrice(s, "medium"),
+            isAvailable: true,
           };
         }
 
-        const pricing = await getMatrixPriceForServiceAndVehicle(
-          ctx,
-          s,
-          primaryVehicle,
-        );
+        try {
+          const pricing = await getMatrixPriceForServiceAndVehicle(
+            ctx,
+            s,
+            primaryVehicle,
+          );
 
-        return {
-          ...s,
-          effectivePrice: pricing.unitPrice,
-        };
+          return {
+            ...s,
+            effectivePrice: pricing.unitPrice,
+            isAvailable: true,
+          };
+        } catch {
+          return {
+            ...s,
+            effectivePrice: getEffectiveServicePrice(
+              s,
+              primaryVehicle.size ?? "medium",
+            ),
+            isAvailable: false,
+          };
+        }
       }),
     );
 
