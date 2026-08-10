@@ -6,6 +6,7 @@ import { useConvexAuth } from "convex/react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorMessage } from "@/lib/errors";
 import {
   Card,
   CardContent,
@@ -131,8 +132,8 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
           status: "cancelled",
         });
         toast.success("Appointment cancelled successfully");
-      } catch {
-        toast.error("Failed to cancel appointment");
+      } catch (err) {
+        toast.error(getErrorMessage(err, "Failed to cancel appointment"));
       }
     },
     [updateStatus],
@@ -212,11 +213,7 @@ export default function AppointmentsClient({}: AppointmentsClientProps) {
       setIsRescheduleOpen(false);
       setSelectedAppointment(null);
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to reschedule appointment",
-      );
+      toast.error(getErrorMessage(error, "Failed to reschedule appointment"));
     } finally {
       setIsRescheduling(false);
     }

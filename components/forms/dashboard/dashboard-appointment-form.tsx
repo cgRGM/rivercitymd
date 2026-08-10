@@ -3,6 +3,7 @@ import { useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { formatDateString, formatTime12h } from "@/lib/time";
 import {
@@ -481,11 +482,7 @@ export function DashboardAppointmentForm({
         throw new Error("Failed to create checkout session");
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to schedule appointment",
-      );
+      toast.error(getErrorMessage(error, "Failed to schedule appointment"));
     } finally {
       setIsLoading(false);
     }

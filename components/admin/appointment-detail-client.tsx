@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { getErrorMessage } from "@/lib/errors";
 import {
   Card,
   CardContent,
@@ -174,9 +175,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       setDiscountValue("");
       router.refresh();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to apply discount"
-      );
+      toast.error(getErrorMessage(error, "Failed to apply discount"));
     } finally {
       setIsApplyingDiscount(false);
     }
@@ -192,9 +191,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       toast.success("Discount removed successfully");
       router.refresh();
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to remove discount"
-      );
+      toast.error(getErrorMessage(error, "Failed to remove discount"));
     } finally {
       setIsApplyingDiscount(false);
     }
@@ -363,8 +360,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       await updateStatus({ appointmentId, status: newStatus });
       toast.success(`Appointment ${newStatus.replace("_", " ")}`);
       router.refresh();
-    } catch {
-      toast.error("Failed to update appointment status");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to update appointment status"));
     } finally {
       setLoading(false);
     }
@@ -464,7 +461,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       setAdjustingWork(false);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to adjust work");
+      toast.error(getErrorMessage(err, "Failed to adjust work"));
     } finally {
       setAdjustLoading(false);
     }
@@ -513,7 +510,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       setEditing(false);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update appointment");
+      toast.error(getErrorMessage(err, "Failed to update appointment"));
     } finally {
       setLoading(false);
     }
@@ -577,10 +574,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
         toast.success("Billing settings updated");
       }
       router.refresh();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update billing settings",
-      );
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to update live invoice"));
     } finally {
       setBillingLoading(false);
     }
@@ -618,10 +613,8 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
         toast.success("Travel fee saved");
       }
       router.refresh();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to save travel fee",
-      );
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to update travel fee"));
     } finally {
       setTravelFeeLoading(false);
     }

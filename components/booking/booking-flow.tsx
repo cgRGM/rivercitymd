@@ -139,19 +139,10 @@ const ADDON_CATEGORY_LABELS: Record<(typeof ADDON_CATEGORY_ORDER)[number], strin
   exterior: "Exterior",
 };
 
+import { getErrorMessage } from "@/lib/errors";
+
 function getCustomerErrorMessage(error: unknown, fallback: string) {
-  const data = (error as { data?: { message?: string } })?.data;
-  if (typeof data?.message === "string" && data.message.trim()) {
-    return data.message;
-  }
-  const message = error instanceof Error ? error.message : "";
-  if (
-    message.includes("Server Error Called by client") ||
-    message.includes("payments:validateBookingPromoCode")
-  ) {
-    return fallback;
-  }
-  return message || fallback;
+  return getErrorMessage(error, fallback);
 }
 
 function getBookingRole(service: BookingService) {
