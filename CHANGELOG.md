@@ -2,6 +2,13 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.0.8] - 2026-08-10
+### Fixed
+- **Client Error Toast Handling**: Added `getErrorMessage` helper to extract structured error payloads (`error.data.message` or `error.data`) from Convex `ConvexError` instances, preventing generic `"Server Error Called by client"` internal wrapper messages from displaying on client error toasts.
+- **Per-Vehicle Service Pricing on Edit**: Updated `buildVehicleServiceItems` in `convex/appointments.ts` to respect `vehicleServices` mapping, isolating per-vehicle pricing and preventing cross-vehicle availability errors during appointment updates.
+
+---
+
 ## [v1.0.7] - 2026-08-10
 ### Fixed
 - **Multi-Vehicle Scheduling Duration**: Fixed `getSchedulingDurationInternal` draft duration calculation so service durations are evaluated per vehicle instead of applying all draft service durations to every vehicle. This resolves false "Outside business hours" errors when checking out multi-vehicle bookings.
