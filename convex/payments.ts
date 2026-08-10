@@ -2702,9 +2702,10 @@ async function createCheckoutSessionForDraft(
     ignoreBookingDraftId: draft._id,
   });
   if (!slotAvailability.available) {
-    throw new Error(
-      slotAvailability.reason || "Selected time is no longer available.",
-    );
+    throw new ConvexError({
+      code: "TIME_SLOT_UNAVAILABLE",
+      message: slotAvailability.reason || "Selected time is no longer available.",
+    });
   }
 
   if (draft.stripeCheckoutSessionId) {

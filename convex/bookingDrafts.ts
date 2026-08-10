@@ -884,27 +884,40 @@ export const getSchedulingDurationInternal = internalQuery({
         draft.existingVehicleIds.map((vehicleId) => ctx.db.get(vehicleId)),
       )
     ).filter((vehicle): vehicle is Doc<"vehicles"> => vehicle !== null);
-    const pricingVehicles = [
+    const bookingVehicles = [
       ...existingVehicles.map((vehicle) => ({
-        size: vehicle.size,
+        vehicleId: vehicle._id,
         vehicleTypeId: vehicle.vehicleTypeId,
+        serviceIds: undefined as Id<"services">[] | undefined,
       })),
       ...draft.draftVehicles.map((vehicle) => ({
-        size: vehicle.size,
+        vehicleId: undefined,
         vehicleTypeId: vehicle.vehicleTypeId,
+        serviceIds: vehicle.serviceIds,
       })),
     ];
     const serviceDurations = [];
-    for (const vehicle of pricingVehicles) {
-      for (const service of services) {
+    for (const { vehicleId, vehicleTypeId, serviceIds: draftVehicleServiceIds } of bookingVehicles) {
+      let vehicleServiceIds = draft.serviceIds;
+      if (vehicleId) {
+        const mapping = draft.existingVehicleServices?.find((m) => m.vehicleId === vehicleId);
+        if (mapping && mapping.serviceIds.length > 0) {
+          vehicleServiceIds = mapping.serviceIds;
+        }
+      } else if (draftVehicleServiceIds && draftVehicleServiceIds.length > 0) {
+        vehicleServiceIds = draftVehicleServiceIds;
+      }
+
+      const vehicleServices = services.filter((s) => vehicleServiceIds.includes(s._id));
+      for (const service of vehicleServices) {
         let serviceDuration = service.duration || 0;
-        if (vehicle.vehicleTypeId) {
+        if (vehicleTypeId) {
           const matrixPrice = await ctx.db
             .query("serviceVehiclePrices")
             .withIndex("by_service_and_vehicle_type", (q: any) =>
               q
                 .eq("serviceId", service._id)
-                .eq("vehicleTypeId", vehicle.vehicleTypeId),
+                .eq("vehicleTypeId", vehicleTypeId),
             )
             .first();
           if (matrixPrice?.isAvailable && matrixPrice.price > 0) {
