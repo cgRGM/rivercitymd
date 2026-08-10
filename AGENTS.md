@@ -416,10 +416,11 @@ Agents must inspect the relevant skill's `SKILL.md` before writing code.
 
 # Changelog Update Rule
 
-Whenever any feature, bug fix, or configuration update is merged to `master`, the agent must update `CHANGELOG.md` in the root of the project:
+Whenever any feature, bug fix, or configuration update is developed, the agent must update `CHANGELOG.md` in the root of the project **directly inside the feature/fix branch before creating the PR**:
 1. **Group logical changes**: Place changes under semantic release versions (e.g. `v1.0.0` or incremental patch bumps).
 2. **Standard Headers**: Segment updates under `Added`, `Fixed`, or `Changed`.
 3. **Format**: Maintain concise, dated, bulleted items.
+4. **Single-Commit Builds**: Always commit `CHANGELOG.md` within the PR branch so the PR merge contains the version bump in a single commit, avoiding duplicate Vercel deployment builds.
 
 ---
 
