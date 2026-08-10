@@ -2,6 +2,11 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.0.7] - 2026-08-10
+### Fixed
+- **Multi-Vehicle Scheduling Duration**: Fixed `getSchedulingDurationInternal` draft duration calculation so service durations are evaluated per vehicle instead of applying all draft service durations to every vehicle. This resolves false "Outside business hours" errors when checking out multi-vehicle bookings.
+- **Checkout Slot Availability Error Handling**: Updated `createCheckoutSessionForDraft` to throw structured `ConvexError` instead of generic `Error` on slot availability failure, enabling clean customer error messages on booking checkout.
+
 ---
 
 ## [v1.0.6] - 2026-07-18
