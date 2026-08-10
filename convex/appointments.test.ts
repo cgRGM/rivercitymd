@@ -658,6 +658,65 @@ describe("appointments", () => {
     ]);
   });
 
+  test("admin appointment update with per-vehicle services individualizes pricing per vehicle", async () => {
+    const t = convexTest(schema, modules);
+    const {
+      asAdmin,
+      appointmentId,
+      invoiceId,
+      userId,
+      vehicleId,
+      secondVehicleId,
+      baseServiceId,
+      addOnServiceId,
+    } = await createAdjustmentFixture(t);
+
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [vehicleId, secondVehicleId],
+      serviceIds: [baseServiceId, addOnServiceId],
+      vehicleServices: [
+        {
+          vehicleId,
+          serviceIds: [baseServiceId],
+        },
+        {
+          vehicleId: secondVehicleId,
+          serviceIds: [addOnServiceId],
+        },
+      ],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "10:00",
+      street: "123 Main St",
+      city: "Little Rock",
+      state: "AR",
+      zip: "72205",
+    });
+
+    const appointment = await t.run(
+      async (ctx) => (await ctx.db.get(appointmentId)) as Doc<"appointments"> | null,
+    );
+
+    const invoice = await t.run(
+      async (ctx) => (await ctx.db.get(invoiceId)) as Doc<"invoices"> | null,
+    );
+
+    expect(appointment?.vehicleServices).toEqual([
+      {
+        vehicleId,
+        serviceIds: [baseServiceId],
+      },
+      {
+        vehicleId: secondVehicleId,
+        serviceIds: [addOnServiceId],
+      },
+    ]);
+
+    // baseServiceId ($200) for vehicle 1 + addOnServiceId ($50) for vehicle 2 + travel fee ($140) = $390
+    expect(invoice?.subtotal).toBe(390);
+  });
+
   test("admin appointment updates preserve stored travel fee invoice line", async () => {
     const t = convexTest(schema, modules);
     const {
