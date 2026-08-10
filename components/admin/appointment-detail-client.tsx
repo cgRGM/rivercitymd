@@ -26,6 +26,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -211,6 +217,7 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
   const [editVehicleSizes, setEditVehicleSizes] = useState<Record<string, string>>({});
   const [editVehicleTypeIds, setEditVehicleTypeIds] = useState<Record<string, string>>({});
   const [editPetFeeVehicleIds, setEditPetFeeVehicleIds] = useState<Id<"vehicles">[]>([]);
+  const [editVehicleServices, setEditVehicleServices] = useState<Record<string, Id<"services">[]>>({});
   const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
   const [newVehicle, setNewVehicle] = useState({
     year: "",
@@ -265,6 +272,10 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
       setEditVehicleTypeIds((prev) => ({
         ...prev,
         [vehicleId]: "",
+      }));
+      setEditVehicleServices((prev) => ({
+        ...prev,
+        [vehicleId]: editServiceIds.length > 0 ? [...editServiceIds] : [],
       }));
 
       resetVehicleForm();
@@ -377,14 +388,25 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     setEditLocationNotes(data.location.notes || "");
     setEditNotes(data.notes || "");
     setEditServiceIds(data.serviceIds);
-    setEditVehicleIds(
-      typedVehicles.length > 0
-        ? typedVehicles.map((vehicle) => vehicle._id)
-        : (customerVehicles.length === 1
-            ? [customerVehicles[0]._id]
-            : []),
-    );
+    const selectedVIds = typedVehicles.length > 0
+      ? typedVehicles.map((vehicle) => vehicle._id)
+      : (customerVehicles.length === 1
+          ? [customerVehicles[0]._id]
+          : []);
+    setEditVehicleIds(selectedVIds);
     setEditPetFeeVehicleIds(data.petFeeVehicleIds ?? []);
+
+    const initialVehicleServices: Record<string, Id<"services">[]> = {};
+    if (data.vehicleServices && data.vehicleServices.length > 0) {
+      for (const vs of data.vehicleServices) {
+        initialVehicleServices[vs.vehicleId] = [...vs.serviceIds];
+      }
+    } else {
+      for (const vId of selectedVIds) {
+        initialVehicleServices[vId] = [...data.serviceIds];
+      }
+    }
+    setEditVehicleServices(initialVehicleServices);
     const sizes: Record<string, string> = {};
     const vehicleTypeIds: Record<string, string> = {};
     for (const v of customerVehicles.length > 0 ? customerVehicles : typedVehicles) {
@@ -489,12 +511,28 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
         }
       }
 
+      // Build per-vehicle service mapping payload
+      const vehicleServicesPayload = editVehicleIds.map((vId) => {
+        const vehicleServicesForV = editVehicleServices[vId];
+        return {
+          vehicleId: vId,
+          serviceIds: (vehicleServicesForV && vehicleServicesForV.length > 0)
+            ? vehicleServicesForV
+            : editServiceIds,
+        };
+      });
+
+      const finalServiceIds = Array.from(
+        new Set(vehicleServicesPayload.flatMap((vs) => vs.serviceIds))
+      ) as Id<"services">[];
+
       // Update the appointment (triggers price recalculation + invoice sync)
       await updateAppointment({
         appointmentId,
         userId: data.userId,
         vehicleIds: editVehicleIds,
-        serviceIds: editServiceIds,
+        serviceIds: finalServiceIds,
+        vehicleServices: vehicleServicesPayload,
         scheduledDate: editDate,
         scheduledTime: editTime,
         street: editStreet,
@@ -516,12 +554,40 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     }
   };
 
+  const toggleVehicleService = (vehicleId: Id<"vehicles">, serviceId: Id<"services">) => {
+    setEditVehicleServices((prev) => {
+      const current = prev[vehicleId] || [];
+      const next = current.includes(serviceId)
+        ? current.filter((id) => id !== serviceId)
+        : [...current, serviceId];
+      const updated = { ...prev, [vehicleId]: next };
+      const allServicesUnion = Array.from(new Set(Object.values(updated).flat())) as Id<"services">[];
+      setEditServiceIds(allServicesUnion);
+      return updated;
+    });
+  };
+
   const toggleService = (serviceId: Id<"services">) => {
-    setEditServiceIds((prev) =>
-      prev.includes(serviceId)
-        ? prev.filter((id) => id !== serviceId)
-        : [...prev, serviceId],
-    );
+    setEditServiceIds((prev) => {
+      const isSelected = prev.includes(serviceId);
+      const next = isSelected ? prev.filter((id) => id !== serviceId) : [...prev, serviceId];
+      // Apply to all currently selected vehicles
+      setEditVehicleServices((prevServices) => {
+        const copy = { ...prevServices };
+        for (const vId of editVehicleIds) {
+          const currentForV = copy[vId] || [];
+          if (isSelected) {
+            copy[vId] = currentForV.filter((id) => id !== serviceId);
+          } else {
+            if (!currentForV.includes(serviceId)) {
+              copy[vId] = [...currentForV, serviceId];
+            }
+          }
+        }
+        return copy;
+      });
+      return next;
+    });
   };
 
   const toggleVehicle = (vehicleId: Id<"vehicles">, checked: boolean) => {
@@ -530,6 +596,23 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
     );
     if (!checked) {
       setEditPetFeeVehicleIds((prev) => prev.filter((id) => id !== vehicleId));
+      setEditVehicleServices((prev) => {
+        const copy = { ...prev };
+        delete copy[vehicleId];
+        const allServicesUnion = Array.from(new Set(Object.values(copy).flat())) as Id<"services">[];
+        setEditServiceIds(allServicesUnion);
+        return copy;
+      });
+    } else {
+      setEditVehicleServices((prev) => {
+        const copy = {
+          ...prev,
+          [vehicleId]: prev[vehicleId] ?? [...editServiceIds],
+        };
+        const allServicesUnion = Array.from(new Set(Object.values(copy).flat())) as Id<"services">[];
+        setEditServiceIds(allServicesUnion);
+        return copy;
+      });
     }
   };
 
@@ -942,6 +1025,70 @@ export default function AppointmentDetailClient({ appointmentId }: Props) {
                               />
                               <Label className="text-xs font-normal">Pet fee</Label>
                             </div>
+
+                            {checked && (
+                              <Accordion type="single" collapsible defaultValue="services" className="mt-3 border-t pt-2">
+                                <AccordionItem value="services" className="border-none">
+                                  <AccordionTrigger className="py-2.5 min-h-[44px] text-xs font-medium hover:no-underline active:bg-accent/30 rounded-md px-1 transition-colors">
+                                    <span className="flex items-center gap-2">
+                                      <Wrench className="h-4 w-4 text-primary" />
+                                      <span className="font-semibold text-foreground">Services for this vehicle</span>
+                                      <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-bold">
+                                        {(editVehicleServices[v._id] || []).length} selected
+                                      </Badge>
+                                    </span>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="pt-2">
+                                    <div className="space-y-2">
+                                      {allServiceOptions
+                                        .filter((s) => s.isActive)
+                                        .map((service) => {
+                                          const vServices = editVehicleServices[v._id] || [];
+                                          const isSelected = vServices.includes(service._id);
+                                          const vehicleSize = (editVehicleSizes[v._id] || v.size || "medium") as VehicleSize;
+                                          const vehicleTypeId = editVehicleTypeIds[v._id] || v.vehicleTypeId || null;
+                                          const pricingInfo = getEffectiveServicePricingForVehicle(service, {
+                                            vehicleSize,
+                                            vehicleTypeId,
+                                          });
+
+                                          if (!pricingInfo.isAvailable) {
+                                            return null;
+                                          }
+
+                                          return (
+                                            <div
+                                              key={service._id}
+                                              className={`flex min-h-[48px] items-center justify-between rounded-lg border p-3 cursor-pointer text-xs transition-all active:scale-[0.99] touch-manipulation ${
+                                                isSelected
+                                                  ? "border-primary bg-primary/10 font-medium shadow-xs"
+                                                  : "border-border/60 bg-card hover:bg-accent/50"
+                                              }`}
+                                              onClick={() => toggleVehicleService(v._id, service._id)}
+                                            >
+                                              <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
+                                                <Checkbox
+                                                  checked={isSelected}
+                                                  onCheckedChange={() => toggleVehicleService(v._id, service._id)}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="h-5 w-5 shrink-0"
+                                                />
+                                                <div className="min-w-0">
+                                                  <p className="font-semibold text-foreground truncate text-xs">{service.name}</p>
+                                                  <p className="text-[11px] text-muted-foreground">{service.duration} min</p>
+                                                </div>
+                                              </div>
+                                              <span className="font-bold text-primary text-xs shrink-0">
+                                                {formatCurrency(pricingInfo.price)}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                    </div>
+                                  </AccordionContent>
+                                </AccordionItem>
+                              </Accordion>
+                            )}
                           </div>
                         );
                       })}

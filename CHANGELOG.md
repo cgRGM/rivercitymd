@@ -2,6 +2,12 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.1.0] - 2026-08-10
+### Added
+- **Per-Vehicle Service Accordion in Admin Edit**: Added a mobile-friendly per-vehicle service accordion selector to `components/admin/appointment-detail-client.tsx`. Admins editing single or multi-vehicle appointments can now expand an accordion under each vehicle to toggle and individualize services scoped specifically to that vehicle's size and type.
+
+---
+
 ## [v1.0.9] - 2026-08-10
 ### Fixed
 - **Invoice Discount Preservation on Edit**: Updated `appointments.update` and `appointments.applyWorkAdjustment` in `convex/appointments.ts` to compute invoice totals via `getInvoiceTotalAfterDiscount`. This ensures existing coupon discounts (e.g. 20% biweekly client discounts) are preserved and subtracted when admins edit appointment details, add pet hair fees, or update travel distance.
