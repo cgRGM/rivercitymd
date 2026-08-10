@@ -1220,9 +1220,16 @@ export const update = mutation({
 
     if (invoice) {
       const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-      const total = subtotal + invoice.tax;
+      const total = getInvoiceTotalAfterDiscount(
+        subtotal,
+        invoice.tax,
+        invoice.discountAmount,
+      );
       const depositAmount = invoice.depositAmount || 0;
-      const remainingBalance = Math.max(0, total - depositAmount);
+      const remainingBalance = Math.max(
+        0,
+        Math.round((total - depositAmount) * 100) / 100,
+      );
 
       await ctx.db.patch(invoice._id, {
         items,
@@ -1468,13 +1475,20 @@ export const applyWorkAdjustment = mutation({
         (sum, item) => sum + item.totalPrice,
         0,
       );
-      const total = subtotal + invoice.tax;
+      const total = getInvoiceTotalAfterDiscount(
+        subtotal,
+        invoice.tax,
+        invoice.discountAmount,
+      );
       const depositAmount = invoice.depositAmount || 0;
       await ctx.db.patch(invoice._id, {
         items: newPricing.items,
         subtotal,
         total,
-        remainingBalance: Math.max(0, total - depositAmount),
+        remainingBalance: Math.max(
+          0,
+          Math.round((total - depositAmount) * 100) / 100,
+        ),
         stripeInvoiceId: undefined,
         stripeInvoiceUrl: undefined,
         finalPaymentIntentId: undefined,
