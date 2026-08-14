@@ -2,6 +2,18 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.1.1] - 2026-08-14
+### Fixed
+- **Multi-Vehicle Appointment Edit Duration & Availability**: Fixed `appointments.update`, `create`, `previewWorkAdjustment`, and `applyWorkAdjustment` in `convex/appointments.ts` to pass per-vehicle service mappings (`vehicleServices`) to `buildVehicleServiceItems` and `buildAdjustmentPricing`. This prevents service duplication across vehicles (e.g. 290 minutes doubling to 580 minutes) that triggered false "Outside business hours" / `TIME_SLOT_UNAVAILABLE` errors when updating services on multi-vehicle appointments.
+- **Single and Multi-Vehicle Service Retention**: Refined `buildUpdatedVehicleServices` to correctly assign all services for single-vehicle updates while preserving individualized service allocations for multi-vehicle appointments.
+
+### Added
+- **Modernized Service Selection Dialog & UX**: Revamped appointment service editing in `components/admin/appointment-detail-client.tsx`. Replaced lengthy 25+ service lists with a focused per-vehicle "Manage Services" dialog featuring instant search filtering, category tabs (All, Standard Packages, Add-ons), individual checkboxes, and live price/duration summaries.
+- **Transparent Duration & Timing Breakdown**: Added a schedule and duration breakdown card to the appointment edit and view views showing services duration (e.g. 290 min), pet fee time, travel buffer (e.g. 15 min for 6.2 miles), and total blocked booking window (e.g. 305 min), making time calculations explicit and transparent to administrators.
+- **Per-Vehicle Service Chips**: Each selected vehicle card now displays its chosen services with compact category badges, duration indicators, vehicle-specific prices, and quick 1-click removal buttons.
+
+---
+
 ## [v1.1.0] - 2026-08-10
 ### Added
 - **Per-Vehicle Service Accordion in Admin Edit**: Added a mobile-friendly per-vehicle service accordion selector to `components/admin/appointment-detail-client.tsx`. Admins editing single or multi-vehicle appointments can now expand an accordion under each vehicle to toggle and individualize services scoped specifically to that vehicle's size and type.

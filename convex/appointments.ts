@@ -268,15 +268,23 @@ function buildUpdatedVehicleServices(
   newVehicleIds: Id<"vehicles">[],
   newServiceIds: Id<"services">[],
 ): Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }> {
+  if (newVehicleIds.length === 1) {
+    return [{ vehicleId: newVehicleIds[0], serviceIds: newServiceIds }];
+  }
   const existing = existingVehicleServices ?? [];
+
   return newVehicleIds.map((vehicleId) => {
     const match = existing.find((m) => m.vehicleId === vehicleId);
-    const serviceIds = match
-      ? match.serviceIds.filter((id) => newServiceIds.includes(id))
-      : newServiceIds;
+    if (!match) {
+      return {
+        vehicleId,
+        serviceIds: newServiceIds,
+      };
+    }
+    const retainedServiceIds = match.serviceIds.filter((id) => newServiceIds.includes(id));
     return {
       vehicleId,
-      serviceIds: serviceIds.length > 0 ? serviceIds : newServiceIds,
+      serviceIds: retainedServiceIds.length > 0 ? retainedServiceIds : newServiceIds,
     };
   });
 }
@@ -287,6 +295,7 @@ async function buildAdjustmentPricing(
   serviceIds: Id<"services">[],
   petFeeVehicleIds: Id<"vehicles">[],
   storedTravel?: Pick<Doc<"appointments">, "travelDistanceMiles" | "travelFee">,
+  vehicleServices?: Array<{ vehicleId: Id<"vehicles">; serviceIds: Id<"services">[] }>,
 ) {
   if (vehicleIds.length === 0) {
     throw new ConvexError({
@@ -325,7 +334,12 @@ async function buildAdjustmentPricing(
     });
   }
 
-  const servicePricing = await buildVehicleServiceItems(ctx, services, vehicles);
+  const servicePricing = await buildVehicleServiceItems(
+    ctx,
+    services,
+    vehicles,
+    vehicleServices,
+  );
   const petFee = await buildPetFeeItems(ctx, vehicles, petFeeVehicleIds);
   const travel = storedTravel
     ? await buildStoredTravelFeePricing(ctx, storedTravel)
@@ -879,6 +893,14 @@ export const create = mutation({
     locationNotes: v.optional(v.string()),
     notes: v.optional(v.string()),
     petFeeVehicleIds: v.optional(v.array(v.id("vehicles"))),
+    vehicleServices: v.optional(
+      v.array(
+        v.object({
+          vehicleId: v.id("vehicles"),
+          serviceIds: v.array(v.id("services")),
+        })
+      )
+    ),
   },
   returns: v.object({
     appointmentId: v.id("appointments"),
@@ -939,10 +961,17 @@ export const create = mutation({
     );
     assertBookableServices(validServices, args.serviceIds, vehicleSize);
 
+    const vehicleServices = args.vehicleServices ?? buildUpdatedVehicleServices(
+      undefined,
+      args.vehicleIds,
+      args.serviceIds,
+    );
+
     const servicePricing = await buildVehicleServiceItems(
       ctx,
       validServices,
       validVehicles,
+      vehicleServices,
     );
     const petFee = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
     const serviceItems = servicePricing.items;
@@ -974,6 +1003,7 @@ export const create = mutation({
         userId: args.userId,
         vehicleIds: args.vehicleIds,
         serviceIds: args.serviceIds,
+        vehicleServices,
         scheduledDate: scheduledDateKey,
         scheduledTime: args.scheduledTime,
         duration,
@@ -1115,10 +1145,18 @@ export const update = mutation({
         message: "Pet fee vehicles must be included in this appointment.",
       });
     }
+
+    const vehicleServices = updates.vehicleServices ?? buildUpdatedVehicleServices(
+      existingAppointment.vehicleServices,
+      updates.vehicleIds,
+      updates.serviceIds,
+    );
+
     const servicePricing = await buildVehicleServiceItems(
       ctx,
       validServices,
       validVehicles,
+      vehicleServices,
     );
     const serviceItems = servicePricing.items;
     const petFee = await buildPetFeeItems(ctx, validVehicles, petFeeVehicleIds);
@@ -1186,12 +1224,6 @@ export const update = mutation({
         });
       }
     }
-
-    const vehicleServices = updates.vehicleServices ?? buildUpdatedVehicleServices(
-      existingAppointment.vehicleServices,
-      updates.vehicleIds,
-      updates.serviceIds,
-    );
 
     await ctx.db.patch(appointmentId, {
       userId: updates.userId,
@@ -1286,12 +1318,18 @@ export const previewWorkAdjustment = query({
     if (!appointment) throw new Error("Appointment not found");
 
     const oldPetFeeVehicleIds = appointment.petFeeVehicleIds ?? [];
+    const newVehicleServices = args.vehicleServices ?? buildUpdatedVehicleServices(
+      appointment.vehicleServices,
+      args.vehicleIds,
+      args.serviceIds,
+    );
     const oldPricing = await buildAdjustmentPricing(
       ctx,
       appointment.vehicleIds,
       appointment.serviceIds,
       oldPetFeeVehicleIds,
       appointment,
+      appointment.vehicleServices,
     );
     const newPricing = await buildAdjustmentPricing(
       ctx,
@@ -1299,6 +1337,7 @@ export const previewWorkAdjustment = query({
       args.serviceIds,
       args.petFeeVehicleIds ?? [],
       appointment,
+      newVehicleServices,
     );
     const invoice = await ctx.db
       .query("invoices")
@@ -1373,6 +1412,12 @@ export const applyWorkAdjustment = mutation({
       );
     }
 
+    const vehicleServices = args.vehicleServices ?? buildUpdatedVehicleServices(
+      appointment.vehicleServices,
+      args.vehicleIds,
+      args.serviceIds,
+    );
+
     const oldPetFeeVehicleIds = appointment.petFeeVehicleIds ?? [];
     const oldPricing = await buildAdjustmentPricing(
       ctx,
@@ -1380,6 +1425,7 @@ export const applyWorkAdjustment = mutation({
       appointment.serviceIds,
       oldPetFeeVehicleIds,
       appointment,
+      appointment.vehicleServices,
     );
     const newPetFeeVehicleIds = args.petFeeVehicleIds ?? [];
     const newPricing = await buildAdjustmentPricing(
@@ -1388,6 +1434,7 @@ export const applyWorkAdjustment = mutation({
       args.serviceIds,
       newPetFeeVehicleIds,
       appointment,
+      vehicleServices,
     );
     const priceDelta = Math.round((newPricing.totalPrice - appointment.totalPrice) * 100) / 100;
     const durationDelta = newPricing.duration - appointment.duration;
@@ -1507,12 +1554,6 @@ export const applyWorkAdjustment = mutation({
         );
       }
     }
-
-    const vehicleServices = args.vehicleServices ?? buildUpdatedVehicleServices(
-      appointment.vehicleServices,
-      args.vehicleIds,
-      args.serviceIds,
-    );
 
     await ctx.db.patch(args.appointmentId, {
       vehicleIds: args.vehicleIds,
