@@ -713,8 +713,8 @@ describe("appointments", () => {
       },
     ]);
 
-    // baseServiceId ($200) for vehicle 1 + addOnServiceId ($50) for vehicle 2 + travel fee ($140) = $390
-    expect(invoice?.subtotal).toBe(390);
+    // baseServiceId ($100) for vehicle 1 (medium) + addOnServiceId ($80) for vehicle 2 (large) = $180
+    expect(invoice?.subtotal).toBe(180);
   });
 
   test("admin appointment updates preserve stored travel fee invoice line", async () => {
@@ -2342,5 +2342,131 @@ describe("appointments", () => {
       }),
       "TIME_SLOT_UNAVAILABLE",
     );
+  });
+
+  test("calculates accurate duration and pricing when editing multi-vehicle appointment with per-vehicle services", async () => {
+    const t = convexTest(schema, modules);
+    await seedBookingSetup(t, {
+      includeBookableService: false,
+      includeDepositSettings: true,
+    });
+
+    const { adminId, userId, vehicle1Id, vehicle2Id, service60Id, service170Id, addon60Id } =
+      await t.run(async (ctx) => {
+        const adminId = await ctx.db.insert("users", {
+          name: "Admin Tester",
+          email: "admin-multivehicle@example.com",
+          role: "admin",
+        });
+        const userId = await ctx.db.insert("users", {
+          name: "Customer Multi",
+          email: "customer-multi@example.com",
+          role: "client",
+          timesServiced: 0,
+          totalSpent: 0,
+          status: "active",
+        });
+        const vehicle1Id = await ctx.db.insert("vehicles", {
+          userId,
+          year: 2024,
+          make: "Hyundai",
+          model: "Santa Fe",
+          size: "large",
+        });
+        const vehicle2Id = await ctx.db.insert("vehicles", {
+          userId,
+          year: 1999,
+          make: "Porsche",
+          model: "911 Carrera",
+          size: "small",
+        });
+        const service60Id = await ctx.db.insert("services", {
+          name: "Standard Wash",
+          description: "60 min wash",
+          basePrice: 100,
+          basePriceLarge: 120,
+          duration: 60,
+          serviceType: "standard",
+          isActive: true,
+        });
+        const service170Id = await ctx.db.insert("services", {
+          name: "Level 2 Detail",
+          description: "170 min detail",
+          basePrice: 200,
+          basePriceSmall: 180,
+          duration: 170,
+          serviceType: "standard",
+          isActive: true,
+        });
+        const addon60Id = await ctx.db.insert("services", {
+          name: "Clay Bar & Wax",
+          description: "60 min wax addon",
+          basePrice: 80,
+          basePriceSmall: 70,
+          duration: 60,
+          serviceType: "addon",
+          isActive: true,
+        });
+        return { adminId, userId, vehicle1Id, vehicle2Id, service60Id, service170Id, addon60Id };
+      });
+
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-multivehicle@example.com",
+    });
+
+    // Create initial appointment at 11:00 AM (business hours 08:00 - 18:00)
+    const { appointmentId } = await asAdmin.mutation(api.appointments.create, {
+      userId,
+      vehicleIds: [vehicle1Id, vehicle2Id],
+      serviceIds: [service60Id, service170Id],
+      vehicleServices: [
+        { vehicleId: vehicle1Id, serviceIds: [service60Id] },
+        { vehicleId: vehicle2Id, serviceIds: [service170Id] },
+      ],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "11:00",
+      street: "123 Main St",
+      city: "Springfield",
+      state: "IL",
+      zip: "62701",
+    });
+
+    // Initial check: 60 + 170 = 230 minutes
+    const initialApt = await t.run(async (ctx) => ctx.db.get(appointmentId));
+    expect(initialApt).not.toBeNull();
+    expect(initialApt!.duration).toBe(230);
+    expect(initialApt!.totalPrice).toBe(120 + 180); // 300
+
+    // Now edit the appointment: Vehicle 1 keeps service60Id (60m), Vehicle 2 gets service170Id + addon60Id (170m + 60m = 230m)
+    // Total services duration should be 60 + 230 = 290 minutes (4h 50m)
+    // Starting at 11:00 AM, 290 minutes finishes at 3:50 PM, well within 6:00 PM business hours!
+    await asAdmin.mutation(api.appointments.update, {
+      appointmentId,
+      userId,
+      vehicleIds: [vehicle1Id, vehicle2Id],
+      serviceIds: [service60Id, service170Id, addon60Id],
+      vehicleServices: [
+        { vehicleId: vehicle1Id, serviceIds: [service60Id] },
+        { vehicleId: vehicle2Id, serviceIds: [service170Id, addon60Id] },
+      ],
+      scheduledDate: APPOINTMENT_TEST_DATE,
+      scheduledTime: "11:00",
+      street: "123 Main St",
+      city: "Springfield",
+      state: "IL",
+      zip: "62701",
+    });
+
+    const updatedApt = await t.run(async (ctx) => ctx.db.get(appointmentId));
+    expect(updatedApt).not.toBeNull();
+    // Duration must be 290 minutes, NOT 580 minutes
+    expect(updatedApt!.duration).toBe(290);
+    // Vehicle 1 ($120) + Vehicle 2 ($180 + $70) = $370
+    expect(updatedApt!.totalPrice).toBe(370);
+    expect(updatedApt!.vehicleServices).toEqual([
+      { vehicleId: vehicle1Id, serviceIds: [service60Id] },
+      { vehicleId: vehicle2Id, serviceIds: [service170Id, addon60Id] },
+    ]);
   });
 });
