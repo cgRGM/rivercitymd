@@ -1,0 +1,364 @@
+"use client";
+
+import { useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@rivercitymd/backend/convex/_generated/api";
+import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { X, Plus } from "lucide-react";
+import {
+  VehiclePricingEditor,
+  type VehiclePriceFormRow,
+} from "@/components/forms/admin/vehicle-pricing-editor";
+
+const formSchema = z.object({
+  name: z.string().min(1, "Service name is required"),
+  description: z.string().min(1, "Description is required"),
+  duration: z.number().min(1, "Duration must be at least 1 minute"),
+  basePriceSmall: z.number().min(0, "Price must be non-negative").optional(),
+  basePriceMedium: z.number().min(0, "Price must be non-negative").optional(),
+  basePriceLarge: z.number().min(0, "Price must be non-negative").optional(),
+  vehiclePrices: z.array(z.object({
+    vehicleTypeId: z.string().optional(),
+    vehicleTypeName: z.string().optional(),
+    price: z.number().min(0, "Price must be non-negative"),
+    duration: z.number().min(0, "Duration must be non-negative"),
+    isAvailable: z.boolean(),
+  })),
+  features: z.array(z.string()).optional(),
+  icon: z.string().optional(),
+  includedServiceIds: z.array(z.string()).optional(),
+}).refine(
+  (data) =>
+    data.vehiclePrices.some((row) => row.isAvailable && row.price > 0),
+  {
+    message: "At least one vehicle size price must be greater than $0.",
+    path: ["vehiclePrices"],
+  },
+);
+
+type FormData = z.infer<typeof formSchema>;
+
+type IncludedServiceOption = {
+  _id: Id<"services">;
+  name: string;
+};
+
+interface AddServiceFormProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  addOnMode?: boolean;
+  subscriptionMode?: boolean;
+}
+
+export function AddServiceForm({
+  open,
+  onOpenChange,
+  addOnMode = false,
+  subscriptionMode = false,
+}: AddServiceFormProps) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [newFeature, setNewFeature] = useState("");
+
+  const allServices = useQuery(api.services.list) as
+    | IncludedServiceOption[]
+    | undefined;
+  const createService = useMutation(api.services.create);
+
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      duration: 60,
+      basePriceSmall: 0,
+      basePriceMedium: 0,
+      basePriceLarge: 0,
+      vehiclePrices: [] as VehiclePriceFormRow[],
+      features: [],
+      icon: "",
+      includedServiceIds: [],
+    },
+  });
+
+  const addFeature = () => {
+    if (newFeature.trim()) {
+      const currentFeatures = form.getValues("features") || [];
+      form.setValue("features", [...currentFeatures, newFeature.trim()]);
+      setNewFeature("");
+    }
+  };
+
+  const removeFeature = (index: number) => {
+    const currentFeatures = form.getValues("features") || [];
+    form.setValue(
+      "features",
+      currentFeatures.filter((_, i) => i !== index),
+    );
+  };
+
+  const onSubmit = async (data: FormData) => {
+    setIsLoading(true);
+    try {
+      const serviceType = subscriptionMode
+        ? "subscription"
+        : addOnMode
+          ? "addon"
+          : "standard";
+
+      await createService({
+        name: data.name,
+        description: data.description,
+        basePriceSmall: data.basePriceSmall,
+        basePriceMedium: data.basePriceMedium,
+        basePriceLarge: data.basePriceLarge,
+        vehiclePrices: data.vehiclePrices.map((row) => ({
+          vehicleTypeId: row.vehicleTypeId as Id<"vehicleTypes"> | undefined,
+          vehicleTypeName: row.vehicleTypeName,
+          price: row.price,
+          duration: row.duration,
+          isAvailable: row.isAvailable,
+        })),
+        duration: data.duration,
+        serviceType,
+        includedServiceIds: data.includedServiceIds as Id<"services">[],
+        features: data.features,
+        icon: data.icon,
+      });
+
+      toast.success(
+        `${subscriptionMode ? "Subscription" : addOnMode ? "Add-on" : "Service"} created successfully`,
+      );
+      form.reset();
+      onOpenChange(false);
+    } catch {
+      toast.error(
+        `Failed to create ${subscriptionMode ? "subscription" : addOnMode ? "add-on" : "service"}`,
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            Add New{" "}
+            {subscriptionMode
+              ? "Subscription"
+              : addOnMode
+                ? "Add-on"
+                : "Service"}
+          </DialogTitle>
+          <DialogDescription>
+            Create a new{" "}
+            {subscriptionMode
+              ? "subscription service with recurring billing"
+              : addOnMode
+                ? "add-on service"
+                : "service offering with size-based pricing"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {/* Basic Information */}
+            <div className="space-y-4">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Service Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g., Full Detail" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="Describe what this service includes"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="duration"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Calendar time blocked (minutes)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        {...field}
+                        onChange={(e) =>
+                          field.onChange(parseInt(e.target.value) || 0)
+                        }
+                        value={field.value || ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="icon"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Icon (Emoji)</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="🚗" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <VehiclePricingEditor form={form} defaultDuration={form.watch("duration")} />
+
+            {/* Features */}
+            <div className="space-y-4">
+              <FormLabel>Features</FormLabel>
+              <div className="flex gap-2">
+                <Input
+                  value={newFeature}
+                  onChange={(e) => setNewFeature(e.target.value)}
+                  placeholder="Add a feature..."
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && (e.preventDefault(), addFeature())
+                  }
+                />
+                <Button type="button" onClick={addFeature} size="sm">
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {form.watch("features")?.map((feature, index) => (
+                  <Badge
+                    key={index}
+                    variant="secondary"
+                    className="flex items-center gap-1"
+                  >
+                    {feature}
+                    <button
+                      type="button"
+                      onClick={() => removeFeature(index)}
+                      className="inline-flex items-center"
+                      aria-label={`Remove feature ${feature}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            {/* Included Services (Optional) */}
+            <FormField
+              control={form.control}
+              name="includedServiceIds"
+              render={() => (
+                <FormItem>
+                  <FormLabel>Included Services (Optional)</FormLabel>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {allServices?.map((service) => (
+                      <FormField
+                        key={service._id}
+                        control={form.control}
+                        name="includedServiceIds"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center space-x-2">
+                            <FormControl>
+                              <input
+                                type="checkbox"
+                                checked={field.value?.includes(service._id)}
+                                onChange={(checked) => {
+                                  const current = field.value || [];
+                                  if (checked.target.checked) {
+                                    field.onChange([...current, service._id]);
+                                  } else {
+                                    field.onChange(
+                                      current.filter(
+                                        (id) => id !== service._id,
+                                      ),
+                                    );
+                                  }
+                                }}
+                                className="rounded border-gray-300"
+                              />
+                            </FormControl>
+                            <FormLabel className="text-sm font-normal">
+                              {service.name}
+                            </FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isLoading}>
+                {isLoading
+                  ? "Creating..."
+                  : `Create ${subscriptionMode ? "Subscription" : addOnMode ? "Add-on" : "Service"}`}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}

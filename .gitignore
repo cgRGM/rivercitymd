@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -15,13 +16,19 @@
 
 # next.js
 /.next/
+**/.next/
 /out/
+**/out/
 
 # production
 /build
+**/build
+**/dist
 
 # misc
 .DS_Store
+**/.expo
+**/.turbo
 *.pem
 
 # debug
@@ -36,6 +43,8 @@ session-ses_*.md
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+!**/.env.example
 
 # vercel
 .vercel

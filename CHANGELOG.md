@@ -2,6 +2,21 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.1.2] - 2026-08-28
+### Added
+- **Mobile App Foundation**: Added a pnpm/Turborepo workspace with an Expo native-bare app, shared Convex backend package, shared environment package, and React Native Reusables configuration.
+- **Customer Mobile Shell**: Added native Overview, Appointments, Vehicles, Reviews, and Profile tabs backed by the existing Convex API.
+- **Native Clerk Authentication**: Added Clerk Expo provider/token caching and Clerk's native `AuthView` sign-in/sign-up flows.
+
+### Fixed
+- **Customer Mobile Navigation**: Corrected the web dashboard's primary mobile tab to link to `/dashboard/appointments` and use the same label as the native app.
+- **CI Workspace Setup**: Updated the test workflow to use pnpm 11, Node.js 22.13+, and the new Turborepo quality-gate scripts.
+- **Vercel Monorepo Build**: Configured Vercel to detect the Next.js web package and run its workspace build from the repository root, including the root framework marker required by the existing project configuration.
+
+### Changed
+- **Web App Package**: Moved the existing Next.js application into `apps/web` while preserving its routes, components, tests, and Convex integrations.
+- **Backend Package**: Moved Convex functions and generated types into `packages/backend` for web and native reuse.
+
 ## [v1.1.1] - 2026-08-14
 ### Fixed
 - **Multi-Vehicle Appointment Edit Duration & Availability**: Fixed `appointments.update`, `create`, `previewWorkAdjustment`, and `applyWorkAdjustment` in `convex/appointments.ts` to pass per-vehicle service mappings (`vehicleServices`) to `buildVehicleServiceItems` and `buildAdjustmentPricing`. This prevents service duplication across vehicles (e.g. 290 minutes doubling to 580 minutes) that triggered false "Outside business hours" / `TIME_SLOT_UNAVAILABLE` errors when updating services on multi-vehicle appointments.
