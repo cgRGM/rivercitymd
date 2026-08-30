@@ -22,13 +22,13 @@ export default function ProfileScreen() {
       <ScreenHeader
         eyebrow="Account"
         title="Profile"
-        description="Your River City MD account and preferences."
+        description="Your RiverCityMD account and preferences."
       />
       <Card>
         <CardHeader className="flex-row items-center gap-4">
           <UserButton />
           <View className="flex-1 gap-1">
-            <CardTitle>{currentUser?.name || user?.fullName || "River City customer"}</CardTitle>
+            <CardTitle>{currentUser?.name || user?.fullName || "RiverCityMD Customer"}</CardTitle>
             <Text className="text-sm text-muted-foreground">
               {currentUser?.email || user?.primaryEmailAddress?.emailAddress || "Email not available"}
             </Text>

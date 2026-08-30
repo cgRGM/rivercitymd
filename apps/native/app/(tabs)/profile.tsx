@@ -39,7 +39,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const displayName = currentUser?.name || user?.fullName || "River City Customer";
+  const displayName = currentUser?.name || user?.fullName || "RiverCityMD Customer";
   const displayEmail = currentUser?.email || user?.primaryEmailAddress?.emailAddress || "Email unavailable";
   const displayPhone = currentUser?.phone || user?.primaryPhoneNumber?.phoneNumber || "No phone added";
   const address = currentUser?.address;

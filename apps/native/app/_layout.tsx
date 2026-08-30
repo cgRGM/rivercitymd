@@ -91,7 +91,7 @@ function AuthenticatedRoutes() {
         <BrandMark />
         <ActivityIndicator size="small" color={THEME.light.accent} />
         <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Loading River City MD...
+          Loading RiverCityMD...
         </Text>
       </View>
     );

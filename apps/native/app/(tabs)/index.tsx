@@ -50,8 +50,8 @@ export default function OverviewScreen() {
         <View className="flex-row items-center gap-3">
           <BrandMark />
           <View className="gap-0.5">
-            <Text className="text-xs font-semibold uppercase tracking-[2px] text-muted-foreground">
-              River City MD
+            <Text className="text-xs font-bold tracking-wider text-muted-foreground">
+              RiverCityMD
             </Text>
             <Text className="text-base font-semibold">Customer Portal</Text>
           </View>
