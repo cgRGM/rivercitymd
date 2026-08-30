@@ -1282,34 +1282,72 @@ export const createDepositCheckoutSession = action({
 
     // Create Stripe checkout session for deposit
     if (depositPriceId) {
-      // Use Stripe component when we have a priceId
-      const session = await stripeClient.createCheckoutSession(ctx, {
-        priceId: depositPriceId,
-        customerId: stripeCustomerId,
-        mode: "payment",
-        successUrl: args.successUrl,
-        cancelUrl: args.cancelUrl,
-        quantity: vehicleCount,
-        metadata: {
-          appointmentId: args.appointmentId,
-          invoiceId: args.invoiceId,
-          type: "deposit",
-        },
-        paymentIntentMetadata: {
-          appointmentId: args.appointmentId,
-          invoiceId: args.invoiceId,
-          type: "deposit",
-        },
-      });
+      try {
+        // Use Stripe component when we have a priceId
+        const session = await stripeClient.createCheckoutSession(ctx, {
+          priceId: depositPriceId,
+          customerId: stripeCustomerId,
+          mode: "payment",
+          successUrl: args.successUrl,
+          cancelUrl: args.cancelUrl,
+          quantity: vehicleCount,
+          metadata: {
+            appointmentId: args.appointmentId,
+            invoiceId: args.invoiceId,
+            type: "deposit",
+          },
+          paymentIntentMetadata: {
+            appointmentId: args.appointmentId,
+            invoiceId: args.invoiceId,
+            type: "deposit",
+          },
+        });
 
-      if (!session.url) {
-        throw new Error("Failed to create checkout session URL");
+        if (!session.url) {
+          throw new Error("Failed to create checkout session URL");
+        }
+
+        return {
+          sessionId: session.sessionId,
+          url: session.url,
+        };
+      } catch (stripeErr) {
+        console.warn(
+          "Stripe component createCheckoutSession failed in payDeposit, falling back to dynamic price_data:",
+          stripeErr,
+        );
+        const sessionData = new URLSearchParams({
+          mode: "payment",
+          customer: stripeCustomerId,
+          success_url: args.successUrl,
+          cancel_url: args.cancelUrl,
+          "metadata[appointmentId]": args.appointmentId,
+          "metadata[invoiceId]": args.invoiceId,
+          "metadata[type]": "deposit",
+        });
+
+        const depositAmountInCents = Math.round(invoice.depositAmount * 100);
+        sessionData.append("line_items[0][price_data][currency]", "usd");
+        sessionData.append(
+          "line_items[0][price_data][unit_amount]",
+          depositAmountInCents.toString(),
+        );
+        sessionData.append(
+          "line_items[0][price_data][product_data][name]",
+          `Deposit (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
+        );
+        sessionData.append("line_items[0][quantity]", "1");
+
+        const session = await stripeApiCall("checkout/sessions", {
+          method: "POST",
+          body: sessionData,
+        });
+
+        return {
+          sessionId: session.id,
+          url: session.url,
+        };
       }
-
-      return {
-        sessionId: session.sessionId,
-        url: session.url,
-      };
     } else {
       // Fallback: use manual approach for dynamic amounts (price_data)
       // Component doesn't support price_data, so we use manual API call
@@ -2812,18 +2850,59 @@ async function createCheckoutSessionForDraft(
     sessionId = session.id;
     url = session.url;
   } else if (canUseDepositPriceId) {
-    const session = await stripeClient.createCheckoutSession(ctx, {
-      priceId: depositPriceId!,
-      customerId: stripeCustomerId,
-      mode: "payment",
-      successUrl,
-      cancelUrl,
-      quantity: vehicleCount,
-      metadata,
-      paymentIntentMetadata: metadata,
-    });
-    sessionId = session.sessionId;
-    url = session.url || "";
+    try {
+      const session = await stripeClient.createCheckoutSession(ctx, {
+        priceId: depositPriceId!,
+        customerId: stripeCustomerId,
+        mode: "payment",
+        successUrl,
+        cancelUrl,
+        quantity: vehicleCount,
+        metadata,
+        paymentIntentMetadata: metadata,
+      });
+      sessionId = session.sessionId;
+      url = session.url || "";
+    } catch (stripeErr) {
+      console.warn(
+        "Stripe checkout with depositPriceId failed, falling back to dynamic price_data:",
+        stripeErr,
+      );
+      const depositAmountInCents = Math.round(draft.depositAmount * 100);
+      const sessionData = new URLSearchParams({
+        mode: "payment",
+        customer: stripeCustomerId,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      });
+      appendMetadata(sessionData, metadata);
+      sessionData.append(
+        "payment_intent_data[metadata][draftId]",
+        String(draft._id),
+      );
+      sessionData.append(
+        "payment_intent_data[metadata][resumeToken]",
+        draft.resumeToken,
+      );
+      sessionData.append("payment_intent_data[metadata][type]", "deposit");
+      sessionData.append("line_items[0][price_data][currency]", "usd");
+      sessionData.append(
+        "line_items[0][price_data][unit_amount]",
+        depositAmountInCents.toString(),
+      );
+      sessionData.append(
+        "line_items[0][price_data][product_data][name]",
+        `Deposit (${vehicleCount} vehicle${vehicleCount > 1 ? "s" : ""})`,
+      );
+      sessionData.append("line_items[0][quantity]", "1");
+
+      const session = await stripeApiCall("checkout/sessions", {
+        method: "POST",
+        body: sessionData,
+      });
+      sessionId = session.id;
+      url = session.url;
+    }
   } else {
     const depositAmountInCents = Math.round(draft.depositAmount * 100);
     const sessionData = new URLSearchParams({
