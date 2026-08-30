@@ -874,22 +874,25 @@ export default function BookScreen() {
                           }
                           className="flex-row items-center justify-between p-3.5 bg-card active:bg-secondary/30"
                         >
-                          <View className="flex-row items-center gap-2.5 flex-1 pr-2">
-                            <Badge variant="accent" size="sm" label="1. REQUIRED" />
-                            <Text className="font-bold text-sm text-foreground">Choose Package</Text>
-                          </View>
-                          <View className="flex-row items-center gap-2">
+                          <View className="flex-1 pr-2">
+                            <View className="flex-row items-center gap-2">
+                              <Badge variant="accent" size="sm" label="1. REQUIRED" />
+                              <Text className="font-bold text-sm text-foreground">Choose Package</Text>
+                            </View>
                             {selectedPackage ? (
-                              <Text className="text-xs font-semibold text-accent">
-                                {selectedPackage.name} (${getEffectiveServicePricingForVehicle(selectedPackage, pricingCtx).price})
+                              <Text className="text-xs font-semibold text-accent mt-1" numberOfLines={1}>
+                                {selectedPackage.name} (${getEffectiveServicePricingForVehicle(selectedPackage, pricingCtx).price.toFixed(2)})
                               </Text>
                             ) : (
-                              <Text className="text-xs text-muted-foreground">Select one</Text>
+                              <Text className="text-xs text-muted-foreground mt-1">Select 1 base package</Text>
                             )}
+                          </View>
+
+                          <View className="shrink-0 pl-1">
                             {currentSection === "packages" ? (
-                              <ChevronUp size={16} color={THEME.light.mutedForeground} />
+                              <ChevronUp size={18} color={THEME.light.mutedForeground} />
                             ) : (
-                              <ChevronDown size={16} color={THEME.light.mutedForeground} />
+                              <ChevronDown size={18} color={THEME.light.mutedForeground} />
                             )}
                           </View>
                         </Pressable>
@@ -933,23 +936,24 @@ export default function BookScreen() {
                                     }
                                     className="flex-row items-center justify-between p-3 bg-secondary/20 active:bg-secondary/40"
                                   >
-                                    <View className="flex-row items-center gap-2 flex-1 pr-2">
+                                    <View className="flex-1 pr-2">
                                       <Text className="font-bold text-xs text-foreground uppercase tracking-wide">
                                         {group.name}
                                       </Text>
+                                    </View>
+
+                                    <View className="flex-row items-center gap-2 shrink-0">
                                       {isPackageInThisGroup ? (
                                         <Badge
                                           variant="accent"
                                           size="sm"
                                           label="Selected"
                                         />
-                                      ) : null}
-                                    </View>
-
-                                    <View className="flex-row items-center gap-2">
-                                      <Text className="text-[11px] text-muted-foreground">
-                                        {group.services.length} options
-                                      </Text>
+                                      ) : (
+                                        <Text className="text-[11px] text-muted-foreground">
+                                          {group.services.length} options
+                                        </Text>
+                                      )}
                                       {isCatOpen ? (
                                         <ChevronUp size={15} color={THEME.light.mutedForeground} />
                                       ) : (
@@ -971,6 +975,16 @@ export default function BookScreen() {
                                             accessibilityRole="button"
                                             onPress={() => {
                                               handleSelectPackage(v.key, pkg._id, coreIds);
+                                              // Close the category accordion once an option is selected!
+                                              setActiveNestedCategory((prev) => ({
+                                                ...prev,
+                                                [currentPkgCategoryKey]: "",
+                                              }));
+                                              // Auto-advance walkdown to Upgrades section
+                                              setActiveVehicleSection((prev) => ({
+                                                ...prev,
+                                                [v.key]: "upgrades",
+                                              }));
                                             }}
                                             className={`rounded-xl border p-3.5 ${
                                               isChosen
@@ -978,28 +992,32 @@ export default function BookScreen() {
                                                 : "border-border bg-card active:bg-secondary"
                                             }`}
                                           >
-                                            <View className="flex-row items-start justify-between gap-2">
-                                              <View className="flex-1">
-                                                <View className="flex-row items-center gap-2">
-                                                  <Text className="font-bold text-sm">{pkg.name}</Text>
-                                                  {pkg.duration ? (
-                                                    <Badge
-                                                      variant="secondary"
-                                                      size="sm"
-                                                      label={`~${pricing.duration} min`}
-                                                    />
-                                                  ) : null}
-                                                </View>
+                                            <View className="flex-row items-start justify-between gap-3">
+                                              <View className="flex-1 pr-1">
+                                                <Text className="font-bold text-sm text-foreground">
+                                                  {pkg.name}
+                                                </Text>
+                                                {pkg.duration ? (
+                                                  <View className="flex-row items-center mt-1">
+                                                    <View className="rounded-full bg-secondary/80 px-2 py-0.5 border border-border/50">
+                                                      <Text className="text-[10px] font-semibold text-muted-foreground">
+                                                        ~{pricing.duration} min
+                                                      </Text>
+                                                    </View>
+                                                  </View>
+                                                ) : null}
                                                 {pkg.description ? (
-                                                  <Text className="text-xs text-muted-foreground mt-1 leading-4">
+                                                  <Text className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
                                                     {pkg.description}
                                                   </Text>
                                                 ) : null}
                                               </View>
 
-                                              <Text className="text-sm font-extrabold text-accent">
-                                                ${pricing.price.toFixed(2)}
-                                              </Text>
+                                              <View className="shrink-0 items-end justify-start pt-0.5">
+                                                <Text className="text-sm font-black text-accent">
+                                                  ${pricing.price.toFixed(2)}
+                                                </Text>
+                                              </View>
                                             </View>
                                           </Pressable>
                                         );
@@ -1030,7 +1048,7 @@ export default function BookScreen() {
                               <Badge variant="secondary" size="sm" label="2. OPTIONAL" />
                               <Text className="font-bold text-sm text-foreground">Core Upgrades</Text>
                             </View>
-                            <View className="flex-row items-center gap-2">
+                            <View className="flex-row items-center gap-2 shrink-0">
                               {selectedUpgrades.length > 0 ? (
                                 <Text className="text-xs font-semibold text-accent">
                                   {selectedUpgrades.length} selected
@@ -1064,15 +1082,15 @@ export default function BookScreen() {
                                     }`}
                                   >
                                     <View className="flex-1 pr-2">
-                                      <Text className="font-semibold text-xs">{upg.name}</Text>
+                                      <Text className="font-semibold text-xs text-foreground">{upg.name}</Text>
                                       {upg.description ? (
                                         <Text className="text-[11px] text-muted-foreground mt-0.5">
                                           {upg.description}
                                         </Text>
                                       ) : null}
                                     </View>
-                                    <View className="flex-row items-center gap-2.5">
-                                      <Text className="font-bold text-xs">+${pricing.price.toFixed(2)}</Text>
+                                    <View className="flex-row items-center gap-2.5 shrink-0">
+                                      <Text className="font-bold text-xs text-accent">+${pricing.price.toFixed(2)}</Text>
                                       <View
                                         className={`h-5 w-5 items-center justify-center rounded border ${
                                           isSelected ? "border-accent bg-accent" : "border-border"
@@ -1106,7 +1124,7 @@ export default function BookScreen() {
                               <Badge variant="secondary" size="sm" label="3. OPTIONAL" />
                               <Text className="font-bold text-sm text-foreground">Add-on Extras</Text>
                             </View>
-                            <View className="flex-row items-center gap-2">
+                            <View className="flex-row items-center gap-2 shrink-0">
                               {selectedAddons.length > 0 ? (
                                 <Text className="text-xs font-semibold text-accent">
                                   {selectedAddons.length} selected
@@ -1147,23 +1165,24 @@ export default function BookScreen() {
                                       }
                                       className="flex-row items-center justify-between p-3 bg-secondary/20 active:bg-secondary/40"
                                     >
-                                      <View className="flex-row items-center gap-2 flex-1 pr-2">
+                                      <View className="flex-1 pr-2">
                                         <Text className="font-bold text-xs text-foreground uppercase tracking-wide">
                                           {group.name}
                                         </Text>
+                                      </View>
+
+                                      <View className="flex-row items-center gap-2 shrink-0">
                                         {groupAddonCount > 0 ? (
                                           <Badge
                                             variant="accent"
                                             size="sm"
                                             label={`${groupAddonCount} selected`}
                                           />
-                                        ) : null}
-                                      </View>
-
-                                      <View className="flex-row items-center gap-2">
-                                        <Text className="text-[11px] text-muted-foreground">
-                                          {group.services.length} options
-                                        </Text>
+                                        ) : (
+                                          <Text className="text-[11px] text-muted-foreground">
+                                            {group.services.length} options
+                                          </Text>
+                                        )}
                                         {isAddonGroupOpen ? (
                                           <ChevronUp size={15} color={THEME.light.mutedForeground} />
                                         ) : (
@@ -1190,13 +1209,13 @@ export default function BookScreen() {
                                               }`}
                                             >
                                               <View className="flex-1 pr-2">
-                                                <Text className="font-semibold text-xs">{addon.name}</Text>
-                                                <Text className="text-[11px] text-muted-foreground">
+                                                <Text className="font-semibold text-xs text-foreground">{addon.name}</Text>
+                                                <Text className="text-[11px] text-muted-foreground mt-0.5">
                                                   +{pricing.duration} mins
                                                 </Text>
                                               </View>
-                                              <View className="flex-row items-center gap-2.5">
-                                                <Text className="font-bold text-xs">
+                                              <View className="flex-row items-center gap-2.5 shrink-0">
+                                                <Text className="font-bold text-xs text-accent">
                                                   +${pricing.price.toFixed(2)}
                                                 </Text>
                                                 <View
