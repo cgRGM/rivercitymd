@@ -1,4 +1,4 @@
-import "@/global.css";
+import "../global.css";
 
 import { env } from "@rivercitymd/env/native";
 import { ClerkProvider, useAuth } from "@clerk/expo";
