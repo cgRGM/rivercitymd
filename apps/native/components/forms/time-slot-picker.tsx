@@ -2,11 +2,20 @@ import * as React from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
-import { Calendar, CheckCircle2, Clock, Sun, Sunrise } from "lucide-react-native";
+import {
+  Calendar,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Sun,
+  Sunrise,
+} from "lucide-react-native";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { Badge } from "@/components/ui/badge";
+import { Modal } from "@/components/ui/modal";
 import { THEME } from "@/lib/theme";
 
 import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
@@ -30,7 +39,11 @@ function getNextDays(count = 14) {
   for (let i = 0; i < count; i++) {
     const d = new Date(now);
     d.setDate(now.getDate() + i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const dateStr = `${year}-${month}-${day}`;
+
     days.push({
       date: dateStr,
       dayOfWeek: d.toLocaleDateString("en-US", { weekday: "short" }),
@@ -42,6 +55,7 @@ function getNextDays(count = 14) {
 }
 
 function formatTime12h(timeStr: string) {
+  if (!timeStr) return "";
   const [hoursStr, minutesStr] = timeStr.split(":");
   const hours = parseInt(hoursStr, 10);
   const ampm = hours >= 12 ? "PM" : "AM";
@@ -64,6 +78,7 @@ export function TimeSlotPicker({
   const handleTimeChange = onTimeChange || onSelectTime || (() => {});
   const resolvedDuration = duration ?? durationMinutes;
 
+  const [isPickerModalOpen, setIsPickerModalOpen] = React.useState(false);
   const days = React.useMemo(() => getNextDays(14), []);
 
   // Initialize selectedDate if empty
@@ -87,10 +102,38 @@ export function TimeSlotPicker({
   const isLoading = selectedDate ? slotsQuery === undefined : false;
   const rawSlots = slotsQuery || [];
 
-  // Filter strictly for available slots from admin database availability
+  // Filter strictly for available slots and exclude past time slots for today
   const availableSlots = React.useMemo(() => {
-    return rawSlots.filter((slot) => slot.available);
-  }, [rawSlots]);
+    const now = new Date();
+    const todayYear = now.getFullYear();
+    const todayMonth = String(now.getMonth() + 1).padStart(2, "0");
+    const todayDay = String(now.getDate()).padStart(2, "0");
+    const todayKey = `${todayYear}-${todayMonth}-${todayDay}`;
+    const isToday = selectedDate === todayKey;
+
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+
+    return rawSlots.filter((slot) => {
+      if (!slot.available) return false;
+      if (isToday) {
+        const [h, m] = slot.time.split(":").map(Number);
+        const slotMinutes = h * 60 + m;
+        // Require at least a 30-minute lead time for same-day booking
+        return slotMinutes > currentTotalMinutes + 30;
+      }
+      return true;
+    });
+  }, [rawSlots, selectedDate]);
+
+  // If selectedTime is in the past for today or not in availableSlots, clear it
+  React.useEffect(() => {
+    if (selectedTime && availableSlots.length > 0) {
+      const isValid = availableSlots.some((s) => s.time === selectedTime);
+      if (!isValid && !isLoading) {
+        handleTimeChange("");
+      }
+    }
+  }, [selectedDate, availableSlots, selectedTime, isLoading, handleTimeChange]);
 
   const morningSlots = React.useMemo(() => {
     return availableSlots.filter((s) => {
@@ -174,77 +217,169 @@ export function TimeSlotPicker({
         </ScrollView>
       </View>
 
-      {/* Available Time Slots View */}
+      {/* Dropdown Time Picker Trigger */}
       <View className="gap-2">
         <View className="flex-row items-center justify-between">
           <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Available Start Times
+            Arrival Time
           </Text>
           {resolvedDuration ? (
             <Badge variant="secondary" size="sm" label={`Est. ${resolvedDuration} mins`} />
           ) : null}
         </View>
 
-        {/* Selected Time Callout Banner */}
-        {selectedTime ? (
-          <View className="flex-row items-center justify-between rounded-xl bg-accent/10 border border-accent/20 px-3.5 py-2.5">
-            <View className="flex-row items-center gap-2">
-              <Clock size={16} color={THEME.light.accent} />
-              <Text className="text-xs font-semibold text-foreground">
-                Selected Start: <Text className="font-bold text-accent">{formatTime12h(selectedTime)}</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setIsPickerModalOpen(true)}
+          disabled={isLoading || availableSlots.length === 0}
+          className={`flex-row items-center justify-between rounded-2xl border p-4 active:bg-secondary/40 ${
+            selectedTime
+              ? "border-accent bg-accent/5"
+              : availableSlots.length === 0
+                ? "border-border bg-muted/40 opacity-70"
+                : "border-border bg-card"
+          }`}
+        >
+          <View className="flex-row items-center gap-3 flex-1">
+            <View
+              className={`h-10 w-10 items-center justify-center rounded-xl ${
+                selectedTime ? "bg-accent" : "bg-secondary"
+              }`}
+            >
+              <Clock
+                size={20}
+                color={
+                  selectedTime
+                    ? THEME.light.accentForeground
+                    : THEME.light.foreground
+                }
+              />
+            </View>
+
+            <View className="flex-1">
+              <Text className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
+                {selectedTime ? "Selected Arrival Time" : "Choose Start Window"}
+              </Text>
+              <Text className="text-base font-bold text-foreground">
+                {isLoading
+                  ? "Checking availability..."
+                  : selectedTime
+                    ? formatTime12h(selectedTime)
+                    : availableSlots.length === 0
+                      ? "No slots available today"
+                      : `${availableSlots.length} available slots (Tap to choose)`}
               </Text>
             </View>
-            <CheckCircle2 size={16} color={THEME.light.accent} />
+          </View>
+
+          <View className="flex-row items-center gap-2">
+            {selectedTime ? (
+              <Badge variant="accent" size="sm" label="Confirmed" />
+            ) : (
+              <ChevronDown size={20} color={THEME.light.mutedForeground} />
+            )}
+          </View>
+        </Pressable>
+
+        {/* Inline Quick-Select Pills if Time is Not Yet Selected */}
+        {!selectedTime && availableSlots.length > 0 ? (
+          <View className="mt-1 gap-2">
+            <Text className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Quick Select Available Hours:
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+              {availableSlots.slice(0, 6).map((slot) => (
+                <Pressable
+                  key={slot.time}
+                  accessibilityRole="button"
+                  onPress={() => handleTimeChange(slot.time)}
+                  className="rounded-xl border border-border bg-card px-3.5 py-2 active:bg-secondary"
+                >
+                  <Text className="text-xs font-semibold text-foreground">
+                    {formatTime12h(slot.time)}
+                  </Text>
+                </Pressable>
+              ))}
+              {availableSlots.length > 6 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setIsPickerModalOpen(true)}
+                  className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 active:opacity-70"
+                >
+                  <Text className="text-xs font-bold text-accent">
+                    +{availableSlots.length - 6} more
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         ) : null}
+      </View>
 
-        <Card className="border border-border">
-          <CardContent className="p-4">
-            {isLoading ? (
+      {/* Full Time Slot Picker Bottom Sheet Modal */}
+      <Modal
+        visible={isPickerModalOpen}
+        onClose={() => setIsPickerModalOpen(false)}
+        title="Select Arrival Time"
+        description={
+          selectedDate
+            ? `Available start windows for ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "short",
+                day: "numeric",
+              })}`
+            : "Choose an available start window"
+        }
+      >
+        <ScrollView className="max-h-[60vh]" showsVerticalScrollIndicator={false}>
+          <View className="gap-5 py-2">
+            {availableSlots.length === 0 ? (
               <View className="items-center justify-center py-8 gap-2">
-                <ActivityIndicator size="small" color={THEME.light.accent} />
-                <Text className="text-xs text-muted-foreground">Checking technician schedule...</Text>
-              </View>
-            ) : availableSlots.length === 0 ? (
-              <View className="items-center justify-center py-6 gap-1.5">
-                <Calendar size={22} color={THEME.light.mutedForeground} />
-                <Text className="font-semibold text-sm text-foreground">No open slots on this date</Text>
-                <Text className="text-xs text-center text-muted-foreground">
-                  The schedule is fully booked or closed for this day. Please select another day above.
+                <Calendar size={24} color={THEME.light.mutedForeground} />
+                <Text className="text-center font-semibold text-foreground">
+                  No Remaining Slots Today
+                </Text>
+                <Text className="text-center text-xs text-muted-foreground">
+                  All start times for this day have passed or are booked. Please select another date.
                 </Text>
               </View>
             ) : (
-              <View className="gap-4">
-                {/* Morning Slots */}
+              <>
+                {/* Morning Section */}
                 {morningSlots.length > 0 ? (
-                  <View className="gap-2">
+                  <View className="gap-2.5">
                     <View className="flex-row items-center gap-1.5">
-                      <Sunrise size={14} color={THEME.light.accent} />
+                      <Sunrise size={16} color={THEME.light.accent} />
                       <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        Morning
+                        Morning Hours
                       </Text>
                     </View>
-                    <View className="flex-row flex-wrap gap-2">
+                    <View className="gap-2">
                       {morningSlots.map((slot) => {
                         const isSelected = selectedTime === slot.time;
                         return (
                           <Pressable
                             key={slot.time}
                             accessibilityRole="button"
-                            onPress={() => handleTimeChange(slot.time)}
-                            className={`px-3.5 py-2.5 rounded-xl border items-center justify-center ${
+                            onPress={() => {
+                              handleTimeChange(slot.time);
+                              setIsPickerModalOpen(false);
+                            }}
+                            className={`flex-row items-center justify-between rounded-xl border p-3.5 ${
                               isSelected
-                                ? "border-accent bg-accent"
+                                ? "border-accent bg-accent/10"
                                 : "border-border bg-card active:bg-secondary"
                             }`}
                           >
-                            <Text
-                              className={`text-xs font-semibold ${
-                                isSelected ? "text-primary-foreground" : "text-foreground"
-                              }`}
-                            >
-                              {formatTime12h(slot.time)}
-                            </Text>
+                            <View className="flex-row items-center gap-3">
+                              <Clock size={16} color={isSelected ? THEME.light.accent : THEME.light.mutedForeground} />
+                              <Text className={`font-semibold ${isSelected ? "text-accent font-bold" : "text-foreground"}`}>
+                                {formatTime12h(slot.time)}
+                              </Text>
+                            </View>
+                            {isSelected ? (
+                              <Check size={18} color={THEME.light.accent} />
+                            ) : null}
                           </Pressable>
                         );
                       })}
@@ -252,47 +387,52 @@ export function TimeSlotPicker({
                   </View>
                 ) : null}
 
-                {/* Afternoon Slots */}
+                {/* Afternoon Section */}
                 {afternoonSlots.length > 0 ? (
-                  <View className="gap-2">
+                  <View className="gap-2.5">
                     <View className="flex-row items-center gap-1.5">
-                      <Sun size={14} color={THEME.light.accent} />
+                      <Sun size={16} color={THEME.light.accent} />
                       <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                        Afternoon
+                        Afternoon Hours
                       </Text>
                     </View>
-                    <View className="flex-row flex-wrap gap-2">
+                    <View className="gap-2">
                       {afternoonSlots.map((slot) => {
                         const isSelected = selectedTime === slot.time;
                         return (
                           <Pressable
                             key={slot.time}
                             accessibilityRole="button"
-                            onPress={() => handleTimeChange(slot.time)}
-                            className={`px-3.5 py-2.5 rounded-xl border items-center justify-center ${
+                            onPress={() => {
+                              handleTimeChange(slot.time);
+                              setIsPickerModalOpen(false);
+                            }}
+                            className={`flex-row items-center justify-between rounded-xl border p-3.5 ${
                               isSelected
-                                ? "border-accent bg-accent"
+                                ? "border-accent bg-accent/10"
                                 : "border-border bg-card active:bg-secondary"
                             }`}
                           >
-                            <Text
-                              className={`text-xs font-semibold ${
-                                isSelected ? "text-primary-foreground" : "text-foreground"
-                              }`}
-                            >
-                              {formatTime12h(slot.time)}
-                            </Text>
+                            <View className="flex-row items-center gap-3">
+                              <Clock size={16} color={isSelected ? THEME.light.accent : THEME.light.mutedForeground} />
+                              <Text className={`font-semibold ${isSelected ? "text-accent font-bold" : "text-foreground"}`}>
+                                {formatTime12h(slot.time)}
+                              </Text>
+                            </View>
+                            {isSelected ? (
+                              <Check size={18} color={THEME.light.accent} />
+                            ) : null}
                           </Pressable>
                         );
                       })}
                     </View>
                   </View>
                 ) : null}
-              </View>
+              </>
             )}
-          </CardContent>
-        </Card>
-      </View>
+          </View>
+        </ScrollView>
+      </Modal>
     </View>
   );
 }
