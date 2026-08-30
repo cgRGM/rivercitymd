@@ -2,6 +2,20 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.1] - 2026-08-30
+### Added
+- **Native In-App Accordion Booking Flow (`apps/native/app/book.tsx`)**: Replaced external browser reliance with a complete native 4-step wizard:
+  - Step 1: Radar-backed address search with Arkansas service territory verification and live travel fee calculation.
+  - Step 2: Live availability schedule and duration-aware time slot picker (`TimeSlotPicker`).
+  - Step 3: Saved garage vehicle selector + NHTSA vehicle lookup with vehicle condition toggles (Pet Hair Extraction +$40, Heavy Soil / Mud).
+  - Step 4: Per-vehicle collapsible accordion for detailing packages (Full Detail, Interior, Exterior) with live vehicle-type pricing, wax & ceramic upgrades, and add-on enhancements.
+  - Review & Checkout: Summary breakdown with 3 payment methods (Pay Deposit Now via Stripe with post-service invoice, Pay Full Price Upfront via Stripe, or Pay Remaining Balance in Person).
+- **Vehicle & Appointment Detail ID Pages**: Added `apps/native/app/vehicles/[id].tsx` and `apps/native/app/appointments/[id].tsx` with vehicle service histories, Stripe hosted invoice access, in-app reschedule modal, and cancellation.
+
+### Fixed
+- **Navigation Context Render Error**: Unified route structure in `apps/native/app/_layout.tsx` into a single root `<Stack>` tree observed by `AuthGuard`, eliminating conditional stack rendering errors on booking modals.
+- **Brand Consistency**: Styled all company name references as `RiverCityMD`.
+
 ## [v1.2.0] - 2026-08-30
 ### Added
 - **Mobile Customer Onboarding**: Added a 2-step native onboarding flow (`app/(onboarding)/index.tsx`) collecting user contact info, phone number with formatting, service address with Arkansas service area validation, and multi-vehicle garage entries with NHTSA/VPIC vehicle search and auto-classification.

@@ -164,8 +164,14 @@ export default function AppointmentsScreen() {
       {displayedList?.length ? (
         <View className="gap-3">
           {displayedList.map((appointment) => (
-            <Card key={appointment._id} className="border border-border">
-              <CardContent className="gap-4 p-4">
+            <Pressable
+              key={appointment._id}
+              accessibilityRole="button"
+              onPress={() => router.push(`/appointments/${appointment._id}`)}
+              className="active:opacity-90"
+            >
+              <Card className="border border-border">
+                <CardContent className="gap-4 p-4">
                 <View className="flex-row items-start justify-between gap-4">
                   <View className="flex-1 gap-1">
                     <Text className="text-lg font-bold">
@@ -234,6 +240,7 @@ export default function AppointmentsScreen() {
                 ) : null}
               </CardContent>
             </Card>
+          </Pressable>
           ))}
         </View>
       ) : (

@@ -62,6 +62,36 @@ export const getByUser = query({
   },
 });
 
+export const getById = query({
+  args: { id: v.id("vehicles") },
+  handler: async (ctx, args) => {
+    const authUserId = await getUserIdFromIdentity(ctx);
+    if (!authUserId) throw new Error("Not authenticated");
+
+    const vehicle = await ctx.db.get(args.id);
+    if (!vehicle) return null;
+
+    const isAdminUser = await isAdmin(ctx);
+    if (!isAdminUser && vehicle.userId !== authUserId) {
+      throw new Error("Access denied");
+    }
+
+    const vehicleType = vehicle.vehicleTypeId ? await ctx.db.get(vehicle.vehicleTypeId) : null;
+    const appointments = await ctx.db
+      .query("appointments")
+      .withIndex("by_user", (q) => q.eq("userId", vehicle.userId))
+      .collect();
+
+    const vehicleAppointments = appointments.filter((app) => app.vehicleIds.includes(vehicle._id));
+
+    return {
+      ...vehicle,
+      vehicleType,
+      appointments: vehicleAppointments,
+    };
+  },
+});
+
 // Internal query to get vehicles by user (for use by internal actions)
 export const listByUserInternal = internalQuery({
   args: { userId: v.id("users") },

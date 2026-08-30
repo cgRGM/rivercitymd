@@ -3,12 +3,12 @@ import { useUser } from "@clerk/expo";
 import type { ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
-import { CalendarDays, CarFront, CheckCircle2, Clock, MapPin, Plus, Sparkles } from "lucide-react-native";
+import { CalendarDays, CarFront, ChevronRight, Clock, MapPin, Plus, Star } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 
 import { BrandMark } from "@/components/brand-mark";
 import { Screen, ScreenHeader } from "@/components/screen";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,7 @@ export default function OverviewScreen() {
 
   return (
     <Screen>
+      {/* Brand Header */}
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center gap-3">
           <BrandMark />
@@ -65,36 +66,6 @@ export default function OverviewScreen() {
         description="We bring showroom-level mobile car detailing straight to your driveway."
       />
 
-      {/* Primary Action Card */}
-      <Card className="overflow-hidden border-0 bg-primary">
-        <CardHeader className="gap-3">
-          <View className="h-10 w-10 items-center justify-center rounded-xl bg-accent">
-            <Sparkles size={20} color={THEME.light.accentForeground} />
-          </View>
-          <CardTitle className="text-xl text-primary-foreground">Ready for a detail?</CardTitle>
-          <CardDescription className="text-primary-foreground/70">
-            Book in 2 minutes. We bring pure water, power, and high-end detailing to your home or office.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex-row gap-3">
-          <Button
-            variant="secondary"
-            onPress={() => router.push("/book")}
-            className="flex-row items-center gap-2"
-          >
-            <Plus size={16} color={THEME.light.secondaryForeground} />
-            <Text className="font-bold">Book Detail Now</Text>
-          </Button>
-          <Button
-            variant="outline"
-            onPress={() => router.push("/(tabs)/appointments")}
-            className="border-primary-foreground/20 bg-transparent active:bg-primary-foreground/10"
-          >
-            <Text className="text-primary-foreground">Schedule</Text>
-          </Button>
-        </CardContent>
-      </Card>
-
       {/* Next Appointment Spotlight */}
       <View className="gap-3">
         <View className="flex-row items-center justify-between">
@@ -109,45 +80,76 @@ export default function OverviewScreen() {
         </View>
 
         {nextAppointment ? (
-          <Card className="border border-border">
-            <CardContent className="gap-4 py-5">
-              <View className="flex-row items-start justify-between gap-4">
-                <View className="flex-1 gap-1">
-                  <Text className="text-lg font-bold">
-                    {formatAppointmentDate(
-                      nextAppointment.scheduledDate,
-                      nextAppointment.scheduledTime,
-                    )}
-                  </Text>
-                  <View className="flex-row items-center gap-2 mt-0.5">
-                    <Clock size={14} color={THEME.light.mutedForeground} />
-                    <Text className="text-sm text-muted-foreground">
-                      {nextAppointment.scheduledTime} · {nextAppointment.duration} mins
-                    </Text>
+          <View className="gap-3">
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push(`/appointments/${nextAppointment._id}`)}
+              className="active:opacity-90"
+            >
+              <Card className="border border-border">
+                <CardContent className="gap-4 py-5">
+                  <View className="flex-row items-start justify-between gap-4">
+                    <View className="flex-1 gap-1">
+                      <Text className="text-lg font-bold">
+                        {formatAppointmentDate(
+                          nextAppointment.scheduledDate,
+                          nextAppointment.scheduledTime,
+                        )}
+                      </Text>
+                      <View className="flex-row items-center gap-2 mt-0.5">
+                        <Clock size={14} color={THEME.light.mutedForeground} />
+                        <Text className="text-sm text-muted-foreground">
+                          {nextAppointment.scheduledTime} · {nextAppointment.duration} mins
+                        </Text>
+                      </View>
+                    </View>
+                    <Badge
+                      variant={nextAppointment.status === "confirmed" ? "success" : "warning"}
+                      size="default"
+                      label={nextAppointment.status === "confirmed" ? "Confirmed" : "Pending"}
+                    />
                   </View>
-                </View>
-                <Badge
-                  variant={nextAppointment.status === "confirmed" ? "success" : "warning"}
-                  size="default"
-                  label={nextAppointment.status === "confirmed" ? "Confirmed" : "Pending"}
-                />
-              </View>
-              <View className="flex-row items-center gap-2 border-t border-border pt-3">
-                <MapPin size={16} color={THEME.light.mutedForeground} />
-                <Text className="flex-1 text-sm text-muted-foreground" numberOfLines={1}>
-                  {nextAppointment.location.street}, {nextAppointment.location.city}
-                </Text>
-              </View>
-            </CardContent>
-          </Card>
+
+                  <View className="flex-row items-center justify-between border-t border-border pt-3">
+                    <View className="flex-row items-center gap-2 flex-1 mr-2">
+                      <MapPin size={16} color={THEME.light.mutedForeground} />
+                      <Text className="flex-1 text-sm text-muted-foreground" numberOfLines={1}>
+                        {nextAppointment.location.street}, {nextAppointment.location.city}
+                      </Text>
+                    </View>
+                    <ChevronRight size={16} color={THEME.light.mutedForeground} />
+                  </View>
+                </CardContent>
+              </Card>
+            </Pressable>
+
+            {/* Easy way to start a new booking request even if one is scheduled */}
+            <Button
+              variant="outline"
+              size="lg"
+              onPress={() => router.push("/book")}
+              className="w-full flex-row items-center justify-center gap-2"
+            >
+              <Plus size={16} color={THEME.light.foreground} />
+              <Text className="font-bold">Book Another Detail</Text>
+            </Button>
+          </View>
         ) : (
           <Card className="border-dashed">
-            <CardContent className="gap-3 py-5">
-              <Text className="font-semibold">Nothing on the calendar yet</Text>
-              <Text className="text-sm leading-5 text-muted-foreground">
-                Your next detail will appear here once booked.
-              </Text>
-              <Button onPress={() => router.push("/book")} className="self-start">
+            <CardContent className="gap-4 py-6 items-center justify-center text-center">
+              <View className="items-center gap-1">
+                <Text className="font-bold text-base text-center">Nothing on the calendar yet</Text>
+                <Text className="text-sm text-muted-foreground text-center max-w-xs">
+                  Your next mobile detailing session will appear here once booked.
+                </Text>
+              </View>
+              <Button
+                variant="default"
+                size="lg"
+                onPress={() => router.push("/book")}
+                className="flex-row items-center justify-center gap-2 px-8 self-center"
+              >
+                <Plus size={18} color={THEME.light.primaryForeground} />
                 <Text className="font-bold text-primary-foreground">Start a Booking</Text>
               </Button>
             </CardContent>
@@ -169,6 +171,11 @@ export default function OverviewScreen() {
             label="My Garage"
             onPress={() => router.push("/(tabs)/vehicles")}
           />
+          <QuickAccess
+            icon={<Star size={21} color={THEME.light.accent} />}
+            label="Reviews"
+            onPress={() => router.push("/(tabs)/reviews")}
+          />
         </View>
       </View>
     </Screen>
@@ -183,16 +190,15 @@ function QuickAccess({
   icon: ReactNode;
   label: string;
   onPress: () => void;
-  badge?: number;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      className="min-h-28 flex-1 gap-3 rounded-2xl border border-border bg-card p-4 active:bg-secondary"
+      className="min-h-24 flex-1 gap-2.5 rounded-2xl border border-border bg-card p-4 active:bg-secondary justify-center items-center"
     >
-      <View className="h-9 w-9 items-center justify-center rounded-xl bg-accent/10">{icon}</View>
-      <Text className="text-sm font-semibold">{label}</Text>
+      <View className="h-10 w-10 items-center justify-center rounded-xl bg-accent/10">{icon}</View>
+      <Text className="text-xs font-bold text-center">{label}</Text>
     </Pressable>
   );
 }

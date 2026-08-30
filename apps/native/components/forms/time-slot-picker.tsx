@@ -9,12 +9,18 @@ import { Text } from "@/components/ui/text";
 import { Badge } from "@/components/ui/badge";
 import { THEME } from "@/lib/theme";
 
+import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
+
 export interface TimeSlotPickerProps {
   selectedDate: string; // YYYY-MM-DD
-  onDateChange: (date: string) => void;
+  onDateChange?: (date: string) => void;
+  onSelectDate?: (date: string) => void;
   selectedTime: string; // HH:MM
-  onTimeChange: (time: string) => void;
+  onTimeChange?: (time: string) => void;
+  onSelectTime?: (time: string) => void;
   duration?: number;
+  durationMinutes?: number;
+  ignoreAppointmentId?: Id<"appointments">;
 }
 
 function getNextDays(count = 14) {
@@ -46,22 +52,36 @@ function formatTime12h(timeStr: string) {
 export function TimeSlotPicker({
   selectedDate,
   onDateChange,
+  onSelectDate,
   selectedTime,
   onTimeChange,
-  duration = 60,
+  onSelectTime,
+  duration,
+  durationMinutes = 60,
+  ignoreAppointmentId,
 }: TimeSlotPickerProps) {
+  const handleDateChange = onDateChange || onSelectDate || (() => {});
+  const handleTimeChange = onTimeChange || onSelectTime || (() => {});
+  const resolvedDuration = duration ?? durationMinutes;
+
   const days = React.useMemo(() => getNextDays(14), []);
 
   // Initialize selectedDate if empty
   React.useEffect(() => {
     if (!selectedDate && days.length > 0) {
-      onDateChange(days[0].date);
+      handleDateChange(days[0].date);
     }
-  }, [selectedDate, days, onDateChange]);
+  }, [selectedDate, days, handleDateChange]);
 
   const slotsQuery = useQuery(
     api.availability.getAvailableTimeSlots,
-    selectedDate ? { date: selectedDate, serviceDuration: duration } : "skip",
+    selectedDate
+      ? {
+          date: selectedDate,
+          serviceDuration: resolvedDuration,
+          ignoreAppointmentId,
+        }
+      : "skip",
   );
 
   const slots = slotsQuery || [];
@@ -100,8 +120,8 @@ export function TimeSlotPicker({
                 key={item.date}
                 accessibilityRole="button"
                 onPress={() => {
-                  onDateChange(item.date);
-                  onTimeChange(""); // Reset selected time on date change
+                  handleDateChange(item.date);
+                  handleTimeChange(""); // Reset selected time on date change
                 }}
                 className={`min-w-16 items-center justify-center rounded-2xl border px-3.5 py-3 ${
                   isSelected
@@ -177,7 +197,7 @@ export function TimeSlotPicker({
                       key={slot.time}
                       disabled={!isAvailable}
                       accessibilityRole="button"
-                      onPress={() => onTimeChange(slot.time)}
+                      onPress={() => handleTimeChange(slot.time)}
                       className={`min-w-[30%] flex-1 items-center justify-center rounded-xl border py-3 px-2 ${
                         !isAvailable
                           ? "border-border/40 bg-muted/30 opacity-40"

@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
 import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
+import { router } from "expo-router";
 import { CarFront, Palette, Plus, Tag } from "lucide-react-native";
 
 import { EmptyState } from "@/components/empty-state";
@@ -85,40 +86,47 @@ export default function VehiclesScreen() {
       {vehicles?.length ? (
         <View className="gap-3">
           {vehicles.map((vehicle) => (
-            <Card key={vehicle._id} className="border border-border">
-              <CardContent className="flex-row items-center gap-4 p-4">
-                <View className="h-12 w-12 items-center justify-center rounded-2xl bg-accent/10">
-                  <CarFront size={24} color={THEME.light.accent} />
-                </View>
-                <View className="flex-1 gap-1">
-                  <View className="flex-row items-center justify-between">
-                    <Text className="text-lg font-bold">
-                      {vehicle.year} {vehicle.make} {vehicle.model}
-                    </Text>
-                    <Badge
-                      variant="accent"
-                      size="sm"
-                      label={vehicle.vehicleType?.name || vehicle.size || "Standard"}
-                    />
+            <Pressable
+              key={vehicle._id}
+              accessibilityRole="button"
+              onPress={() => router.push(`/vehicles/${vehicle._id}`)}
+              className="active:opacity-90"
+            >
+              <Card className="border border-border">
+                <CardContent className="flex-row items-center gap-4 p-4">
+                  <View className="h-12 w-12 items-center justify-center rounded-2xl bg-accent/10">
+                    <CarFront size={24} color={THEME.light.accent} />
                   </View>
+                  <View className="flex-1 gap-1">
+                    <View className="flex-row items-center justify-between">
+                      <Text className="text-lg font-bold">
+                        {vehicle.year} {vehicle.make} {vehicle.model}
+                      </Text>
+                      <Badge
+                        variant="accent"
+                        size="sm"
+                        label={vehicle.vehicleType?.name || vehicle.size || "Standard"}
+                      />
+                    </View>
 
-                  <View className="flex-row items-center gap-3 mt-0.5">
-                    {vehicle.color ? (
-                      <View className="flex-row items-center gap-1">
-                        <Palette size={13} color={THEME.light.mutedForeground} />
-                        <Text className="text-xs text-muted-foreground">{vehicle.color}</Text>
-                      </View>
-                    ) : null}
-                    {vehicle.licensePlate ? (
-                      <View className="flex-row items-center gap-1">
-                        <Tag size={13} color={THEME.light.mutedForeground} />
-                        <Text className="text-xs text-muted-foreground">{vehicle.licensePlate}</Text>
-                      </View>
-                    ) : null}
+                    <View className="flex-row items-center gap-3 mt-0.5">
+                      {vehicle.color ? (
+                        <View className="flex-row items-center gap-1">
+                          <Palette size={13} color={THEME.light.mutedForeground} />
+                          <Text className="text-xs text-muted-foreground">{vehicle.color}</Text>
+                        </View>
+                      ) : null}
+                      {vehicle.licensePlate ? (
+                        <View className="flex-row items-center gap-1">
+                          <Tag size={13} color={THEME.light.mutedForeground} />
+                          <Text className="text-xs text-muted-foreground">{vehicle.licensePlate}</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
-                </View>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </Pressable>
           ))}
         </View>
       ) : (

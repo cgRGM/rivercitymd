@@ -5,7 +5,7 @@ import { ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { ConvexReactClient, useQuery } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { Stack } from "expo-router";
+import { Stack, router, useSegments } from "expo-router";
 import { ThemeProvider } from "expo-router/react-navigation";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -47,7 +47,21 @@ export default function RootLayout() {
         <ThemeProvider value={NAV_THEME[resolvedColorScheme]}>
           <StatusBar style={resolvedColorScheme === "dark" ? "light" : "dark"} />
           <GestureHandlerRootView style={styles.root}>
-            <Routes />
+            <AuthGuard>
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="(admin)" options={{ headerShown: false }} />
+                <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="book"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                <Stack.Screen name="appointments/[id]" options={{ headerShown: false }} />
+                <Stack.Screen name="vehicles/[id]" options={{ headerShown: false }} />
+                <Stack.Screen name="+not-found" />
+              </Stack>
+            </AuthGuard>
             <PortalHost />
           </GestureHandlerRootView>
         </ThemeProvider>
@@ -56,8 +70,11 @@ export default function RootLayout() {
   );
 }
 
-function Routes() {
+function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useAuth();
+  const segments = useSegments();
+  const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
+  const userRole = useQuery(api.auth.getUserRole, isSignedIn ? {} : "skip");
 
   React.useEffect(() => {
     if (isLoaded) {
@@ -65,27 +82,50 @@ function Routes() {
     }
   }, [isLoaded]);
 
-  if (!isLoaded) {
-    return null;
-  }
+  React.useEffect(() => {
+    if (!isLoaded) return;
 
-  if (!isSignedIn) {
-    return (
-      <Stack>
-        <Stack.Screen name="(auth)/sign-in" options={{ headerShown: false }} />
-        <Stack.Screen name="(auth)/sign-up" options={{ headerShown: false }} />
-      </Stack>
-    );
-  }
+    const inAuthGroup = segments[0] === "(auth)";
+    const inOnboardingGroup = segments[0] === "(onboarding)";
+    const inAdminGroup = segments[0] === "(admin)";
 
-  return <AuthenticatedRoutes />;
-}
+    if (!isSignedIn) {
+      if (!inAuthGroup) {
+        router.replace("/(auth)/sign-in");
+      }
+      return;
+    }
 
-function AuthenticatedRoutes() {
-  const currentUser = useQuery(api.users.getCurrentUser);
-  const userRole = useQuery(api.auth.getUserRole);
+    // User is signed in, wait for profile query
+    if (currentUser === undefined) return;
 
-  if (currentUser === undefined) {
+    const isAdmin = currentUser?.role === "admin" || userRole?.type === "admin";
+    const needsOnboarding =
+      !isAdmin && (!currentUser?.address?.street || !currentUser?.phone);
+
+    if (needsOnboarding) {
+      if (!inOnboardingGroup) {
+        router.replace("/(onboarding)");
+      }
+      return;
+    }
+
+    if (isAdmin && !inAdminGroup && ((segments as string[]).length === 0 || segments[0] === "(tabs)" || inAuthGroup)) {
+      router.replace("/(admin)");
+      return;
+    }
+
+    if (!isAdmin && inAdminGroup) {
+      router.replace("/(tabs)");
+      return;
+    }
+
+    if (inAuthGroup) {
+      router.replace(isAdmin ? "/(admin)" : "/(tabs)");
+    }
+  }, [isLoaded, isSignedIn, currentUser, userRole, segments]);
+
+  if (!isLoaded || (isSignedIn && currentUser === undefined)) {
     return (
       <View className="flex-1 items-center justify-center bg-background gap-3">
         <BrandMark />
@@ -97,35 +137,5 @@ function AuthenticatedRoutes() {
     );
   }
 
-  const isAdmin = currentUser?.role === "admin" || userRole?.type === "admin";
-  const needsOnboarding =
-    !isAdmin && (!currentUser?.address?.street || !currentUser?.phone);
-
-  if (isAdmin) {
-    return (
-      <Stack>
-        <Stack.Screen name="(admin)" options={{ headerShown: false }} />
-        <Stack.Screen name="book" options={{ headerShown: false, presentation: "modal" }} />
-      </Stack>
-    );
-  }
-
-  if (needsOnboarding) {
-    return (
-      <Stack>
-        <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="book" options={{ headerShown: false, presentation: "modal" }} />
-      </Stack>
-    );
-  }
-
-  return (
-    <Stack>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="book" options={{ headerShown: false, presentation: "modal" }} />
-      <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-      <Stack.Screen name="(admin)" options={{ headerShown: false }} />
-    </Stack>
-  );
+  return <>{children}</>;
 }
