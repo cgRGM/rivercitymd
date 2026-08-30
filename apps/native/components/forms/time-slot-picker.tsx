@@ -125,27 +125,27 @@ export function TimeSlotPicker({
                 }}
                 className={`min-w-16 items-center justify-center rounded-2xl border px-3.5 py-3 ${
                   isSelected
-                    ? "border-accent bg-accent shadow-sm"
+                    ? "border-accent bg-accent"
                     : "border-border bg-card"
                 }`}
               >
                 <Text
                   className={`text-[11px] font-semibold uppercase tracking-wider ${
-                    isSelected ? "text-accent-foreground/80" : "text-muted-foreground"
+                    isSelected ? "text-primary-foreground" : "text-muted-foreground"
                   }`}
                 >
                   {item.dayOfWeek}
                 </Text>
                 <Text
                   className={`my-0.5 text-xl font-bold ${
-                    isSelected ? "text-accent-foreground" : "text-foreground"
+                    isSelected ? "text-primary-foreground" : "text-foreground"
                   }`}
                 >
                   {item.dayNum}
                 </Text>
                 <Text
                   className={`text-[10px] ${
-                    isSelected ? "text-accent-foreground/80" : "text-muted-foreground"
+                    isSelected ? "text-primary-foreground" : "text-muted-foreground"
                   }`}
                 >
                   {item.month}

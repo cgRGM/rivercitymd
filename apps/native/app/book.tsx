@@ -396,7 +396,8 @@ export default function BookScreen() {
         {[1, 2, 3, 4].map((s) => (
           <View
             key={s}
-            className={`h-1.5 flex-1 rounded-full ${step >= s ? "bg-accent" : "bg-muted"}`}
+            className="h-1.5 flex-1 rounded-full"
+            style={{ backgroundColor: step >= s ? THEME.light.accent : THEME.light.muted }}
           />
         ))}
       </View>
