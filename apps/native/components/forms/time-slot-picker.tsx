@@ -162,8 +162,8 @@ export function TimeSlotPicker({
           <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Available Time Slots
           </Text>
-          {duration ? (
-            <Badge variant="secondary" size="sm" label={`Est. ${duration} mins`} />
+          {resolvedDuration ? (
+            <Badge variant="secondary" size="sm" label={`Est. ${resolvedDuration} mins`} />
           ) : null}
         </View>
 

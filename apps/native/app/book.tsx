@@ -439,7 +439,7 @@ export default function BookScreen() {
 
       {/* STEP 1: Address & Location */}
       {step === 1 ? (
-        <View className="gap-4">
+        <View key="step-1" className="gap-4">
           <Card className="border border-border">
             <CardContent className="p-4">
               <AddressSearch
@@ -466,7 +466,7 @@ export default function BookScreen() {
 
       {/* STEP 2: Scheduling TimeSlotPicker */}
       {step === 2 ? (
-        <View className="gap-4">
+        <View key="step-2" className="gap-4">
           <Card className="border border-border">
             <CardContent className="p-4">
               <TimeSlotPicker
@@ -493,7 +493,7 @@ export default function BookScreen() {
 
       {/* STEP 3: Vehicles & Condition Questions */}
       {step === 3 ? (
-        <View className="gap-4">
+        <View key="step-3" className="gap-4">
           <View className="gap-2.5">
             <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Select From Your Garage
@@ -647,7 +647,7 @@ export default function BookScreen() {
 
       {/* STEP 4: Detailing Packages & Stripe Checkout Accordion */}
       {step === 4 ? (
-        <View className="gap-5">
+        <View key="step-4" className="gap-5">
           {/* Per-Vehicle Service Accordions */}
           <View className="gap-3">
             <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
