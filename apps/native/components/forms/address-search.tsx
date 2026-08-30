@@ -50,8 +50,10 @@ interface AddressSearchProps {
   onChange: (address: ServiceAddress) => void;
   onQuoteCalculated?: (quote: TravelQuote | null) => void;
   onTravelQuoteChange?: (quote: TravelQuote | null) => void;
+  onSelectAddress?: (address: ServiceAddress) => void;
   label?: string;
   showNotes?: boolean;
+  hideTravelFeeCard?: boolean;
 }
 
 export function AddressSearch({
@@ -59,8 +61,10 @@ export function AddressSearch({
   onChange,
   onQuoteCalculated,
   onTravelQuoteChange,
+  onSelectAddress,
   label = "Service Location",
   showNotes = true,
+  hideTravelFeeCard = false,
 }: AddressSearchProps) {
   const autocompleteAction = useAction(api.travelFees.autocomplete);
   const calculateTravelFee = useAction(api.travelFees.calculate);
@@ -167,6 +171,7 @@ export function AddressSearch({
     setSuggestions([]);
     setQuery("");
     onChange(nextAddress);
+    onSelectAddress?.(nextAddress);
     void runCalculateQuote(nextAddress);
   };
 
@@ -354,7 +359,7 @@ export function AddressSearch({
       </View>
 
       {/* Live Travel Fee & State Warnings (Matching Web /book exactly) */}
-      {hasSelectedAddress && (
+      {!hideTravelFeeCard && hasSelectedAddress && (
         <View className="gap-2 pt-1">
           {isCalculatingQuote ? (
             <View className="flex-row items-center gap-2 rounded-xl bg-secondary/50 p-3">

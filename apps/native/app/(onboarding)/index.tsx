@@ -5,7 +5,9 @@ import { useUser } from "@clerk/expo";
 import { router } from "expo-router";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
 import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
+import { isArkansasState } from "@rivercitymd/backend/convex/lib/address";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -27,7 +29,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
-import { AddressSearch, type AddressValue } from "@/components/forms/address-search";
+import {
+  AddressSearch,
+  type AddressValue,
+  type TravelQuoteValue,
+} from "@/components/forms/address-search";
 import { VehicleLookup, type VehicleLookupValue } from "@/components/forms/vehicle-lookup";
 import { THEME } from "@/lib/theme";
 
@@ -37,7 +43,6 @@ export default function OnboardingScreen() {
   const createUserProfile = useMutation(api.users.createUserProfile);
 
   const [step, setStep] = React.useState<1 | 2>(1);
-  const [activeAccordion, setActiveAccordion] = React.useState<"contact" | "address">("contact");
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -51,6 +56,19 @@ export default function OnboardingScreen() {
     city: currentUser?.address?.city || "",
     state: currentUser?.address?.state || "AR",
     zip: currentUser?.address?.zip || "",
+  });
+  const [travelQuote, setTravelQuote] = React.useState<TravelQuoteValue | null>(null);
+
+  const isContactComplete = Boolean(name.trim() && phone.replace(/\D/g, "").length >= 10);
+  const isAddressComplete = Boolean(
+    address.street.trim() && address.city.trim() && address.state.trim() && address.zip.trim(),
+  );
+
+  // Determine initial accordion state
+  const [activeAccordion, setActiveAccordion] = React.useState<"contact" | "address" | null>(() => {
+    if (!name.trim() || phone.replace(/\D/g, "").length < 10) return "contact";
+    if (!address.street.trim() || !address.city.trim()) return "address";
+    return null; // Both already complete, keep closed
   });
 
   // Step 2: Vehicles
@@ -79,17 +97,9 @@ export default function OnboardingScreen() {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   };
 
-  const isContactComplete = Boolean(name.trim() && phone.replace(/\D/g, "").length >= 10);
-  const isAddressComplete = Boolean(
-    address.street.trim() && address.city.trim() && address.state.trim() && address.zip.trim(),
-  );
-
-  // Auto-switch to address accordion when contact is filled
-  React.useEffect(() => {
-    if (isContactComplete && activeAccordion === "contact" && !isAddressComplete) {
-      // Optional: keep it open until user taps next or auto-focuses address
-    }
-  }, [isContactComplete, activeAccordion, isAddressComplete]);
+  const isArkansas = React.useMemo(() => {
+    return isArkansasState(address.state);
+  }, [address.state]);
 
   const handleNext = () => {
     setError(null);
@@ -196,12 +206,12 @@ export default function OnboardingScreen() {
       ) : null}
 
       {step === 1 ? (
-        <View className="gap-3.5">
+        <View className="gap-3">
           {/* ACCORDION 1: Personal & Contact Information */}
           <Card className="border border-border overflow-hidden">
             <Pressable
               accessibilityRole="button"
-              onPress={() => setActiveAccordion(activeAccordion === "contact" ? "address" : "contact")}
+              onPress={() => setActiveAccordion(activeAccordion === "contact" ? null : "contact")}
               className="flex-row items-center justify-between p-4 bg-card active:bg-secondary/40"
             >
               <View className="flex-row items-center gap-3 flex-1">
@@ -275,7 +285,7 @@ export default function OnboardingScreen() {
           <Card className="border border-border overflow-hidden">
             <Pressable
               accessibilityRole="button"
-              onPress={() => setActiveAccordion(activeAccordion === "address" ? "contact" : "address")}
+              onPress={() => setActiveAccordion(activeAccordion === "address" ? null : "address")}
               className="flex-row items-center justify-between p-4 bg-card active:bg-secondary/40"
             >
               <View className="flex-row items-center gap-3 flex-1">
@@ -316,22 +326,71 @@ export default function OnboardingScreen() {
               <CardContent className="p-4 pt-1 border-t border-border/50">
                 <AddressSearch
                   value={address}
-                  onChange={(nextAddr) => {
-                    setAddress(nextAddr);
+                  onChange={setAddress}
+                  onTravelQuoteChange={setTravelQuote}
+                  onSelectAddress={() => {
+                    // Auto-close Step 2 accordion once address is chosen
+                    setActiveAccordion(null);
                   }}
                   label=""
                   showNotes={false}
+                  hideTravelFeeCard={true}
                 />
               </CardContent>
             ) : null}
           </Card>
+
+          {/* STANDALONE TRAVEL FEE & AREA STATUS (Shows after address is selected and closed) */}
+          {isAddressComplete && activeAccordion !== "address" ? (
+            <View className="pt-1">
+              {isArkansas ? (
+                travelQuote && travelQuote.fee > 0 ? (
+                  <View className="rounded-2xl border border-sky-300/40 bg-sky-500/10 p-3.5 gap-1">
+                    <View className="flex-row items-center justify-between">
+                      <View className="flex-row items-center gap-2">
+                        <CheckCircle2 size={16} color="#0284c7" />
+                        <Text className="font-bold text-xs text-sky-900 dark:text-sky-200">
+                          {travelQuote.distanceMiles > 60
+                            ? "Arkansas service area confirmed"
+                            : "Travel fee applies"}
+                        </Text>
+                      </View>
+                      <Badge variant="accent" size="sm" label={`$${travelQuote.fee.toFixed(2)}`} />
+                    </View>
+                    <Text className="text-xs text-sky-950/80 dark:text-sky-100/80 leading-4">
+                      We can service this Arkansas address ({travelQuote.distanceMiles.toFixed(1)} miles from Little Rock).
+                    </Text>
+                  </View>
+                ) : (
+                  <View className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3 flex-row items-center gap-2">
+                    <CheckCircle2 size={16} color="#16a34a" />
+                    <Text className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                      Standard Little Rock service area (No travel fee)
+                    </Text>
+                  </View>
+                )
+              ) : (
+                <View className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3.5 gap-1">
+                  <View className="flex-row items-center gap-2">
+                    <AlertTriangle size={16} color="#d97706" />
+                    <Text className="font-bold text-xs text-amber-900 dark:text-amber-200">
+                      Out-of-Arkansas Coverage
+                    </Text>
+                  </View>
+                  <Text className="text-xs text-amber-950/80 dark:text-amber-100/80 leading-4">
+                    This address appears to be outside Arkansas. Service requires manual confirmation.
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : null}
 
           {/* Continue Button */}
           <Button
             variant="default"
             size="lg"
             onPress={handleNext}
-            className="w-full flex-row items-center justify-center gap-2 mt-2"
+            className="w-full flex-row items-center justify-center gap-2 mt-1"
           >
             <Text className="font-bold text-primary-foreground">Continue to Vehicles</Text>
             <ArrowRight size={18} color={THEME.light.primaryForeground} />
