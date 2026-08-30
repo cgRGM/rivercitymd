@@ -1,16 +1,30 @@
 import * as React from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import { useUser } from "@clerk/expo";
 import { router } from "expo-router";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
 import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
-import { ArrowLeft, ArrowRight, CheckCircle2, Plus, Sparkles, User } from "lucide-react-native";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Edit2,
+  MapPin,
+  Phone,
+  Plus,
+  Sparkles,
+  User,
+} from "lucide-react-native";
 
 import { BrandMark } from "@/components/brand-mark";
 import { Screen, ScreenHeader } from "@/components/screen";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { AddressSearch, type AddressValue } from "@/components/forms/address-search";
@@ -23,6 +37,7 @@ export default function OnboardingScreen() {
   const createUserProfile = useMutation(api.users.createUserProfile);
 
   const [step, setStep] = React.useState<1 | 2>(1);
+  const [activeAccordion, setActiveAccordion] = React.useState<"contact" | "address">("contact");
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -64,20 +79,35 @@ export default function OnboardingScreen() {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   };
 
+  const isContactComplete = Boolean(name.trim() && phone.replace(/\D/g, "").length >= 10);
+  const isAddressComplete = Boolean(
+    address.street.trim() && address.city.trim() && address.state.trim() && address.zip.trim(),
+  );
+
+  // Auto-switch to address accordion when contact is filled
+  React.useEffect(() => {
+    if (isContactComplete && activeAccordion === "contact" && !isAddressComplete) {
+      // Optional: keep it open until user taps next or auto-focuses address
+    }
+  }, [isContactComplete, activeAccordion, isAddressComplete]);
+
   const handleNext = () => {
     setError(null);
     if (step === 1) {
       if (!name.trim()) {
+        setActiveAccordion("contact");
         setError("Please enter your full name");
         return;
       }
       const digits = phone.replace(/\D/g, "");
       if (digits.length < 10) {
-        setError("Please enter a valid 10-digit phone number");
+        setActiveAccordion("contact");
+        setError("Please enter a valid 10-digit mobile phone number");
         return;
       }
-      if (!address.street.trim() || !address.city.trim() || !address.state.trim() || !address.zip.trim()) {
-        setError("Please complete your service address");
+      if (!isAddressComplete) {
+        setActiveAccordion("address");
+        setError("Please select or enter your default service address");
         return;
       }
       setStep(2);
@@ -154,54 +184,154 @@ export default function OnboardingScreen() {
         title={step === 1 ? "Let's get you set up" : "Add your vehicle(s)"}
         description={
           step === 1
-            ? "We bring showroom-level detailing right to your driveway. Where should we come?"
+            ? "We bring showroom-level detailing right to your driveway."
             : "Tell us about your cars so we can tailor the right packages and sizing."
         }
       />
 
       {error ? (
-        <View className="rounded-xl border border-destructive/30 bg-destructive/10 p-3.5">
-          <Text className="text-sm font-medium text-destructive">{error}</Text>
+        <View className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
+          <Text className="text-xs font-medium text-destructive">{error}</Text>
         </View>
       ) : null}
 
       {step === 1 ? (
-        <View className="gap-5">
-          {/* Contact Details Card */}
-          <Card className="border border-border">
-            <CardContent className="gap-3.5 p-4">
-              <Input
-                label="Full Name"
-                placeholder="John Doe"
-                value={name}
-                onChangeText={setName}
-                leftIcon={<User size={18} color={THEME.light.mutedForeground} />}
-              />
-              <Input
-                label="Mobile Phone Number"
-                placeholder="(501) 555-0123"
-                keyboardType="phone-pad"
-                value={phone}
-                onChangeText={(t) => setPhone(formatPhoneNumber(t))}
-                helperText="Used for technician arrival alerts and scheduling updates."
-              />
-            </CardContent>
+        <View className="gap-3.5">
+          {/* ACCORDION 1: Personal & Contact Information */}
+          <Card className="border border-border overflow-hidden">
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActiveAccordion(activeAccordion === "contact" ? "address" : "contact")}
+              className="flex-row items-center justify-between p-4 bg-card active:bg-secondary/40"
+            >
+              <View className="flex-row items-center gap-3 flex-1">
+                <View
+                  className={`h-7 w-7 items-center justify-center rounded-full ${
+                    isContactComplete ? "bg-emerald-600" : "bg-accent/10"
+                  }`}
+                >
+                  {isContactComplete ? (
+                    <Check size={14} color="#fff" />
+                  ) : (
+                    <Text className="text-xs font-bold text-accent">1</Text>
+                  )}
+                </View>
+                <View className="flex-1">
+                  <Text className="font-bold text-sm">Contact Information</Text>
+                  {activeAccordion !== "contact" && isContactComplete ? (
+                    <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+                      {name} · {phone}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View className="flex-row items-center gap-1.5">
+                {activeAccordion !== "contact" && isContactComplete ? (
+                  <Badge variant="success" size="sm" label="Saved" />
+                ) : null}
+                {activeAccordion === "contact" ? (
+                  <ChevronUp size={18} color={THEME.light.mutedForeground} />
+                ) : (
+                  <ChevronDown size={18} color={THEME.light.mutedForeground} />
+                )}
+              </View>
+            </Pressable>
+
+            {activeAccordion === "contact" ? (
+              <CardContent className="gap-3 p-4 pt-0 border-t border-border/50">
+                <Input
+                  label="Full Name"
+                  placeholder="John Doe"
+                  value={name}
+                  onChangeText={setName}
+                  leftIcon={<User size={18} color={THEME.light.mutedForeground} />}
+                />
+                <Input
+                  label="Mobile Phone Number"
+                  placeholder="(501) 555-0123"
+                  keyboardType="phone-pad"
+                  value={phone}
+                  onChangeText={(t) => setPhone(formatPhoneNumber(t))}
+                  helperText="Used for technician arrival alerts and service updates."
+                />
+
+                {isContactComplete ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onPress={() => setActiveAccordion("address")}
+                    className="flex-row items-center justify-center gap-1.5 self-end mt-1"
+                  >
+                    <Text className="text-xs font-bold">Next: Service Address</Text>
+                    <ArrowRight size={14} color={THEME.light.foreground} />
+                  </Button>
+                ) : null}
+              </CardContent>
+            ) : null}
           </Card>
 
-          {/* Service Address Card */}
-          <AddressSearch
-            value={address}
-            onChange={setAddress}
-            label="Default Service Address"
-            showNotes={false}
-          />
+          {/* ACCORDION 2: Service Address */}
+          <Card className="border border-border overflow-hidden">
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActiveAccordion(activeAccordion === "address" ? "contact" : "address")}
+              className="flex-row items-center justify-between p-4 bg-card active:bg-secondary/40"
+            >
+              <View className="flex-row items-center gap-3 flex-1">
+                <View
+                  className={`h-7 w-7 items-center justify-center rounded-full ${
+                    isAddressComplete ? "bg-emerald-600" : "bg-accent/10"
+                  }`}
+                >
+                  {isAddressComplete ? (
+                    <Check size={14} color="#fff" />
+                  ) : (
+                    <Text className="text-xs font-bold text-accent">2</Text>
+                  )}
+                </View>
+                <View className="flex-1">
+                  <Text className="font-bold text-sm">Default Service Address</Text>
+                  {activeAccordion !== "address" && isAddressComplete ? (
+                    <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+                      {address.street}, {address.city}, {address.state}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
 
-          {/* Next Button */}
+              <View className="flex-row items-center gap-1.5">
+                {activeAccordion !== "address" && isAddressComplete ? (
+                  <Badge variant="success" size="sm" label="Saved" />
+                ) : null}
+                {activeAccordion === "address" ? (
+                  <ChevronUp size={18} color={THEME.light.mutedForeground} />
+                ) : (
+                  <ChevronDown size={18} color={THEME.light.mutedForeground} />
+                )}
+              </View>
+            </Pressable>
+
+            {activeAccordion === "address" ? (
+              <CardContent className="p-4 pt-1 border-t border-border/50">
+                <AddressSearch
+                  value={address}
+                  onChange={(nextAddr) => {
+                    setAddress(nextAddr);
+                  }}
+                  label=""
+                  showNotes={false}
+                />
+              </CardContent>
+            ) : null}
+          </Card>
+
+          {/* Continue Button */}
           <Button
             variant="default"
             size="lg"
             onPress={handleNext}
-            className="w-full flex-row items-center justify-center gap-2"
+            className="w-full flex-row items-center justify-center gap-2 mt-2"
           >
             <Text className="font-bold text-primary-foreground">Continue to Vehicles</Text>
             <ArrowRight size={18} color={THEME.light.primaryForeground} />
