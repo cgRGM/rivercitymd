@@ -12,7 +12,9 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 
 export default function AdminReviewsScreen() {
-  const reviews = useQuery(api.reviews.listForAdmin, {});
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
+  const reviews = useQuery(api.reviews.listForAdmin, isAdmin ? {} : "skip");
 
   return (
     <Screen>

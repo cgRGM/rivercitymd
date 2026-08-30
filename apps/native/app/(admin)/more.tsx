@@ -25,11 +25,13 @@ import { THEME } from "@/lib/theme";
 
 export default function AdminMoreScreen() {
   const { signOut } = useClerk();
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
 
-  const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin) ?? 0;
-  const newReviewsCount = useQuery(api.reviews.getNewReviewsCount) ?? 0;
-  const pendingTripLogsCount = useQuery(api.tripLogs.getPendingRequiredCount) ?? 0;
-  const outOfAreaRequestCount = useQuery(api.bookingDrafts.getOutOfAreaRequestCount) ?? 0;
+  const unpaidInvoicesCount = useQuery(api.invoices.getUnpaidInvoicesCountAdmin, isAdmin ? {} : "skip") ?? 0;
+  const newReviewsCount = useQuery(api.reviews.getNewReviewsCount, isAdmin ? {} : "skip") ?? 0;
+  const pendingTripLogsCount = useQuery(api.tripLogs.getPendingRequiredCount, isAdmin ? {} : "skip") ?? 0;
+  const outOfAreaRequestCount = useQuery(api.bookingDrafts.getOutOfAreaRequestCount, isAdmin ? {} : "skip") ?? 0;
 
   const menuItems = [
     {

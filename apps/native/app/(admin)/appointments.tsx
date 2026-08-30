@@ -40,7 +40,9 @@ const STATUS_FILTERS = [
 ] as const;
 
 export default function AdminAppointmentsScreen() {
-  const appointments = useQuery(api.appointments.listWithDetails, {});
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
+  const appointments = useQuery(api.appointments.listWithDetails, isAdmin ? {} : "skip");
   const updateStatusMutation = useMutation(api.appointments.updateStatus);
 
   const [filterStatus, setFilterStatus] = React.useState<string>("all");

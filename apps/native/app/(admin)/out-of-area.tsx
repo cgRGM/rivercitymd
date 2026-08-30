@@ -14,7 +14,9 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 
 export default function AdminOutOfAreaScreen() {
-  const requests = useQuery(api.bookingDrafts.listOutOfAreaRequestsForAdmin, {});
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
+  const requests = useQuery(api.bookingDrafts.listOutOfAreaRequestsForAdmin, isAdmin ? {} : "skip");
   const updateStatusMutation = useMutation(api.bookingDrafts.updateOutOfAreaRequestStatus);
 
   const handleUpdateStatus = async (requestId: any, status: "contacted" | "approved" | "declined") => {

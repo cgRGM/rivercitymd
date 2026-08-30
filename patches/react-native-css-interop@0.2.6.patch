@@ -1,17 +1,15 @@
 diff --git a/dist/runtime/native/render-component.js b/dist/runtime/native/render-component.js
-index eba25ece1cf3fe3170cd55134df6b70c7aabd70e..7e7d9471431dd0f24138638cc4b18cabcee54859 100644
+index eba25ece1cf3fe3170cd55134df6b70c7aabd70e..e86e3f5383fcf640f0c058728a381165315ba74c 100644
 --- a/dist/runtime/native/render-component.js
 +++ b/dist/runtime/native/render-component.js
-@@ -118,25 +118,42 @@ function createAnimatedComponent(Component) {
+@@ -118,25 +118,12 @@ function createAnimatedComponent(Component) {
      return AnimatedComponent;
  }
  function printUpgradeWarning(warning, originalProps) {
 -    console.log(`CssInterop upgrade warning.\n\n${warning}.\n\nThis warning was caused by a component with the props:\n${stringify(originalProps)}\n\nIf adding or removing sibling components caused this warning you should add a unique "key" prop to your components. https://react.dev/learn/rendering-lists#keeping-list-items-in-order-with-key\n`);
 +    try {
-+        console.warn(`CssInterop upgrade warning.\n\n${warning}.\n\nThis warning was caused by a component with the props:\n${stringify(originalProps)}\n\nIf adding or removing sibling components caused this warning you should add a unique "key" prop to your components. https://react.dev/learn/rendering-lists#keeping-list-items-in-order-with-key\n`);
-+    } catch {
-+        // Suppress serialization errors in diagnostic warnings
-+    }
++        console.warn(`CssInterop upgrade warning.\n\n${warning}.\n\nIf adding or removing sibling components caused this warning you should add a unique "key" prop to your components.`);
++    } catch {}
  }
  function stringify(object) {
 -    const seen = new WeakSet();
@@ -30,35 +28,7 @@ index eba25ece1cf3fe3170cd55134df6b70c7aabd70e..7e7d9471431dd0f24138638cc4b18cab
 -        seen.delete(value);
 -        return newValue;
 -    }, 2);
-+    try {
-+        const seen = new WeakSet();
-+        return JSON.stringify(object, function replace(key, value) {
-+            if (!(value !== null && typeof value === "object")) {
-+                return value;
-+            }
-+            if (seen.has(value)) {
-+                return "[Circular]";
-+            }
-+            seen.add(value);
-+            const newValue = Array.isArray(value) ? [] : {};
-+            try {
-+                const keys = Object.keys(value);
-+                for (const k of keys) {
-+                    try {
-+                        newValue[k] = replace(k, value[k]);
-+                    } catch {
-+                        newValue[k] = "[Unserializable]";
-+                    }
-+                }
-+            } catch {
-+                return "[Unserializable]";
-+            }
-+            seen.delete(value);
-+            return newValue;
-+        }, 2);
-+    } catch {
-+        return "[Unserializable Props]";
-+    }
++    return "[Props]";
  }
  function getDebugReplacer() {
      const seen = new WeakSet();

@@ -24,7 +24,10 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 
 export default function AdminOverviewScreen() {
-  const stats = useQuery(api.analytics.getMonthlyStats) || {
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
+
+  const stats = useQuery(api.analytics.getMonthlyStats, isAdmin ? {} : "skip") || {
     totalRevenue: 0,
     revenueChange: "0",
     bookingsCount: 0,
@@ -34,8 +37,8 @@ export default function AdminOverviewScreen() {
     totalDeposits: 0,
     depositsChange: "0",
   };
-  const upcomingAppointments = useQuery(api.appointments.getUpcoming) || [];
-  const pendingTripLogs = useQuery(api.tripLogs.getPendingRequired, { limit: 3 }) || [];
+  const upcomingAppointments = useQuery(api.appointments.getUpcoming, isAdmin ? {} : "skip") || [];
+  const pendingTripLogs = useQuery(api.tripLogs.getPendingRequired, isAdmin ? { limit: 3 } : "skip") || [];
 
   return (
     <Screen>

@@ -14,7 +14,9 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 
 export default function AdminPaymentsScreen() {
-  const invoices = useQuery(api.invoices.listWithDetails, {});
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
+  const invoices = useQuery(api.invoices.listWithDetails, isAdmin ? {} : "skip");
   const [searchQuery, setSearchQuery] = React.useState("");
 
   const filtered = (invoices || []).filter((inv: any) => {

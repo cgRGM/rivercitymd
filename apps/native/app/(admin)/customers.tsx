@@ -15,7 +15,9 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 
 export default function AdminCustomersScreen() {
-  const customers = useQuery(api.users.listWithStats, {});
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
+  const customers = useQuery(api.users.listWithStats, isAdmin ? {} : "skip");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedCustomer, setSelectedCustomer] = React.useState<any | null>(null);
 

@@ -13,7 +13,9 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 
 export default function AdminTripLogsScreen() {
-  const tripLogs = useQuery(api.tripLogs.list, {});
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const isAdmin = currentUser?.role === "admin";
+  const tripLogs = useQuery(api.tripLogs.list, isAdmin ? {} : "skip");
 
   return (
     <Screen>
