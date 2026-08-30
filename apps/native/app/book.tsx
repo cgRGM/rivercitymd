@@ -115,7 +115,7 @@ export default function BookScreen() {
   const createOrUpdateDraft = useAction(api.bookingDrafts.createOrUpdate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
 
-  const [step, setStep] = React.useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = React.useState<1 | 2 | 3 | 4 | 5>(1);
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -145,7 +145,7 @@ export default function BookScreen() {
     Record<string, "packages" | "upgrades" | "addons">
   >({});
 
-  // Step 4: Payment option
+  // Step 5: Payment option & SMS
   const [paymentOption, setPaymentOption] = React.useState<"deposit" | "full" | "in_person">("deposit");
   const [smsOptIn, setSmsOptIn] = React.useState(true);
 
@@ -327,7 +327,7 @@ export default function BookScreen() {
       if (step === 4) setError("Please select a base detailing package for each vehicle.");
       return;
     }
-    setStep((prev) => Math.min(4, prev + 1) as any);
+    setStep((prev) => Math.min(5, prev + 1) as any);
   };
 
   const handleSubmitBooking = async () => {
@@ -423,12 +423,12 @@ export default function BookScreen() {
           <ArrowLeft size={18} color={THEME.light.foreground} />
           <Text className="text-sm font-semibold">{step > 1 ? "Back" : "Cancel"}</Text>
         </Pressable>
-        <Text className="text-xs font-bold text-accent">Step {step} of 4</Text>
+        <Text className="text-xs font-bold text-accent">Step {step} of 5</Text>
       </View>
 
-      {/* Progress Bars */}
+      {/* Progress Bars (5 Steps) */}
       <View className="flex-row gap-2">
-        {[1, 2, 3, 4].map((s) => (
+        {[1, 2, 3, 4, 5].map((s) => (
           <View
             key={s}
             className="h-1.5 flex-1 rounded-full"
@@ -445,7 +445,9 @@ export default function BookScreen() {
               ? "Date & Time"
               : step === 3
                 ? "Your Garage & Condition"
-                : "Packages & Payment"
+                : step === 4
+                  ? "Detailing Packages"
+                  : "Review & Checkout"
         }
         title={
           step === 1
@@ -454,7 +456,9 @@ export default function BookScreen() {
               ? "When works best for you?"
               : step === 3
                 ? "Select vehicles & condition"
-                : "Choose packages & checkout"
+                : step === 4
+                  ? "Choose packages & extras"
+                  : "Review your booking"
         }
         description={
           step === 1
@@ -463,7 +467,9 @@ export default function BookScreen() {
               ? "Live scheduling based on estimated service time and route."
               : step === 3
                 ? "Tell us about pet hair, heavy soil, and select your vehicles."
-                : "Select packages tailored to each car and secure your booking."
+                : step === 4
+                  ? "Select core packages, ceramic upgrades, and add-ons for each vehicle."
+                  : "Review your itemized summary and secure your appointment with Stripe."
         }
       />
 
@@ -739,15 +745,10 @@ export default function BookScreen() {
         </View>
       ) : null}
 
-      {/* STEP 4: Detailing Packages & Stripe Checkout Accordion */}
+      {/* STEP 4: Detailing Packages Multi-Stepper Accordion */}
       {step === 4 ? (
         <View key="step-4" className="gap-5 pb-8">
-          {/* Per-Vehicle Service Accordions */}
           <View className="gap-4">
-            <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Configure Packages Per Car
-            </Text>
-
             {targetVehicles.map((v, vIdx) => {
               const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
               const currentServices = vehicleServices[v.key] || [];
@@ -1119,48 +1120,142 @@ export default function BookScreen() {
             })}
           </View>
 
-          {/* Service Summary Card */}
+          {/* Bottom Navigation to Step 5 (Review & Checkout) */}
+          <Button
+            size="lg"
+            disabled={!canProceedToNext()}
+            onPress={handleNext}
+            className="w-full flex-row items-center justify-center gap-2 mt-2 mb-8"
+          >
+            <Text className="font-bold text-primary-foreground">Review & Checkout</Text>
+            <ArrowRight size={18} color={THEME.light.primaryForeground} />
+          </Button>
+        </View>
+      ) : null}
+
+      {/* STEP 5: Dedicated Review & Stripe Checkout Screen */}
+      {step === 5 ? (
+        <View key="step-5" className="gap-5 pb-8">
+          {/* Appointment Date & Location Card */}
+          <Card className="border border-border bg-card">
+            <CardContent className="p-4 gap-3">
+              <View className="flex-row items-center gap-3">
+                <View className="h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
+                  <Calendar size={18} color={THEME.light.accent} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xs text-muted-foreground uppercase font-semibold">Appointment Time</Text>
+                  <Text className="font-bold text-sm text-foreground">
+                    {scheduledDate ? new Date(`${scheduledDate}T12:00:00`).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    }) : ""} at {scheduledTime}
+                  </Text>
+                </View>
+              </View>
+
+              <View className="flex-row items-center gap-3 border-t border-border/40 pt-3">
+                <View className="h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
+                  <MapPin size={18} color={THEME.light.accent} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xs text-muted-foreground uppercase font-semibold">Service Location</Text>
+                  <Text className="font-bold text-sm text-foreground" numberOfLines={1}>
+                    {address.street}, {address.city}, {address.state} {address.zip}
+                  </Text>
+                </View>
+              </View>
+            </CardContent>
+          </Card>
+
+          {/* Itemized Order Breakdown */}
           <Card className="border border-border">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Order Summary</CardTitle>
+              <CardTitle className="text-base flex-row items-center justify-between">
+                <Text className="font-bold text-base">Itemized Summary</Text>
+                <Badge variant="secondary" size="sm" label={`Est. ${totalDurationMinutes} mins`} />
+              </CardTitle>
             </CardHeader>
-            <CardContent className="gap-2.5">
-              <View className="flex-row items-center justify-between">
-                <Text className="text-xs text-muted-foreground">Date & Time</Text>
-                <Text className="text-xs font-bold">
-                  {scheduledDate} at {scheduledTime}
-                </Text>
-              </View>
 
-              <View className="flex-row items-center justify-between">
-                <Text className="text-xs text-muted-foreground">Estimated Duration</Text>
-                <Text className="text-xs font-bold">{totalDurationMinutes} minutes</Text>
-              </View>
+            <CardContent className="gap-4">
+              {targetVehicles.map((v) => {
+                const sIds = vehicleServices[v.key] || [];
+                const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
 
-              <View className="flex-row items-center justify-between">
-                <Text className="text-xs text-muted-foreground">Detailing Subtotal</Text>
-                <Text className="text-xs font-semibold">${totalServicePrice.toFixed(2)}</Text>
-              </View>
+                const chosenServices = (allServices || [])
+                  .filter((s) => sIds.includes(s._id))
+                  .map((s) => ({
+                    ...s,
+                    pricing: getEffectiveServicePricingForVehicle(s, pricingCtx),
+                  }));
 
-              {petFeeTotal > 0 ? (
+                return (
+                  <View key={v.key} className="gap-2 rounded-xl bg-secondary/30 p-3.5 border border-border/40">
+                    <View className="flex-row items-center justify-between">
+                      <View className="flex-row items-center gap-2">
+                        <CarFront size={16} color={THEME.light.accent} />
+                        <Text className="font-bold text-sm">{v.label}</Text>
+                      </View>
+                      <Badge variant="secondary" size="sm" label={v.size.toUpperCase()} />
+                    </View>
+
+                    <View className="gap-1.5 pt-1 border-t border-border/30">
+                      {chosenServices.map((s) => (
+                        <View key={s._id} className="flex-row items-center justify-between">
+                          <Text className="text-xs text-muted-foreground">{s.name}</Text>
+                          <Text className="text-xs font-semibold text-foreground">
+                            ${s.pricing.price.toFixed(2)}
+                          </Text>
+                        </View>
+                      ))}
+
+                      {v.hasPet ? (
+                        <View className="flex-row items-center justify-between">
+                          <Text className="text-xs text-muted-foreground">Pet Hair Extraction</Text>
+                          <Text className="text-xs font-semibold text-foreground">+$40.00</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+
+              {/* Fee Breakdown */}
+              <View className="gap-2 border-t border-border pt-3">
                 <View className="flex-row items-center justify-between">
-                  <Text className="text-xs text-muted-foreground">Pet Hair Extraction Fee</Text>
-                  <Text className="text-xs font-semibold">+${petFeeTotal.toFixed(2)}</Text>
+                  <Text className="text-xs text-muted-foreground">Detailing Subtotal</Text>
+                  <Text className="text-xs font-semibold text-foreground">
+                    ${totalServicePrice.toFixed(2)}
+                  </Text>
                 </View>
-              ) : null}
 
-              {travelQuote && travelQuote.fee > 0 ? (
-                <View className="flex-row items-center justify-between">
-                  <Text className="text-xs text-muted-foreground">Arkansas Travel Fee</Text>
-                  <Text className="text-xs font-semibold">+${travelQuote.fee.toFixed(2)}</Text>
+                {petFeeTotal > 0 ? (
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-xs text-muted-foreground">Pet Hair Extraction Fee</Text>
+                    <Text className="text-xs font-semibold text-foreground">
+                      +${petFeeTotal.toFixed(2)}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {travelQuote && travelQuote.fee > 0 ? (
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-xs text-muted-foreground">
+                      Arkansas Travel Fee ({travelQuote.distanceMiles.toFixed(1)} miles)
+                    </Text>
+                    <Text className="text-xs font-semibold text-foreground">
+                      +${travelQuote.fee.toFixed(2)}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View className="flex-row items-center justify-between border-t border-border pt-2">
+                  <Text className="text-base font-extrabold text-foreground">Total Service Price</Text>
+                  <Text className="text-xl font-extrabold text-accent">
+                    ${grandTotal.toFixed(2)}
+                  </Text>
                 </View>
-              ) : null}
-
-              <View className="flex-row items-center justify-between border-t border-border pt-2">
-                <Text className="text-base font-extrabold">Total Service Price</Text>
-                <Text className="text-xl font-extrabold text-accent">
-                  ${grandTotal.toFixed(2)}
-                </Text>
               </View>
             </CardContent>
           </Card>
@@ -1230,7 +1325,7 @@ export default function BookScreen() {
             </Pressable>
           </View>
 
-          {/* Amount Due Now Card */}
+          {/* Amount Due Today Card */}
           <View className="rounded-2xl border border-border/80 bg-secondary/30 p-4">
             <View className="flex-row items-center justify-between">
               <View className="gap-0.5">
@@ -1245,10 +1340,21 @@ export default function BookScreen() {
             </View>
           </View>
 
-          {/* Submit Button */}
+          {/* SMS Updates Switch */}
+          <View className="flex-row items-center justify-between rounded-2xl bg-card border border-border p-4">
+            <View className="flex-1 pr-3">
+              <Text className="font-bold text-xs text-foreground">SMS Arrival Updates</Text>
+              <Text className="text-[11px] text-muted-foreground">
+                Receive live text alerts when your technician is en route.
+              </Text>
+            </View>
+            <Switch value={smsOptIn} onValueChange={setSmsOptIn} />
+          </View>
+
+          {/* Final Submit Button */}
           <Button
             size="lg"
-            disabled={isLoading || !canProceedToNext()}
+            disabled={isLoading}
             onPress={handleSubmitBooking}
             className="w-full flex-row items-center justify-center gap-2 mt-1 mb-10"
           >
