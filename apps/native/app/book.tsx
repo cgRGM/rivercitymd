@@ -144,6 +144,8 @@ export default function BookScreen() {
   const [activeVehicleSection, setActiveVehicleSection] = React.useState<
     Record<string, "packages" | "upgrades" | "addons">
   >({});
+  // Track nested category accordion state: Record<`${vehicleKey}-pkg` | `${vehicleKey}-addon`, string>
+  const [activeNestedCategory, setActiveNestedCategory] = React.useState<Record<string, string>>({});
 
   // Step 5: Payment option & SMS
   const [paymentOption, setPaymentOption] = React.useState<"deposit" | "full" | "in_person">("deposit");
@@ -753,10 +755,14 @@ export default function BookScreen() {
               const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
               const currentServices = vehicleServices[v.key] || [];
 
-              // Filter services available for this vehicle
+              // Filter services available for this vehicle AND allowed for current condition
               const vehicleAvailableServices = (allServices || []).filter((s) => {
                 if (s.isActive === false) return false;
-                return isServiceAvailableForVehicle(s, pricingCtx);
+                if (!isServiceAvailableForVehicle(s, pricingCtx)) return false;
+                if (!isServiceAllowedForCondition(s, { hasPet: v.hasPet, hasHeavySoil: v.hasHeavySoil })) {
+                  return false; // Strictly omit disallowed services when pet hair or heavy mud is selected
+                }
+                return true;
               });
 
               const coreServices = vehicleAvailableServices.filter(
@@ -791,6 +797,14 @@ export default function BookScreen() {
               const selectedPackage = coreServices.find((s) => currentServices.includes(s._id));
               const selectedUpgrades = upgradeServices.filter((s) => currentServices.includes(s._id));
               const selectedAddons = addonServices.filter((s) => currentServices.includes(s._id));
+
+              // Determine active category for package sub-accordions
+              const currentPkgCategoryKey = `${v.key}-pkg`;
+              const activePkgCat =
+                activeNestedCategory[currentPkgCategoryKey] ??
+                (selectedPackage
+                  ? getPackageCategorySlug(selectedPackage)
+                  : standardGroups[0]?.slug ?? "full-detail");
 
               // Vehicle subtotal
               const vehicleServicesTotal = currentServices.reduce((sum, id) => {
@@ -881,73 +895,120 @@ export default function BookScreen() {
                         </Pressable>
 
                         {currentSection === "packages" ? (
-                          <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-4">
-                            {standardGroups.map((group) => (
-                              <View key={group.slug} className="gap-2.5">
-                                <Text className="text-xs font-bold text-foreground uppercase tracking-wider">
-                                  {group.name}
+                          <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-3">
+                            {/* Condition note if pet hair or heavy mud active */}
+                            {v.hasPet || v.hasHeavySoil ? (
+                              <View className="flex-row items-center gap-2 rounded-xl bg-amber-500/10 p-2.5 border border-amber-500/20 mb-1">
+                                <AlertTriangle size={14} color="#d97706" />
+                                <Text className="text-[11px] font-medium text-amber-800 flex-1">
+                                  {v.hasPet && v.hasHeavySoil
+                                    ? "Pet hair & heavy soil selected: Level 1 reset packages are omitted."
+                                    : v.hasPet
+                                      ? "Pet hair selected: Level 1 reset packages are omitted."
+                                      : "Heavy soil/mud selected: Level 1 reset packages are omitted."}
                                 </Text>
-
-                                <View className="gap-2">
-                                  {group.services.map((pkg) => {
-                                    const isChosen = selectedPackage?._id === pkg._id;
-                                    const pricing = getEffectiveServicePricingForVehicle(pkg, pricingCtx);
-                                    const isAllowed = isServiceAllowedForCondition(pkg, {
-                                      hasPet: v.hasPet,
-                                      hasHeavySoil: v.hasHeavySoil,
-                                    });
-
-                                    return (
-                                      <Pressable
-                                        key={pkg._id}
-                                        accessibilityRole="button"
-                                        onPress={() => {
-                                          handleSelectPackage(v.key, pkg._id, coreIds);
-                                        }}
-                                        className={`rounded-xl border p-3.5 ${
-                                          isChosen
-                                            ? "border-accent bg-accent/10"
-                                            : "border-border bg-card active:bg-secondary"
-                                        }`}
-                                      >
-                                        <View className="flex-row items-start justify-between gap-2">
-                                          <View className="flex-1">
-                                            <View className="flex-row items-center gap-2">
-                                              <Text className="font-bold text-sm">{pkg.name}</Text>
-                                              {pkg.duration ? (
-                                                <Badge
-                                                  variant="secondary"
-                                                  size="sm"
-                                                  label={`~${pricing.duration} min`}
-                                                />
-                                              ) : null}
-                                            </View>
-                                            {pkg.description ? (
-                                              <Text className="text-xs text-muted-foreground mt-1 leading-4">
-                                                {pkg.description}
-                                              </Text>
-                                            ) : null}
-                                          </View>
-
-                                          <Text className="text-sm font-extrabold text-accent">
-                                            ${pricing.price.toFixed(2)}
-                                          </Text>
-                                        </View>
-
-                                        {!isAllowed ? (
-                                          <View className="flex-row items-center gap-1.5 mt-2 rounded-lg bg-amber-500/10 p-2 border border-amber-500/20">
-                                            <AlertTriangle size={14} color="#d97706" />
-                                            <Text className="text-[11px] font-medium text-amber-700 flex-1">
-                                              Condition note: Heavy soil or pet hair requires extra intensive pass.
-                                            </Text>
-                                          </View>
-                                        ) : null}
-                                      </Pressable>
-                                    );
-                                  })}
-                                </View>
                               </View>
-                            ))}
+                            ) : null}
+
+                            {/* Nested Category Accordions: Full Detail, Interior Only, Exterior Only */}
+                            {standardGroups.map((group) => {
+                              const isCatOpen = activePkgCat === group.slug;
+                              const isPackageInThisGroup =
+                                selectedPackage &&
+                                getPackageCategorySlug(selectedPackage) === group.slug;
+
+                              return (
+                                <View
+                                  key={group.slug}
+                                  className="rounded-xl border border-border/80 bg-background/50 overflow-hidden"
+                                >
+                                  {/* Category Header */}
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    onPress={() =>
+                                      setActiveNestedCategory((prev) => ({
+                                        ...prev,
+                                        [currentPkgCategoryKey]: isCatOpen ? "" : group.slug,
+                                      }))
+                                    }
+                                    className="flex-row items-center justify-between p-3 bg-secondary/20 active:bg-secondary/40"
+                                  >
+                                    <View className="flex-row items-center gap-2 flex-1 pr-2">
+                                      <Text className="font-bold text-xs text-foreground uppercase tracking-wide">
+                                        {group.name}
+                                      </Text>
+                                      {isPackageInThisGroup ? (
+                                        <Badge
+                                          variant="accent"
+                                          size="sm"
+                                          label="Selected"
+                                        />
+                                      ) : null}
+                                    </View>
+
+                                    <View className="flex-row items-center gap-2">
+                                      <Text className="text-[11px] text-muted-foreground">
+                                        {group.services.length} options
+                                      </Text>
+                                      {isCatOpen ? (
+                                        <ChevronUp size={15} color={THEME.light.mutedForeground} />
+                                      ) : (
+                                        <ChevronDown size={15} color={THEME.light.mutedForeground} />
+                                      )}
+                                    </View>
+                                  </Pressable>
+
+                                  {/* Category Package List */}
+                                  {isCatOpen ? (
+                                    <View className="p-3 gap-2.5 border-t border-border/40">
+                                      {group.services.map((pkg) => {
+                                        const isChosen = selectedPackage?._id === pkg._id;
+                                        const pricing = getEffectiveServicePricingForVehicle(pkg, pricingCtx);
+
+                                        return (
+                                          <Pressable
+                                            key={pkg._id}
+                                            accessibilityRole="button"
+                                            onPress={() => {
+                                              handleSelectPackage(v.key, pkg._id, coreIds);
+                                            }}
+                                            className={`rounded-xl border p-3.5 ${
+                                              isChosen
+                                                ? "border-accent bg-accent/10"
+                                                : "border-border bg-card active:bg-secondary"
+                                            }`}
+                                          >
+                                            <View className="flex-row items-start justify-between gap-2">
+                                              <View className="flex-1">
+                                                <View className="flex-row items-center gap-2">
+                                                  <Text className="font-bold text-sm">{pkg.name}</Text>
+                                                  {pkg.duration ? (
+                                                    <Badge
+                                                      variant="secondary"
+                                                      size="sm"
+                                                      label={`~${pricing.duration} min`}
+                                                    />
+                                                  ) : null}
+                                                </View>
+                                                {pkg.description ? (
+                                                  <Text className="text-xs text-muted-foreground mt-1 leading-4">
+                                                    {pkg.description}
+                                                  </Text>
+                                                ) : null}
+                                              </View>
+
+                                              <Text className="text-sm font-extrabold text-accent">
+                                                ${pricing.price.toFixed(2)}
+                                              </Text>
+                                            </View>
+                                          </Pressable>
+                                        );
+                                      })}
+                                    </View>
+                                  ) : null}
+                                </View>
+                              );
+                            })}
                           </CardContent>
                         ) : null}
                       </Card>
@@ -1062,53 +1123,98 @@ export default function BookScreen() {
                           </Pressable>
 
                           {currentSection === "addons" ? (
-                            <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-4">
-                              {addonGroups.map((group) => (
-                                <View key={group.slug} className="gap-2">
-                                  <Text className="text-xs font-bold text-foreground uppercase tracking-wider">
-                                    {group.name}
-                                  </Text>
+                            <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-3">
+                              {addonGroups.map((group) => {
+                                const currentAddonCatKey = `${v.key}-addon-${group.slug}`;
+                                const isAddonGroupOpen =
+                                  activeNestedCategory[currentAddonCatKey] !== "closed";
+                                const groupAddonCount = group.services.filter((s) =>
+                                  currentServices.includes(s._id),
+                                ).length;
 
-                                  <View className="gap-2">
-                                    {group.services.map((addon) => {
-                                      const isSelected = currentServices.includes(addon._id);
-                                      const pricing = getEffectiveServicePricingForVehicle(addon, pricingCtx);
+                                return (
+                                  <View
+                                    key={group.slug}
+                                    className="rounded-xl border border-border/80 bg-background/50 overflow-hidden"
+                                  >
+                                    <Pressable
+                                      accessibilityRole="button"
+                                      onPress={() =>
+                                        setActiveNestedCategory((prev) => ({
+                                          ...prev,
+                                          [currentAddonCatKey]: isAddonGroupOpen ? "closed" : "open",
+                                        }))
+                                      }
+                                      className="flex-row items-center justify-between p-3 bg-secondary/20 active:bg-secondary/40"
+                                    >
+                                      <View className="flex-row items-center gap-2 flex-1 pr-2">
+                                        <Text className="font-bold text-xs text-foreground uppercase tracking-wide">
+                                          {group.name}
+                                        </Text>
+                                        {groupAddonCount > 0 ? (
+                                          <Badge
+                                            variant="accent"
+                                            size="sm"
+                                            label={`${groupAddonCount} selected`}
+                                          />
+                                        ) : null}
+                                      </View>
 
-                                      return (
-                                        <Pressable
-                                          key={addon._id}
-                                          accessibilityRole="button"
-                                          onPress={() => handleToggleAddon(v.key, addon._id)}
-                                          className={`flex-row items-center justify-between rounded-xl border p-3 ${
-                                            isSelected
-                                              ? "border-accent bg-accent/10"
-                                              : "border-border bg-card active:bg-secondary"
-                                          }`}
-                                        >
-                                          <View className="flex-1 pr-2">
-                                            <Text className="font-semibold text-xs">{addon.name}</Text>
-                                            <Text className="text-[11px] text-muted-foreground">
-                                              +{pricing.duration} mins
-                                            </Text>
-                                          </View>
-                                          <View className="flex-row items-center gap-2.5">
-                                            <Text className="font-bold text-xs">
-                                              +${pricing.price.toFixed(2)}
-                                            </Text>
-                                            <View
-                                              className={`h-5 w-5 items-center justify-center rounded border ${
-                                                isSelected ? "border-accent bg-accent" : "border-border"
+                                      <View className="flex-row items-center gap-2">
+                                        <Text className="text-[11px] text-muted-foreground">
+                                          {group.services.length} options
+                                        </Text>
+                                        {isAddonGroupOpen ? (
+                                          <ChevronUp size={15} color={THEME.light.mutedForeground} />
+                                        ) : (
+                                          <ChevronDown size={15} color={THEME.light.mutedForeground} />
+                                        )}
+                                      </View>
+                                    </Pressable>
+
+                                    {isAddonGroupOpen ? (
+                                      <View className="p-3 gap-2.5 border-t border-border/40">
+                                        {group.services.map((addon) => {
+                                          const isSelected = currentServices.includes(addon._id);
+                                          const pricing = getEffectiveServicePricingForVehicle(addon, pricingCtx);
+
+                                          return (
+                                            <Pressable
+                                              key={addon._id}
+                                              accessibilityRole="button"
+                                              onPress={() => handleToggleAddon(v.key, addon._id)}
+                                              className={`flex-row items-center justify-between rounded-xl border p-3 ${
+                                                isSelected
+                                                  ? "border-accent bg-accent/10"
+                                                  : "border-border bg-card active:bg-secondary"
                                               }`}
                                             >
-                                              {isSelected ? <Check size={12} color="#fff" /> : null}
-                                            </View>
-                                          </View>
-                                        </Pressable>
-                                      );
-                                    })}
+                                              <View className="flex-1 pr-2">
+                                                <Text className="font-semibold text-xs">{addon.name}</Text>
+                                                <Text className="text-[11px] text-muted-foreground">
+                                                  +{pricing.duration} mins
+                                                </Text>
+                                              </View>
+                                              <View className="flex-row items-center gap-2.5">
+                                                <Text className="font-bold text-xs">
+                                                  +${pricing.price.toFixed(2)}
+                                                </Text>
+                                                <View
+                                                  className={`h-5 w-5 items-center justify-center rounded border ${
+                                                    isSelected ? "border-accent bg-accent" : "border-border"
+                                                  }`}
+                                                >
+                                                  {isSelected ? <Check size={12} color="#fff" /> : null}
+                                                </View>
+                                              </View>
+                                            </Pressable>
+                                          );
+                                        })}
+                                      </View>
+                                    ) : null}
                                   </View>
-                                </View>
-                              ))}
+                                );
+                              })}
                             </CardContent>
                           ) : null}
                         </Card>
