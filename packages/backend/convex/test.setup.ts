@@ -64,6 +64,24 @@ export async function stripeFetchMock(
 ): Promise<Response> {
   const urlString = typeof url === "string" ? url : url.toString();
 
+  if (urlString.includes("api.radar.io/v1/search/autocomplete")) {
+    return createMockResponse({
+      addresses: [
+        {
+          formattedAddress: "123 Main St, Little Rock, AR 72201, USA",
+          addressLabel: "123 Main St, Little Rock, AR 72201",
+          number: "123",
+          street: "Main St",
+          city: "Little Rock",
+          state: "AR",
+          stateCode: "AR",
+          postalCode: "72201",
+          latitude: 34.75,
+          longitude: -92.3,
+        },
+      ],
+    });
+  }
   if (urlString.includes("api.radar.io/v1/geocode/forward")) {
     return createMockResponse({
       addresses: [{ latitude: 34.75, longitude: -92.3 }],

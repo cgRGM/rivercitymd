@@ -50,6 +50,54 @@ async function geocodeAddress(address: string, radarSecretKey: string) {
   };
 }
 
+export const autocomplete = action({
+  args: {
+    query: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!args.query || args.query.trim().length < 3) {
+      return [];
+    }
+
+    const radarSecretKey = process.env.RADAR_SECRET_KEY;
+    if (!radarSecretKey) {
+      return [];
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.radar.io/v1/search/autocomplete?query=${encodeURIComponent(args.query.trim())}&limit=8&country=US`,
+        {
+          headers: { Authorization: radarSecretKey },
+        },
+      );
+
+      if (!response.ok) return [];
+
+      const data: any = await response.json();
+      const addresses = data.addresses || [];
+
+      return addresses.map((addr: any) => ({
+        addressLabel:
+          addr.formattedAddress ||
+          addr.addressLabel ||
+          [addr.number, addr.street, addr.city, addr.state, addr.postalCode]
+            .filter(Boolean)
+            .join(", "),
+        formattedAddress: addr.formattedAddress || addr.addressLabel || "",
+        street: [addr.number, addr.street].filter(Boolean).join(" ") || addr.street || "",
+        city: addr.city || "",
+        state: addr.state || addr.stateCode || "",
+        postalCode: addr.postalCode || "",
+        latitude: typeof addr.latitude === "number" ? addr.latitude : undefined,
+        longitude: typeof addr.longitude === "number" ? addr.longitude : undefined,
+      }));
+    } catch {
+      return [];
+    }
+  },
+});
+
 export const calculate = action({
   args: {
     address: addressValidator,

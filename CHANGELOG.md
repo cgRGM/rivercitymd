@@ -2,6 +2,26 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.0] - 2026-08-30
+### Added
+- **Mobile Customer Onboarding**: Added a 2-step native onboarding flow (`app/(onboarding)/index.tsx`) collecting user contact info, phone number with formatting, service address with Arkansas service area validation, and multi-vehicle garage entries with NHTSA/VPIC vehicle search and auto-classification.
+- **Mobile Multi-Step Booking Wizard**: Added a 4-step streamlined booking wizard (`app/book.tsx`) that pre-loads onboarding data (saved address and garage vehicles), supports adding ad-hoc vehicles, calculates real-time travel fees, verifies duration-aware time slot availability, supports per-vehicle service package selection (required base package, add-ons, subscriptions), calculates pet fees, and creates Stripe online checkout or in-person bookings.
+- **Mobile Admin Experience**: Added complete mobile admin portal navigation and screens mirroring the web admin portal:
+  - Overview dashboard (`(admin)/index.tsx`) with monthly KPIs (revenue, appointments, active customers, deposits), upcoming schedule, and pending trip log alerts.
+  - Appointments management (`(admin)/appointments.tsx`) with status filters (Pending, Confirmed, In Progress, Completed, Cancelled), customer search, contact shortcuts (Call, SMS), and quick status update actions.
+  - Customers directory (`(admin)/customers.tsx`) with customer search, contact shortcuts, garage vehicles, lifetime visits, and total spent.
+  - Services management (`(admin)/services.tsx`) with category tabs, size-based pricing breakdown (Small, Medium, Large), and online availability toggles.
+  - Financials & Invoices (`(admin)/payments.tsx`) with invoice search and payment statuses.
+  - Out-of-Area request review (`(admin)/out-of-area.tsx`) with customer details and status approval actions.
+  - Customer reviews (`(admin)/reviews.tsx`) with star rating visualization and testimonials.
+  - Fleet trip logs (`(admin)/logs.tsx`) with mileage and fuel expense tracking.
+  - Business settings (`(admin)/settings.tsx`) showing deposit rates, pet fee tiers, travel fee origin hub, and business info.
+- **Shared Mobile UI Components**: Added native Input, Badge, Switch, Modal, VehicleLookup, AddressSearch, and TimeSlotPicker primitives built on Tailwind / NativeWind.
+- **Role-Based Auth & Onboarding Routing**: Configured root navigation (`app/_layout.tsx`) to route admins to the Admin portal, incomplete customer profiles to Onboarding, and complete customer profiles to the Customer Portal.
+
+### Changed
+- **Customer Portal Features**: Enhanced Customer Overview with instant "Book Detail Now" CTA, added vehicle addition modal with VPIC search to Garage (`(tabs)/vehicles.tsx`), added upcoming/past tabs with live rescheduling to Appointments (`(tabs)/appointments.tsx`), and added SMS notification preference toggles to Profile (`(tabs)/profile.tsx`).
+
 ## [v1.1.2] - 2026-08-28
 ### Added
 - **Mobile App Foundation**: Added a pnpm/Turborepo workspace with an Expo native-bare app, shared Convex backend package, shared environment package, and React Native Reusables configuration.
