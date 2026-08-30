@@ -91,6 +91,16 @@ function getAddonCategorySlug(service: any): (typeof ADDON_CATEGORY_ORDER)[numbe
   return slug === "interior" ? "interior" : "exterior";
 }
 
+function formatTime12h(timeStr: string) {
+  if (!timeStr) return "";
+  const [h, m] = timeStr.split(":");
+  const hourNum = parseInt(h, 10);
+  if (isNaN(hourNum)) return timeStr;
+  const ampm = hourNum >= 12 ? "PM" : "AM";
+  const hour12 = hourNum % 12 || 12;
+  return `${hour12}:${m || "00"} ${ampm}`;
+}
+
 interface VehicleSelection {
   key: string;
   existingId?: Id<"vehicles">;
@@ -460,7 +470,7 @@ export default function BookScreen() {
                 ? "Select vehicles & condition"
                 : step === 4
                   ? "Choose packages & extras"
-                  : "Review your booking"
+                  : "Confirm & Book"
         }
         description={
           step === 1
@@ -471,7 +481,7 @@ export default function BookScreen() {
                 ? "Tell us about pet hair, heavy soil, and select your vehicles."
                 : step === 4
                   ? "Select core packages, ceramic upgrades, and add-ons for each vehicle."
-                  : "Review your itemized summary and secure your appointment with Stripe."
+                  : undefined
         }
       />
 
@@ -1258,96 +1268,88 @@ export default function BookScreen() {
         </View>
       ) : null}
 
-      {/* STEP 5: Dedicated Review & Stripe Checkout Screen */}
+      {/* STEP 5: Dedicated Review & Stripe Checkout Screen (Single Screen View) */}
       {step === 5 ? (
-        <View key="step-5" className="gap-5 pb-8">
-          {/* Appointment Date & Location Card */}
-          <Card className="border border-border bg-card">
-            <CardContent className="p-4 gap-3">
-              <View className="flex-row items-center gap-3">
-                <View className="h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
-                  <Calendar size={18} color={THEME.light.accent} />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-xs text-muted-foreground uppercase font-semibold">Appointment Time</Text>
-                  <Text className="font-bold text-sm text-foreground">
-                    {scheduledDate ? new Date(`${scheduledDate}T12:00:00`).toLocaleDateString("en-US", {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                    }) : ""} at {scheduledTime}
+        <View key="step-5" className="gap-3.5 pb-6">
+          {/* Unified Order, Appointment & Location Summary Card */}
+          <Card className="border border-border bg-card overflow-hidden">
+            {/* Top Appointment & Location strip */}
+            <View className="bg-secondary/30 p-3 border-b border-border/50 gap-2">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center gap-2 flex-1 pr-2">
+                  <Calendar size={15} color={THEME.light.accent} />
+                  <Text className="font-bold text-xs text-foreground" numberOfLines={1}>
+                    {scheduledDate
+                      ? new Date(`${scheduledDate}T12:00:00`).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        })
+                      : ""}{" "}
+                    at {formatTime12h(scheduledTime)}
                   </Text>
                 </View>
+                <Badge variant="secondary" size="sm" label={`~${totalDurationMinutes}m`} />
               </View>
 
-              <View className="flex-row items-center gap-3 border-t border-border/40 pt-3">
-                <View className="h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
-                  <MapPin size={18} color={THEME.light.accent} />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-xs text-muted-foreground uppercase font-semibold">Service Location</Text>
-                  <Text className="font-bold text-sm text-foreground" numberOfLines={1}>
-                    {address.street}, {address.city}, {address.state} {address.zip}
-                  </Text>
-                </View>
+              <View className="flex-row items-center gap-2">
+                <MapPin size={15} color={THEME.light.accent} />
+                <Text className="text-xs text-muted-foreground flex-1" numberOfLines={1}>
+                  {address.street ? `${address.street}, ${address.city}, ${address.state}` : "Driveway Service"}
+                </Text>
               </View>
-            </CardContent>
-          </Card>
+            </View>
 
-          {/* Itemized Order Breakdown */}
-          <Card className="border border-border">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex-row items-center justify-between">
-                <Text className="font-bold text-base">Itemized Summary</Text>
-                <Badge variant="secondary" size="sm" label={`Est. ${totalDurationMinutes} mins`} />
-              </CardTitle>
-            </CardHeader>
+            <CardContent className="p-3 gap-2.5">
+              {/* Vehicles & Services */}
+              <View className="gap-2">
+                {targetVehicles.map((v) => {
+                  const sIds = vehicleServices[v.key] || [];
+                  const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
+                  const chosenServices = (allServices || [])
+                    .filter((s) => sIds.includes(s._id))
+                    .map((s) => ({
+                      ...s,
+                      pricing: getEffectiveServicePricingForVehicle(s, pricingCtx),
+                    }));
 
-            <CardContent className="gap-4">
-              {targetVehicles.map((v) => {
-                const sIds = vehicleServices[v.key] || [];
-                const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
-
-                const chosenServices = (allServices || [])
-                  .filter((s) => sIds.includes(s._id))
-                  .map((s) => ({
-                    ...s,
-                    pricing: getEffectiveServicePricingForVehicle(s, pricingCtx),
-                  }));
-
-                return (
-                  <View key={v.key} className="gap-2 rounded-xl bg-secondary/30 p-3.5 border border-border/40">
-                    <View className="flex-row items-center justify-between">
-                      <View className="flex-row items-center gap-2">
-                        <CarFront size={16} color={THEME.light.accent} />
-                        <Text className="font-bold text-sm">{v.label}</Text>
-                      </View>
-                      <Badge variant="secondary" size="sm" label={v.size.toUpperCase()} />
-                    </View>
-
-                    <View className="gap-1.5 pt-1 border-t border-border/30">
-                      {chosenServices.map((s) => (
-                        <View key={s._id} className="flex-row items-center justify-between">
-                          <Text className="text-xs text-muted-foreground">{s.name}</Text>
-                          <Text className="text-xs font-semibold text-foreground">
-                            ${s.pricing.price.toFixed(2)}
+                  return (
+                    <View key={v.key} className="gap-1 rounded-lg bg-secondary/20 p-2.5 border border-border/30">
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-row items-center gap-1.5 flex-1 pr-2">
+                          <CarFront size={14} color={THEME.light.accent} />
+                          <Text className="font-bold text-xs text-foreground" numberOfLines={1}>
+                            {v.label}
                           </Text>
                         </View>
-                      ))}
+                        <Badge variant="secondary" size="sm" label={v.size.toUpperCase()} />
+                      </View>
 
-                      {v.hasPet ? (
-                        <View className="flex-row items-center justify-between">
-                          <Text className="text-xs text-muted-foreground">Pet Hair Extraction</Text>
-                          <Text className="text-xs font-semibold text-foreground">+$40.00</Text>
-                        </View>
-                      ) : null}
+                      <View className="gap-1 pt-1 border-t border-border/20">
+                        {chosenServices.map((s) => (
+                          <View key={s._id} className="flex-row items-center justify-between">
+                            <Text className="text-[11px] text-muted-foreground flex-1 pr-2" numberOfLines={1}>
+                              {s.name}
+                            </Text>
+                            <Text className="text-[11px] font-semibold text-foreground">
+                              ${s.pricing.price.toFixed(2)}
+                            </Text>
+                          </View>
+                        ))}
+                        {v.hasPet ? (
+                          <View className="flex-row items-center justify-between">
+                            <Text className="text-[11px] text-muted-foreground">Pet Hair Extraction</Text>
+                            <Text className="text-[11px] font-semibold text-foreground">+$40.00</Text>
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
-                  </View>
-                );
-              })}
+                  );
+                })}
+              </View>
 
-              {/* Fee Breakdown */}
-              <View className="gap-2 border-t border-border pt-3">
+              {/* Price & Fees calculation */}
+              <View className="gap-1 border-t border-border/50 pt-2">
                 <View className="flex-row items-center justify-between">
                   <Text className="text-xs text-muted-foreground">Detailing Subtotal</Text>
                   <Text className="text-xs font-semibold text-foreground">
@@ -1367,7 +1369,7 @@ export default function BookScreen() {
                 {travelQuote && travelQuote.fee > 0 ? (
                   <View className="flex-row items-center justify-between">
                     <Text className="text-xs text-muted-foreground">
-                      Arkansas Travel Fee ({travelQuote.distanceMiles.toFixed(1)} miles)
+                      Arkansas Travel ({travelQuote.distanceMiles.toFixed(1)} mi)
                     </Text>
                     <Text className="text-xs font-semibold text-foreground">
                       +${travelQuote.fee.toFixed(2)}
@@ -1375,9 +1377,9 @@ export default function BookScreen() {
                   </View>
                 ) : null}
 
-                <View className="flex-row items-center justify-between border-t border-border pt-2">
-                  <Text className="text-base font-extrabold text-foreground">Total Service Price</Text>
-                  <Text className="text-xl font-extrabold text-accent">
+                <View className="flex-row items-center justify-between border-t border-border/50 pt-1.5 mt-0.5">
+                  <Text className="text-sm font-extrabold text-foreground">Total Service Price</Text>
+                  <Text className="text-base font-black text-accent">
                     ${grandTotal.toFixed(2)}
                   </Text>
                 </View>
@@ -1385,92 +1387,92 @@ export default function BookScreen() {
             </CardContent>
           </Card>
 
-          {/* Payment Method Selector */}
-          <View className="gap-2.5">
-            <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Choose Payment Option
+          {/* Compact Payment Option Tabs */}
+          <View className="gap-1.5">
+            <Text className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              Payment Option
             </Text>
 
-            {/* Option 1: Deposit */}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setPaymentOption("deposit")}
-              className={`rounded-2xl border p-4 ${
-                paymentOption === "deposit"
-                  ? "border-accent bg-accent/10"
-                  : "border-border bg-card active:bg-secondary"
-              }`}
-            >
-              <View className="flex-row items-center justify-between">
-                <View className="flex-row items-center gap-2">
-                  <CreditCard size={18} color={THEME.light.accent} />
-                  <Text className="font-bold text-sm">Pay Deposit Now</Text>
-                </View>
-                <Badge variant="accent" size="sm" label="Recommended" />
-              </View>
-              <Text className="mt-1 text-xs text-muted-foreground">
-                ${depositTotal.toFixed(2)} deposit now, remaining balance invoiced via Stripe after service.
-              </Text>
-            </Pressable>
-
-            {/* Option 2: Full Upfront */}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setPaymentOption("full")}
-              className={`rounded-2xl border p-4 ${
-                paymentOption === "full"
-                  ? "border-accent bg-accent/10"
-                  : "border-border bg-card active:bg-secondary"
-              }`}
-            >
-              <View className="flex-row items-center justify-between">
-                <Text className="font-bold text-sm">Pay Full Price Now</Text>
-              </View>
-              <Text className="mt-1 text-xs text-muted-foreground">
-                ${grandTotal.toFixed(2)} — pay entire amount upfront via Stripe.
-              </Text>
-            </Pressable>
-
-            {/* Option 3: In Person */}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setPaymentOption("in_person")}
-              className={`rounded-2xl border p-4 ${
-                paymentOption === "in_person"
-                  ? "border-accent bg-accent/10"
-                  : "border-border bg-card active:bg-secondary"
-              }`}
-            >
-              <View className="flex-row items-center justify-between">
-                <Text className="font-bold text-sm">Pay Remaining in Person</Text>
-              </View>
-              <Text className="mt-1 text-xs text-muted-foreground">
-                ${depositTotal.toFixed(2)} deposit now, pay balance in cash/card at service.
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* Amount Due Today Card */}
-          <View className="rounded-2xl border border-border/80 bg-secondary/30 p-4">
-            <View className="flex-row items-center justify-between">
-              <View className="gap-0.5">
-                <Text className="font-bold text-sm">
-                  {paymentOption === "full" ? "Total Due Today" : "Deposit Due Today"}
+            <View className="flex-row gap-2">
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setPaymentOption("deposit")}
+                className={`flex-1 items-center justify-center rounded-xl py-2 px-1.5 border ${
+                  paymentOption === "deposit"
+                    ? "border-accent bg-accent/15"
+                    : "border-border bg-card active:bg-secondary/40"
+                }`}
+              >
+                <Text
+                  className={`font-bold text-xs ${
+                    paymentOption === "deposit" ? "text-accent" : "text-foreground"
+                  }`}
+                >
+                  Pay Deposit
                 </Text>
-                <Text className="text-[11px] text-muted-foreground">
-                  Secure checkout via Stripe
+                <Text className="text-[10px] text-muted-foreground mt-0.5">
+                  ${depositTotal.toFixed(2)} today
                 </Text>
-              </View>
-              <Text className="text-2xl font-extrabold text-accent">${dueNow.toFixed(2)}</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setPaymentOption("full")}
+                className={`flex-1 items-center justify-center rounded-xl py-2 px-1.5 border ${
+                  paymentOption === "full"
+                    ? "border-accent bg-accent/15"
+                    : "border-border bg-card active:bg-secondary/40"
+                }`}
+              >
+                <Text
+                  className={`font-bold text-xs ${
+                    paymentOption === "full" ? "text-accent" : "text-foreground"
+                  }`}
+                >
+                  Pay in Full
+                </Text>
+                <Text className="text-[10px] text-muted-foreground mt-0.5">
+                  ${grandTotal.toFixed(2)} today
+                </Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setPaymentOption("in_person")}
+                className={`flex-1 items-center justify-center rounded-xl py-2 px-1.5 border ${
+                  paymentOption === "in_person"
+                    ? "border-accent bg-accent/15"
+                    : "border-border bg-card active:bg-secondary/40"
+                }`}
+              >
+                <Text
+                  className={`font-bold text-xs ${
+                    paymentOption === "in_person" ? "text-accent" : "text-foreground"
+                  }`}
+                >
+                  Pay at Service
+                </Text>
+                <Text className="text-[10px] text-muted-foreground mt-0.5">
+                  ${depositTotal.toFixed(2)} hold
+                </Text>
+              </Pressable>
             </View>
+
+            <Text className="text-[11px] text-muted-foreground px-0.5">
+              {paymentOption === "deposit"
+                ? `Pay $${depositTotal.toFixed(2)} deposit now. Remaining $${(grandTotal - depositTotal).toFixed(2)} invoiced after service.`
+                : paymentOption === "full"
+                  ? `Pay full $${grandTotal.toFixed(2)} upfront securely via Stripe.`
+                  : `Pay $${depositTotal.toFixed(2)} deposit now. Pay remaining $${(grandTotal - depositTotal).toFixed(2)} via cash or card at appointment.`}
+            </Text>
           </View>
 
-          {/* SMS Updates Switch */}
-          <View className="flex-row items-center justify-between rounded-2xl bg-card border border-border p-4">
-            <View className="flex-1 pr-3">
-              <Text className="font-bold text-xs text-foreground">SMS Arrival Updates</Text>
-              <Text className="text-[11px] text-muted-foreground">
-                Receive live text alerts when your technician is en route.
+          {/* SMS Updates Toggle (Compact) */}
+          <View className="flex-row items-center justify-between rounded-xl bg-card border border-border/80 px-3.5 py-2">
+            <View className="flex-1 pr-2">
+              <Text className="font-semibold text-xs text-foreground">SMS Arrival Updates</Text>
+              <Text className="text-[10px] text-muted-foreground">
+                Live text alerts when tech is en route.
               </Text>
             </View>
             <Switch value={smsOptIn} onValueChange={setSmsOptIn} />
@@ -1481,7 +1483,7 @@ export default function BookScreen() {
             size="lg"
             disabled={isLoading}
             onPress={handleSubmitBooking}
-            className="w-full flex-row items-center justify-center gap-2 mt-1 mb-10"
+            className="w-full flex-row items-center justify-center gap-2 mt-1 mb-8"
           >
             {isLoading ? (
               <ActivityIndicator size="small" color={THEME.light.primaryForeground} />
