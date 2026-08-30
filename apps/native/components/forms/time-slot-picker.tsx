@@ -2,7 +2,7 @@ import * as React from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
-import { Calendar, Clock } from "lucide-react-native";
+import { Calendar, CheckCircle2, Clock, Sun, Sunrise } from "lucide-react-native";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
@@ -84,9 +84,27 @@ export function TimeSlotPicker({
       : "skip",
   );
 
-  const slots = slotsQuery || [];
   const isLoading = selectedDate ? slotsQuery === undefined : false;
-  const isDayClosed = !isLoading && slots.length === 0;
+  const rawSlots = slotsQuery || [];
+
+  // Filter strictly for available slots from admin database availability
+  const availableSlots = React.useMemo(() => {
+    return rawSlots.filter((slot) => slot.available);
+  }, [rawSlots]);
+
+  const morningSlots = React.useMemo(() => {
+    return availableSlots.filter((s) => {
+      const h = parseInt(s.time.split(":")[0], 10);
+      return h < 12;
+    });
+  }, [availableSlots]);
+
+  const afternoonSlots = React.useMemo(() => {
+    return availableSlots.filter((s) => {
+      const h = parseInt(s.time.split(":")[0], 10);
+      return h >= 12;
+    });
+  }, [availableSlots]);
 
   return (
     <View className="gap-4">
@@ -156,16 +174,29 @@ export function TimeSlotPicker({
         </ScrollView>
       </View>
 
-      {/* Time Slots Grid */}
+      {/* Available Time Slots View */}
       <View className="gap-2">
         <View className="flex-row items-center justify-between">
           <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Available Time Slots
+            Available Start Times
           </Text>
           {resolvedDuration ? (
             <Badge variant="secondary" size="sm" label={`Est. ${resolvedDuration} mins`} />
           ) : null}
         </View>
+
+        {/* Selected Time Callout Banner */}
+        {selectedTime ? (
+          <View className="flex-row items-center justify-between rounded-xl bg-accent/10 border border-accent/20 px-3.5 py-2.5">
+            <View className="flex-row items-center gap-2">
+              <Clock size={16} color={THEME.light.accent} />
+              <Text className="text-xs font-semibold text-foreground">
+                Selected Start: <Text className="font-bold text-accent">{formatTime12h(selectedTime)}</Text>
+              </Text>
+            </View>
+            <CheckCircle2 size={16} color={THEME.light.accent} />
+          </View>
+        ) : null}
 
         <Card className="border border-border">
           <CardContent className="p-4">
@@ -174,52 +205,89 @@ export function TimeSlotPicker({
                 <ActivityIndicator size="small" color={THEME.light.accent} />
                 <Text className="text-xs text-muted-foreground">Checking technician schedule...</Text>
               </View>
-            ) : isDayClosed ? (
-              <View className="items-center justify-center py-6 gap-1">
-                <Clock size={20} color={THEME.light.mutedForeground} />
-                <Text className="font-semibold text-foreground">Closed on this date</Text>
-                <Text className="text-xs text-muted-foreground">Please select another day from the calendar above.</Text>
-              </View>
-            ) : slots.length === 0 ? (
-              <View className="items-center justify-center py-6 gap-1">
-                <Calendar size={20} color={THEME.light.mutedForeground} />
-                <Text className="font-semibold text-foreground">No available slots</Text>
-                <Text className="text-xs text-muted-foreground">All slots for this duration are booked. Try another date.</Text>
+            ) : availableSlots.length === 0 ? (
+              <View className="items-center justify-center py-6 gap-1.5">
+                <Calendar size={22} color={THEME.light.mutedForeground} />
+                <Text className="font-semibold text-sm text-foreground">No open slots on this date</Text>
+                <Text className="text-xs text-center text-muted-foreground">
+                  The schedule is fully booked or closed for this day. Please select another day above.
+                </Text>
               </View>
             ) : (
-              <View className="flex-row flex-wrap gap-2.5">
-                {slots.map((slot) => {
-                  const isSelected = selectedTime === slot.time;
-                  const isAvailable = slot.available;
-
-                  return (
-                    <Pressable
-                      key={slot.time}
-                      disabled={!isAvailable}
-                      accessibilityRole="button"
-                      onPress={() => handleTimeChange(slot.time)}
-                      className={`min-w-[30%] flex-1 items-center justify-center rounded-xl border py-3 px-2 ${
-                        !isAvailable
-                          ? "border-border/40 bg-muted/30 opacity-40"
-                          : isSelected
-                            ? "border-accent bg-accent"
-                            : "border-border bg-card active:bg-secondary"
-                      }`}
-                    >
-                      <Text
-                        className={`text-sm font-semibold ${
-                          !isAvailable
-                            ? "text-muted-foreground line-through"
-                            : isSelected
-                              ? "text-accent-foreground"
-                              : "text-foreground"
-                        }`}
-                      >
-                        {formatTime12h(slot.time)}
+              <View className="gap-4">
+                {/* Morning Slots */}
+                {morningSlots.length > 0 ? (
+                  <View className="gap-2">
+                    <View className="flex-row items-center gap-1.5">
+                      <Sunrise size={14} color={THEME.light.accent} />
+                      <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                        Morning
                       </Text>
-                    </Pressable>
-                  );
-                })}
+                    </View>
+                    <View className="flex-row flex-wrap gap-2">
+                      {morningSlots.map((slot) => {
+                        const isSelected = selectedTime === slot.time;
+                        return (
+                          <Pressable
+                            key={slot.time}
+                            accessibilityRole="button"
+                            onPress={() => handleTimeChange(slot.time)}
+                            className={`px-3.5 py-2.5 rounded-xl border items-center justify-center ${
+                              isSelected
+                                ? "border-accent bg-accent"
+                                : "border-border bg-card active:bg-secondary"
+                            }`}
+                          >
+                            <Text
+                              className={`text-xs font-semibold ${
+                                isSelected ? "text-primary-foreground" : "text-foreground"
+                              }`}
+                            >
+                              {formatTime12h(slot.time)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+
+                {/* Afternoon Slots */}
+                {afternoonSlots.length > 0 ? (
+                  <View className="gap-2">
+                    <View className="flex-row items-center gap-1.5">
+                      <Sun size={14} color={THEME.light.accent} />
+                      <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                        Afternoon
+                      </Text>
+                    </View>
+                    <View className="flex-row flex-wrap gap-2">
+                      {afternoonSlots.map((slot) => {
+                        const isSelected = selectedTime === slot.time;
+                        return (
+                          <Pressable
+                            key={slot.time}
+                            accessibilityRole="button"
+                            onPress={() => handleTimeChange(slot.time)}
+                            className={`px-3.5 py-2.5 rounded-xl border items-center justify-center ${
+                              isSelected
+                                ? "border-accent bg-accent"
+                                : "border-border bg-card active:bg-secondary"
+                            }`}
+                          >
+                            <Text
+                              className={`text-xs font-semibold ${
+                                isSelected ? "text-primary-foreground" : "text-foreground"
+                              }`}
+                            >
+                              {formatTime12h(slot.time)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
               </View>
             )}
           </CardContent>
