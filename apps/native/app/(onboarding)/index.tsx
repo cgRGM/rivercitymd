@@ -75,14 +75,23 @@ export default function OnboardingScreen() {
   const [vehicles, setVehicles] = React.useState<VehicleLookupValue[]>([
     { year: "", make: "", model: "", size: "medium" },
   ]);
+  const [activeVehicleIndex, setActiveVehicleIndex] = React.useState<number | null>(0);
 
   const addVehicle = () => {
-    setVehicles([...vehicles, { year: "", make: "", model: "", size: "medium" }]);
+    const nextVehicles = [...vehicles, { year: "", make: "", model: "", size: "medium" as const }];
+    setVehicles(nextVehicles);
+    setActiveVehicleIndex(nextVehicles.length - 1);
   };
 
   const removeVehicle = (index: number) => {
     if (vehicles.length > 1) {
-      setVehicles(vehicles.filter((_, i) => i !== index));
+      const nextVehicles = vehicles.filter((_, i) => i !== index);
+      setVehicles(nextVehicles);
+      if (activeVehicleIndex === index) {
+        setActiveVehicleIndex(null);
+      } else if (activeVehicleIndex !== null && activeVehicleIndex > index) {
+        setActiveVehicleIndex(activeVehicleIndex - 1);
+      }
     }
   };
 
@@ -397,7 +406,7 @@ export default function OnboardingScreen() {
           </Button>
         </View>
       ) : (
-        <View className="gap-5">
+        <View className="gap-3.5">
           {vehicles.map((vehicle, index) => (
             <VehicleLookup
               key={index}
@@ -405,16 +414,23 @@ export default function OnboardingScreen() {
               value={vehicle}
               onChange={(updated) => updateVehicle(index, updated)}
               onRemove={vehicles.length > 1 ? () => removeVehicle(index) : undefined}
+              isExpanded={activeVehicleIndex === index}
+              onToggleExpanded={() =>
+                setActiveVehicleIndex(activeVehicleIndex === index ? null : index)
+              }
+              onSelectVehicle={() => {
+                setActiveVehicleIndex(null);
+              }}
             />
           ))}
 
           <Button
             variant="outline"
             onPress={addVehicle}
-            className="flex-row items-center justify-center gap-2 border-dashed"
+            className="flex-row items-center justify-center gap-2 border-dashed py-3"
           >
-            <Plus size={18} color={THEME.light.foreground} />
-            <Text className="font-semibold">Add Another Vehicle</Text>
+            <Plus size={16} color={THEME.light.foreground} />
+            <Text className="font-semibold text-sm">Add Another Vehicle</Text>
           </Button>
 
           {/* Navigation Buttons */}
