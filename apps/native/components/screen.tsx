@@ -8,7 +8,7 @@ export function Screen({ children }: PropsWithChildren) {
     <ScrollView
       className="flex-1 bg-background"
       contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ gap: 24, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40 }}
+      contentContainerStyle={{ gap: 24, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 140 }}
     >
       {children}
     </ScrollView>

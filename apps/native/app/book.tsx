@@ -26,11 +26,15 @@ import {
   Clock,
   CreditCard,
   Dog,
+  Info,
   MapPin,
   Palette,
   Plus,
   Shield,
   Sparkles,
+  Sun,
+  Sunrise,
+  Trash2,
   User,
   X,
 } from "lucide-react-native";
@@ -51,7 +55,41 @@ import { VehicleLookup, type VehicleLookupValue } from "@/components/forms/vehic
 import { TimeSlotPicker } from "@/components/forms/time-slot-picker";
 import { THEME } from "@/lib/theme";
 
-import { getEffectiveServicePrice } from "@rivercitymd/backend/convex/lib/pricing";
+import {
+  getEffectiveServicePricingForVehicle,
+  getServiceBookingRole,
+  inferServiceCategorySlug,
+  isServiceAllowedForCondition,
+  isServiceAvailableForVehicle,
+  normalizeServiceType,
+  type VehicleSize,
+} from "@rivercitymd/backend/convex/lib/pricing";
+
+const PACKAGE_CATEGORY_ORDER = ["full-detail", "interior", "exterior"] as const;
+const PACKAGE_CATEGORY_LABELS: Record<(typeof PACKAGE_CATEGORY_ORDER)[number], string> = {
+  "full-detail": "Full Detail Packages",
+  interior: "Interior Only Packages",
+  exterior: "Exterior Only Packages",
+};
+
+const ADDON_CATEGORY_ORDER = ["interior", "exterior"] as const;
+const ADDON_CATEGORY_LABELS: Record<(typeof ADDON_CATEGORY_ORDER)[number], string> = {
+  interior: "Interior Add-ons",
+  exterior: "Exterior Add-ons",
+};
+
+function getPackageCategorySlug(service: any): (typeof PACKAGE_CATEGORY_ORDER)[number] {
+  const slug = service.categorySlug || inferServiceCategorySlug(service);
+  if (slug === "full-detail" || slug === "interior" || slug === "exterior") {
+    return slug;
+  }
+  return "full-detail";
+}
+
+function getAddonCategorySlug(service: any): (typeof ADDON_CATEGORY_ORDER)[number] {
+  const slug = service.categorySlug || inferServiceCategorySlug(service);
+  return slug === "interior" ? "interior" : "exterior";
+}
 
 interface VehicleSelection {
   key: string;
@@ -96,13 +134,16 @@ export default function BookScreen() {
 
   // Step 3: Vehicles & Condition
   const [selectedVehicles, setSelectedVehicles] = React.useState<VehicleSelection[]>([]);
-  const [adHocVehicles, setAdHocVehicles] = React.useState<VehicleLookupValue[]>([]);
-  const [activeVehicleIndex, setActiveVehicleIndex] = React.useState<number | null>(0);
+  const [adHocVehicles, setAdHocVehicles] = React.useState<
+    Array<VehicleLookupValue & { hasPet?: boolean; hasHeavySoil?: boolean }>
+  >([]);
 
   // Step 4: Services selected per vehicle: Record<vehicleKey, serviceId[]>
   const [vehicleServices, setVehicleServices] = React.useState<Record<string, string[]>>({});
   const [expandedServiceVehicle, setExpandedServiceVehicle] = React.useState<string>("");
-  const [activeServiceSection, setActiveServiceSection] = React.useState<"core" | "upgrades" | "addons">("core");
+  const [activeVehicleSection, setActiveVehicleSection] = React.useState<
+    Record<string, "packages" | "upgrades" | "addons">
+  >({});
 
   // Step 4: Payment option
   const [paymentOption, setPaymentOption] = React.useState<"deposit" | "full" | "in_person">("deposit");
@@ -123,6 +164,7 @@ export default function BookScreen() {
       };
       setSelectedVehicles([initial]);
       setExpandedServiceVehicle(initial.key);
+      setActiveVehicleSection({ [initial.key]: "packages" });
     }
   }, [myVehicles]);
 
@@ -138,8 +180,8 @@ export default function BookScreen() {
           vehicleTypeId: adhoc.vehicleTypeId as Id<"vehicleTypes"> | undefined,
           vehicleTypeName: adhoc.vehicleTypeName,
           size: adhoc.size || "medium",
-          hasPet: false,
-          hasHeavySoil: false,
+          hasPet: Boolean(adhoc.hasPet),
+          hasHeavySoil: Boolean(adhoc.hasHeavySoil),
           details: adhoc,
         });
       }
@@ -172,6 +214,7 @@ export default function BookScreen() {
       };
       setSelectedVehicles((prev) => [...prev, added]);
       if (!expandedServiceVehicle) setExpandedServiceVehicle(key);
+      setActiveVehicleSection((prev) => ({ ...prev, [key]: "packages" }));
     }
   };
 
@@ -181,31 +224,9 @@ export default function BookScreen() {
     );
   };
 
-  // Group services
-  const coreServices = React.useMemo(() => {
-    return (allServices || []).filter(
-      (s: Doc<"services">) => s.bookingRole === "core" || (!s.bookingRole && s.serviceType === "standard"),
-    );
-  }, [allServices]);
-
-  const upgradeServices = React.useMemo(() => {
-    return (allServices || []).filter((s: Doc<"services">) => s.bookingRole === "upgrade");
-  }, [allServices]);
-
-  const addonServices = React.useMemo(() => {
-    return (allServices || []).filter(
-      (s: Doc<"services">) => s.bookingRole === "addon" || s.serviceType === "addon",
-    );
-  }, [allServices]);
-
-  const getServicePrice = (service: Doc<"services">, vehicleSize: "small" | "medium" | "large") => {
-    return getEffectiveServicePrice(service, vehicleSize);
-  };
-
-  const handleSelectPackage = (vehicleKey: string, serviceId: string) => {
+  const handleSelectPackage = (vehicleKey: string, serviceId: string, coreIds: Set<string>) => {
     const existing = vehicleServices[vehicleKey] || [];
-    const coreIds = new Set(coreServices.map((s) => s._id));
-    const nonCore = existing.filter((id) => !coreIds.has(id as Id<"services">));
+    const nonCore = existing.filter((id) => !coreIds.has(id));
     setVehicleServices({
       ...vehicleServices,
       [vehicleKey]: [...nonCore, serviceId],
@@ -231,11 +252,14 @@ export default function BookScreen() {
 
       targetVehicles.forEach((v) => {
         const sIds = vehicleServices[v.key] || [];
+        const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
+
         sIds.forEach((sid) => {
           const s = allServices?.find((x: Doc<"services">) => x._id === sid);
           if (s) {
-            serviceSubtotal += getServicePrice(s, v.size);
-            duration += s.duration;
+            const pricing = getEffectiveServicePricingForVehicle(s, pricingCtx);
+            serviceSubtotal += pricing.price;
+            duration += pricing.duration;
           }
         });
 
@@ -274,10 +298,21 @@ export default function BookScreen() {
     }
     if (step === 4) {
       // Must have a core package selected for each vehicle
-      const coreIds = new Set(coreServices.map((s: Doc<"services">) => String(s._id)));
       return targetVehicles.every((v) => {
         const ids = vehicleServices[v.key] || [];
-        return ids.some((id) => coreIds.has(id));
+        const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
+        const availableCoreIds = new Set(
+          (allServices || [])
+            .filter(
+              (s) =>
+                s.isActive !== false &&
+                normalizeServiceType(s.serviceType) === "standard" &&
+                getServiceBookingRole(s) === "core" &&
+                isServiceAvailableForVehicle(s, pricingCtx),
+            )
+            .map((s) => String(s._id)),
+        );
+        return ids.some((id) => availableCoreIds.has(String(id)));
       });
     }
     return true;
@@ -287,7 +322,7 @@ export default function BookScreen() {
     setError(null);
     if (!canProceedToNext()) {
       if (step === 1) setError("Please enter your complete service address.");
-      if (step === 2) setError("Please select an available date and time slot.");
+      if (step === 2) setError("Please select an available date and arrival window.");
       if (step === 3) setError("Please select or add at least one vehicle.");
       if (step === 4) setError("Please select a base detailing package for each vehicle.");
       return;
@@ -465,20 +500,16 @@ export default function BookScreen() {
         </View>
       ) : null}
 
-      {/* STEP 2: Scheduling TimeSlotPicker */}
+      {/* STEP 2: Date & Time Selection */}
       {step === 2 ? (
         <View key="step-2" className="gap-4">
-          <Card className="border border-border">
-            <CardContent className="p-4">
-              <TimeSlotPicker
-                durationMinutes={Math.max(120, totalDurationMinutes || 120)}
-                selectedDate={scheduledDate}
-                selectedTime={scheduledTime}
-                onSelectDate={setScheduledDate}
-                onSelectTime={setScheduledTime}
-              />
-            </CardContent>
-          </Card>
+          <TimeSlotPicker
+            selectedDate={scheduledDate}
+            onDateChange={setScheduledDate}
+            selectedTime={scheduledTime}
+            onTimeChange={setScheduledTime}
+            durationMinutes={totalDurationMinutes || 120}
+          />
 
           <Button
             size="lg"
@@ -492,10 +523,10 @@ export default function BookScreen() {
         </View>
       ) : null}
 
-      {/* STEP 3: Vehicles & Condition Questions */}
+      {/* STEP 3: Vehicle Selection & Condition */}
       {step === 3 ? (
-        <View key="step-3" className="gap-4">
-          <View className="gap-2.5">
+        <View key="step-3" className="gap-5 pb-6">
+          <View className="gap-3">
             <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Select From Your Garage
             </Text>
@@ -522,7 +553,7 @@ export default function BookScreen() {
                         <View className="flex-row items-center gap-3 flex-1">
                           <View
                             className={`h-9 w-9 items-center justify-center rounded-xl ${
-                              isSelected ? "bg-accent text-white" : "bg-secondary"
+                              isSelected ? "bg-accent" : "bg-secondary"
                             }`}
                           >
                             <CarFront
@@ -607,38 +638,100 @@ export default function BookScreen() {
 
           {/* Ad-hoc Vehicle Additions */}
           {adHocVehicles.map((adhoc, idx) => (
-            <VehicleLookup
-              key={idx}
-              title={`Vehicle ${selectedVehicles.length + idx + 1}`}
-              value={adhoc}
-              onChange={(updated) => {
-                const next = [...adHocVehicles];
-                next[idx] = updated;
-                setAdHocVehicles(next);
-              }}
-              onRemove={() => setAdHocVehicles(adHocVehicles.filter((_, i) => i !== idx))}
-            />
+            <Card key={idx} className="border border-border p-4 gap-3">
+              <View className="flex-row items-center justify-between">
+                <Text className="font-bold text-sm">
+                  Vehicle {selectedVehicles.length + idx + 1}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setAdHocVehicles(adHocVehicles.filter((_, i) => i !== idx))}
+                  className="p-1 rounded-full active:bg-secondary"
+                >
+                  <Trash2 size={16} color={THEME.light.destructive} />
+                </Pressable>
+              </View>
+
+              <VehicleLookup
+                title=""
+                value={adhoc}
+                onChange={(updated) => {
+                  const next = [...adHocVehicles];
+                  next[idx] = { ...next[idx], ...updated };
+                  setAdHocVehicles(next);
+                }}
+              />
+
+              {/* Condition Questions for Ad-hoc Vehicle */}
+              <View className="gap-2.5 pt-2 border-t border-border/40">
+                <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Vehicle Condition
+                </Text>
+
+                <View className="flex-row items-center justify-between rounded-xl bg-secondary/40 p-3">
+                  <View className="flex-row items-center gap-2.5 flex-1 pr-2">
+                    <Dog size={16} color={THEME.light.accent} />
+                    <View className="flex-1">
+                      <Text className="text-xs font-bold">Pet Hair Present?</Text>
+                      <Text className="text-[11px] text-muted-foreground">
+                        Deep pet hair extraction (+ $40.00)
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={Boolean(adhoc.hasPet)}
+                    onValueChange={(val) => {
+                      const next = [...adHocVehicles];
+                      next[idx] = { ...next[idx], hasPet: val };
+                      setAdHocVehicles(next);
+                    }}
+                  />
+                </View>
+
+                <View className="flex-row items-center justify-between rounded-xl bg-secondary/40 p-3">
+                  <View className="flex-row items-center gap-2.5 flex-1 pr-2">
+                    <Sparkles size={16} color={THEME.light.accent} />
+                    <View className="flex-1">
+                      <Text className="text-xs font-bold">Heavy Soil or Mud?</Text>
+                      <Text className="text-[11px] text-muted-foreground">
+                        Excessive mud, bio, or heavy staining
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={Boolean(adhoc.hasHeavySoil)}
+                    onValueChange={(val) => {
+                      const next = [...adHocVehicles];
+                      next[idx] = { ...next[idx], hasHeavySoil: val };
+                      setAdHocVehicles(next);
+                    }}
+                  />
+                </View>
+              </View>
+            </Card>
           ))}
 
+          {/* Add Another Car Button */}
           <Button
             variant="outline"
             onPress={() =>
               setAdHocVehicles([
                 ...adHocVehicles,
-                { year: "", make: "", model: "", size: "medium" },
+                { year: "", make: "", model: "", size: "medium", hasPet: false, hasHeavySoil: false },
               ])
             }
-            className="flex-row items-center justify-center gap-2 border-dashed py-3"
+            className="flex-row items-center justify-center gap-2 border-dashed py-3.5"
           >
             <Plus size={16} color={THEME.light.foreground} />
             <Text className="font-semibold text-sm">Add Another Car</Text>
           </Button>
 
+          {/* Proceed Button */}
           <Button
             size="lg"
             disabled={!canProceedToNext()}
             onPress={handleNext}
-            className="w-full flex-row items-center justify-center gap-2 mt-2"
+            className="w-full flex-row items-center justify-center gap-2 mt-3 mb-8"
           >
             <Text className="font-bold text-primary-foreground">Choose Detailing Packages</Text>
             <ArrowRight size={18} color={THEME.light.primaryForeground} />
@@ -648,57 +741,102 @@ export default function BookScreen() {
 
       {/* STEP 4: Detailing Packages & Stripe Checkout Accordion */}
       {step === 4 ? (
-        <View key="step-4" className="gap-5">
+        <View key="step-4" className="gap-5 pb-8">
           {/* Per-Vehicle Service Accordions */}
-          <View className="gap-3">
+          <View className="gap-4">
             <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Configure Packages Per Car
             </Text>
 
-            {targetVehicles.map((v, index) => {
+            {targetVehicles.map((v, vIdx) => {
+              const pricingCtx = { vehicleSize: v.size, vehicleTypeId: v.vehicleTypeId };
               const currentServices = vehicleServices[v.key] || [];
-              const selectedCore = coreServices.find((s: Doc<"services">) => currentServices.includes(s._id));
-              const selectedUpgrades = upgradeServices.filter((s: Doc<"services">) =>
-                currentServices.includes(s._id),
-              );
-              const selectedAddons = addonServices.filter((s: Doc<"services">) => currentServices.includes(s._id));
 
-              const isExpanded = expandedServiceVehicle === v.key || targetVehicles.length === 1;
+              // Filter services available for this vehicle
+              const vehicleAvailableServices = (allServices || []).filter((s) => {
+                if (s.isActive === false) return false;
+                return isServiceAvailableForVehicle(s, pricingCtx);
+              });
+
+              const coreServices = vehicleAvailableServices.filter(
+                (s) =>
+                  normalizeServiceType(s.serviceType) === "standard" &&
+                  getServiceBookingRole(s) === "core",
+              );
+
+              const upgradeServices = vehicleAvailableServices.filter(
+                (s) =>
+                  normalizeServiceType(s.serviceType) === "standard" &&
+                  getServiceBookingRole(s) === "upgrade",
+              );
+
+              const addonServices = vehicleAvailableServices.filter(
+                (s) => getServiceBookingRole(s) === "addon",
+              );
+
+              const standardGroups = PACKAGE_CATEGORY_ORDER.map((slug) => ({
+                slug,
+                name: PACKAGE_CATEGORY_LABELS[slug],
+                services: coreServices.filter((s) => getPackageCategorySlug(s) === slug),
+              })).filter((group) => group.services.length > 0);
+
+              const addonGroups = ADDON_CATEGORY_ORDER.map((slug) => ({
+                slug,
+                name: ADDON_CATEGORY_LABELS[slug],
+                services: addonServices.filter((s) => getAddonCategorySlug(s) === slug),
+              })).filter((group) => group.services.length > 0);
+
+              const coreIds = new Set(coreServices.map((s) => String(s._id)));
+              const selectedPackage = coreServices.find((s) => currentServices.includes(s._id));
+              const selectedUpgrades = upgradeServices.filter((s) => currentServices.includes(s._id));
+              const selectedAddons = addonServices.filter((s) => currentServices.includes(s._id));
+
+              // Vehicle subtotal
+              const vehicleServicesTotal = currentServices.reduce((sum, id) => {
+                const service = vehicleAvailableServices.find((s) => s._id === id);
+                if (!service) return sum;
+                return sum + getEffectiveServicePricingForVehicle(service, pricingCtx).price;
+              }, 0);
+
+              const isVehicleExpanded =
+                expandedServiceVehicle === v.key || targetVehicles.length === 1;
+              const currentSection = activeVehicleSection[v.key] || "packages";
 
               return (
                 <Card key={v.key} className="border border-border overflow-hidden">
                   <Pressable
                     accessibilityRole="button"
                     onPress={() =>
-                      setExpandedServiceVehicle(isExpanded && targetVehicles.length > 1 ? "" : v.key)
+                      setExpandedServiceVehicle(
+                        isVehicleExpanded && targetVehicles.length > 1 ? "" : v.key,
+                      )
                     }
                     className="flex-row items-center justify-between p-4 bg-card active:bg-secondary/40"
                   >
                     <View className="flex-row items-center gap-3 flex-1">
-                      <View className="h-8 w-8 items-center justify-center rounded-xl bg-accent/10">
-                        <CarFront size={16} color={THEME.light.accent} />
+                      <View className="h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
+                        <CarFront size={18} color={THEME.light.accent} />
                       </View>
                       <View className="flex-1">
-                        <Text className="font-bold text-sm">{v.label}</Text>
-                        <Text className="text-xs text-muted-foreground">
-                          {selectedCore ? selectedCore.name : "Select a package"}
+                        <View className="flex-row items-center gap-2">
+                          <Text className="font-bold text-sm">{v.label}</Text>
+                          <Badge variant="secondary" size="sm" label={v.size.toUpperCase()} />
+                        </View>
+                        <Text className="text-xs text-muted-foreground mt-0.5">
+                          {selectedPackage ? selectedPackage.name : "Choose package"}
                           {selectedAddons.length > 0 ? ` · +${selectedAddons.length} add-ons` : ""}
                         </Text>
                       </View>
                     </View>
 
                     <View className="flex-row items-center gap-2">
-                      {selectedCore ? (
-                        <Badge
-                          variant="accent"
-                          size="sm"
-                          label={`$${getServicePrice(selectedCore, v.size).toFixed(2)}`}
-                        />
+                      {vehicleServicesTotal > 0 ? (
+                        <Badge variant="accent" size="sm" label={`$${vehicleServicesTotal.toFixed(2)}`} />
                       ) : (
                         <Badge variant="warning" size="sm" label="Required" />
                       )}
                       {targetVehicles.length > 1 ? (
-                        isExpanded ? (
+                        isVehicleExpanded ? (
                           <ChevronUp size={18} color={THEME.light.mutedForeground} />
                         ) : (
                           <ChevronDown size={18} color={THEME.light.mutedForeground} />
@@ -707,93 +845,272 @@ export default function BookScreen() {
                     </View>
                   </Pressable>
 
-                  {isExpanded ? (
-                    <CardContent className="gap-4 p-4 pt-1 border-t border-border/50">
-                      {/* Sub-Section 1: Base Detailing Packages */}
-                      <View className="gap-2">
-                        <View className="flex-row items-center justify-between">
-                          <Text className="text-xs font-bold text-foreground">
-                            1. Select Core Package (Required)
-                          </Text>
-                        </View>
-
-                        <View className="gap-2">
-                          {coreServices.map((pkg: Doc<"services">) => {
-                            const isChosen = currentServices.includes(pkg._id);
-                            const price = getServicePrice(pkg, v.size);
-
-                            return (
-                              <Pressable
-                                key={pkg._id}
-                                accessibilityRole="button"
-                                onPress={() => handleSelectPackage(v.key, pkg._id)}
-                                className={`rounded-xl border p-3.5 ${
-                                  isChosen
-                                    ? "border-accent bg-accent/10"
-                                    : "border-border bg-card active:bg-secondary"
-                                }`}
-                              >
-                                <View className="flex-row items-center justify-between">
-                                  <Text className="font-bold text-sm">{pkg.name}</Text>
-                                  <Text className="text-sm font-extrabold text-accent">
-                                    ${price.toFixed(2)}
-                                  </Text>
-                                </View>
-                                {pkg.description ? (
-                                  <Text className="text-xs text-muted-foreground mt-1 leading-4">
-                                    {pkg.description}
-                                  </Text>
-                                ) : null}
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </View>
-
-                      {/* Sub-Section 2: Add-ons & Upgrades */}
-                      {addonServices.length > 0 || upgradeServices.length > 0 ? (
-                        <View className="gap-2 border-t border-border/40 pt-3">
-                          <Text className="text-xs font-bold text-foreground">
-                            2. Add-on Enhancements (Optional)
-                          </Text>
-
-                          <View className="gap-2">
-                            {[...upgradeServices, ...addonServices].map((addon: Doc<"services">) => {
-                              const isSelected = currentServices.includes(addon._id);
-                              const price = getServicePrice(addon, v.size);
-
-                              return (
-                                <Pressable
-                                  key={addon._id}
-                                  accessibilityRole="button"
-                                  onPress={() => handleToggleAddon(v.key, addon._id)}
-                                  className={`flex-row items-center justify-between rounded-xl border p-3 ${
-                                    isSelected
-                                      ? "border-accent bg-accent/10"
-                                      : "border-border bg-card active:bg-secondary"
-                                  }`}
-                                >
-                                  <View className="flex-1 pr-2">
-                                    <Text className="font-semibold text-xs">{addon.name}</Text>
-                                    <Text className="text-[11px] text-muted-foreground">
-                                      +{addon.duration} mins
-                                    </Text>
-                                  </View>
-                                  <View className="flex-row items-center gap-2">
-                                    <Text className="font-bold text-xs">+${price.toFixed(2)}</Text>
-                                    <View
-                                      className={`h-4 w-4 items-center justify-center rounded border ${
-                                        isSelected ? "border-accent bg-accent" : "border-border"
-                                      }`}
-                                    >
-                                      {isSelected ? <Check size={10} color="#fff" /> : null}
-                                    </View>
-                                  </View>
-                                </Pressable>
-                              );
-                            })}
+                  {isVehicleExpanded ? (
+                    <CardContent className="p-3 gap-3 bg-secondary/10 border-t border-border/40">
+                      {/* Walkdown Section 1: Choose Package (REQUIRED) */}
+                      <Card className="border border-border/70 overflow-hidden">
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() =>
+                            setActiveVehicleSection((prev) => ({
+                              ...prev,
+                              [v.key]: currentSection === "packages" ? ("" as any) : "packages",
+                            }))
+                          }
+                          className="flex-row items-center justify-between p-3.5 bg-card active:bg-secondary/30"
+                        >
+                          <View className="flex-row items-center gap-2.5 flex-1 pr-2">
+                            <Badge variant="accent" size="sm" label="1. REQUIRED" />
+                            <Text className="font-bold text-sm text-foreground">Choose Package</Text>
                           </View>
-                        </View>
+                          <View className="flex-row items-center gap-2">
+                            {selectedPackage ? (
+                              <Text className="text-xs font-semibold text-accent">
+                                {selectedPackage.name} (${getEffectiveServicePricingForVehicle(selectedPackage, pricingCtx).price})
+                              </Text>
+                            ) : (
+                              <Text className="text-xs text-muted-foreground">Select one</Text>
+                            )}
+                            {currentSection === "packages" ? (
+                              <ChevronUp size={16} color={THEME.light.mutedForeground} />
+                            ) : (
+                              <ChevronDown size={16} color={THEME.light.mutedForeground} />
+                            )}
+                          </View>
+                        </Pressable>
+
+                        {currentSection === "packages" ? (
+                          <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-4">
+                            {standardGroups.map((group) => (
+                              <View key={group.slug} className="gap-2.5">
+                                <Text className="text-xs font-bold text-foreground uppercase tracking-wider">
+                                  {group.name}
+                                </Text>
+
+                                <View className="gap-2">
+                                  {group.services.map((pkg) => {
+                                    const isChosen = selectedPackage?._id === pkg._id;
+                                    const pricing = getEffectiveServicePricingForVehicle(pkg, pricingCtx);
+                                    const isAllowed = isServiceAllowedForCondition(pkg, {
+                                      hasPet: v.hasPet,
+                                      hasHeavySoil: v.hasHeavySoil,
+                                    });
+
+                                    return (
+                                      <Pressable
+                                        key={pkg._id}
+                                        accessibilityRole="button"
+                                        onPress={() => {
+                                          handleSelectPackage(v.key, pkg._id, coreIds);
+                                        }}
+                                        className={`rounded-xl border p-3.5 ${
+                                          isChosen
+                                            ? "border-accent bg-accent/10"
+                                            : "border-border bg-card active:bg-secondary"
+                                        }`}
+                                      >
+                                        <View className="flex-row items-start justify-between gap-2">
+                                          <View className="flex-1">
+                                            <View className="flex-row items-center gap-2">
+                                              <Text className="font-bold text-sm">{pkg.name}</Text>
+                                              {pkg.duration ? (
+                                                <Badge
+                                                  variant="secondary"
+                                                  size="sm"
+                                                  label={`~${pricing.duration} min`}
+                                                />
+                                              ) : null}
+                                            </View>
+                                            {pkg.description ? (
+                                              <Text className="text-xs text-muted-foreground mt-1 leading-4">
+                                                {pkg.description}
+                                              </Text>
+                                            ) : null}
+                                          </View>
+
+                                          <Text className="text-sm font-extrabold text-accent">
+                                            ${pricing.price.toFixed(2)}
+                                          </Text>
+                                        </View>
+
+                                        {!isAllowed ? (
+                                          <View className="flex-row items-center gap-1.5 mt-2 rounded-lg bg-amber-500/10 p-2 border border-amber-500/20">
+                                            <AlertTriangle size={14} color="#d97706" />
+                                            <Text className="text-[11px] font-medium text-amber-700 flex-1">
+                                              Condition note: Heavy soil or pet hair requires extra intensive pass.
+                                            </Text>
+                                          </View>
+                                        ) : null}
+                                      </Pressable>
+                                    );
+                                  })}
+                                </View>
+                              </View>
+                            ))}
+                          </CardContent>
+                        ) : null}
+                      </Card>
+
+                      {/* Walkdown Section 2: Upgrades (OPTIONAL) */}
+                      {upgradeServices.length > 0 ? (
+                        <Card className="border border-border/70 overflow-hidden">
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() =>
+                              setActiveVehicleSection((prev) => ({
+                                ...prev,
+                                [v.key]: currentSection === "upgrades" ? ("" as any) : "upgrades",
+                              }))
+                            }
+                            className="flex-row items-center justify-between p-3.5 bg-card active:bg-secondary/30"
+                          >
+                            <View className="flex-row items-center gap-2.5 flex-1 pr-2">
+                              <Badge variant="secondary" size="sm" label="2. OPTIONAL" />
+                              <Text className="font-bold text-sm text-foreground">Core Upgrades</Text>
+                            </View>
+                            <View className="flex-row items-center gap-2">
+                              {selectedUpgrades.length > 0 ? (
+                                <Text className="text-xs font-semibold text-accent">
+                                  {selectedUpgrades.length} selected
+                                </Text>
+                              ) : (
+                                <Text className="text-xs text-muted-foreground">None</Text>
+                              )}
+                              {currentSection === "upgrades" ? (
+                                <ChevronUp size={16} color={THEME.light.mutedForeground} />
+                              ) : (
+                                <ChevronDown size={16} color={THEME.light.mutedForeground} />
+                              )}
+                            </View>
+                          </Pressable>
+
+                          {currentSection === "upgrades" ? (
+                            <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-2">
+                              {upgradeServices.map((upg) => {
+                                const isSelected = currentServices.includes(upg._id);
+                                const pricing = getEffectiveServicePricingForVehicle(upg, pricingCtx);
+
+                                return (
+                                  <Pressable
+                                    key={upg._id}
+                                    accessibilityRole="button"
+                                    onPress={() => handleToggleAddon(v.key, upg._id)}
+                                    className={`flex-row items-center justify-between rounded-xl border p-3 ${
+                                      isSelected
+                                        ? "border-accent bg-accent/10"
+                                        : "border-border bg-card active:bg-secondary"
+                                    }`}
+                                  >
+                                    <View className="flex-1 pr-2">
+                                      <Text className="font-semibold text-xs">{upg.name}</Text>
+                                      {upg.description ? (
+                                        <Text className="text-[11px] text-muted-foreground mt-0.5">
+                                          {upg.description}
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                    <View className="flex-row items-center gap-2.5">
+                                      <Text className="font-bold text-xs">+${pricing.price.toFixed(2)}</Text>
+                                      <View
+                                        className={`h-5 w-5 items-center justify-center rounded border ${
+                                          isSelected ? "border-accent bg-accent" : "border-border"
+                                        }`}
+                                      >
+                                        {isSelected ? <Check size={12} color="#fff" /> : null}
+                                      </View>
+                                    </View>
+                                  </Pressable>
+                                );
+                              })}
+                            </CardContent>
+                          ) : null}
+                        </Card>
+                      ) : null}
+
+                      {/* Walkdown Section 3: Add-Ons (OPTIONAL) */}
+                      {addonServices.length > 0 ? (
+                        <Card className="border border-border/70 overflow-hidden">
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() =>
+                              setActiveVehicleSection((prev) => ({
+                                ...prev,
+                                [v.key]: currentSection === "addons" ? ("" as any) : "addons",
+                              }))
+                            }
+                            className="flex-row items-center justify-between p-3.5 bg-card active:bg-secondary/30"
+                          >
+                            <View className="flex-row items-center gap-2.5 flex-1 pr-2">
+                              <Badge variant="secondary" size="sm" label="3. OPTIONAL" />
+                              <Text className="font-bold text-sm text-foreground">Add-on Extras</Text>
+                            </View>
+                            <View className="flex-row items-center gap-2">
+                              {selectedAddons.length > 0 ? (
+                                <Text className="text-xs font-semibold text-accent">
+                                  {selectedAddons.length} selected
+                                </Text>
+                              ) : (
+                                <Text className="text-xs text-muted-foreground">None</Text>
+                              )}
+                              {currentSection === "addons" ? (
+                                <ChevronUp size={16} color={THEME.light.mutedForeground} />
+                              ) : (
+                                <ChevronDown size={16} color={THEME.light.mutedForeground} />
+                              )}
+                            </View>
+                          </Pressable>
+
+                          {currentSection === "addons" ? (
+                            <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-4">
+                              {addonGroups.map((group) => (
+                                <View key={group.slug} className="gap-2">
+                                  <Text className="text-xs font-bold text-foreground uppercase tracking-wider">
+                                    {group.name}
+                                  </Text>
+
+                                  <View className="gap-2">
+                                    {group.services.map((addon) => {
+                                      const isSelected = currentServices.includes(addon._id);
+                                      const pricing = getEffectiveServicePricingForVehicle(addon, pricingCtx);
+
+                                      return (
+                                        <Pressable
+                                          key={addon._id}
+                                          accessibilityRole="button"
+                                          onPress={() => handleToggleAddon(v.key, addon._id)}
+                                          className={`flex-row items-center justify-between rounded-xl border p-3 ${
+                                            isSelected
+                                              ? "border-accent bg-accent/10"
+                                              : "border-border bg-card active:bg-secondary"
+                                          }`}
+                                        >
+                                          <View className="flex-1 pr-2">
+                                            <Text className="font-semibold text-xs">{addon.name}</Text>
+                                            <Text className="text-[11px] text-muted-foreground">
+                                              +{pricing.duration} mins
+                                            </Text>
+                                          </View>
+                                          <View className="flex-row items-center gap-2.5">
+                                            <Text className="font-bold text-xs">
+                                              +${pricing.price.toFixed(2)}
+                                            </Text>
+                                            <View
+                                              className={`h-5 w-5 items-center justify-center rounded border ${
+                                                isSelected ? "border-accent bg-accent" : "border-border"
+                                              }`}
+                                            >
+                                              {isSelected ? <Check size={12} color="#fff" /> : null}
+                                            </View>
+                                          </View>
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+                                </View>
+                              ))}
+                            </CardContent>
+                          ) : null}
+                        </Card>
                       ) : null}
                     </CardContent>
                   ) : null}
@@ -933,7 +1250,7 @@ export default function BookScreen() {
             size="lg"
             disabled={isLoading || !canProceedToNext()}
             onPress={handleSubmitBooking}
-            className="w-full flex-row items-center justify-center gap-2 mt-1"
+            className="w-full flex-row items-center justify-center gap-2 mt-1 mb-10"
           >
             {isLoading ? (
               <ActivityIndicator size="small" color={THEME.light.primaryForeground} />
