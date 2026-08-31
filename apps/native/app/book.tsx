@@ -164,7 +164,7 @@ export default function BookScreen() {
   const [vehicleServices, setVehicleServices] = React.useState<Record<string, string[]>>({});
   const [expandedServiceVehicle, setExpandedServiceVehicle] = React.useState<string>("");
   const [activeVehicleSection, setActiveVehicleSection] = React.useState<
-    Record<string, "packages" | "upgrades" | "addons">
+    Record<string, "packages" | "upgrades" | "addons" | "">
   >({});
   // Track nested category accordion state: Record<`${vehicleKey}-pkg` | `${vehicleKey}-addon`, string>
   const [activeNestedCategory, setActiveNestedCategory] = React.useState<Record<string, string>>({});
@@ -863,7 +863,12 @@ export default function BookScreen() {
 
               const isVehicleExpanded =
                 expandedServiceVehicle === v.key || targetVehicles.length === 1;
-              const currentSection = activeVehicleSection[v.key] || "packages";
+              const currentSection =
+                activeVehicleSection[v.key] !== undefined
+                  ? activeVehicleSection[v.key]
+                  : selectedPackage
+                    ? ""
+                    : "packages";
 
               return (
                 <Card key={v.key} className="border border-border overflow-hidden">
@@ -917,18 +922,18 @@ export default function BookScreen() {
                           onPress={() =>
                             setActiveVehicleSection((prev) => ({
                               ...prev,
-                              [v.key]: currentSection === "packages" ? ("" as any) : "packages",
+                              [v.key]: currentSection === "packages" ? "" : "packages",
                             }))
                           }
                           className="flex-row items-center justify-between p-3.5 bg-card active:bg-secondary/30"
                         >
                           <View className="flex-1 pr-2">
                             <View className="flex-row items-center gap-2">
-                              <Badge variant="accent" size="sm" label="1. REQUIRED" />
+                              <Badge variant={selectedPackage ? "secondary" : "accent"} size="sm" label="1. REQUIRED" />
                               <Text className="font-bold text-sm text-foreground">Choose Package</Text>
                             </View>
                             {selectedPackage ? (
-                              <Text className="text-xs font-semibold text-accent mt-1" numberOfLines={1}>
+                              <Text className="text-xs font-bold text-accent mt-1" numberOfLines={1}>
                                 {selectedPackage.name} (${getEffectiveServicePricingForVehicle(selectedPackage, pricingCtx).price.toFixed(2)})
                               </Text>
                             ) : (
@@ -978,11 +983,12 @@ export default function BookScreen() {
 
                                     <View className="flex-row items-center gap-2 shrink-0">
                                       {isPackageInThisGroup ? (
-                                        <Badge
-                                          variant="accent"
-                                          size="sm"
-                                          label="Selected"
-                                        />
+                                        <View className="flex-row items-center gap-1.5">
+                                          <Text className="text-[11px] font-semibold text-accent max-w-[130px]" numberOfLines={1}>
+                                            {selectedPackage.name}
+                                          </Text>
+                                          <Check size={13} color={THEME.light.accent} />
+                                        </View>
                                       ) : (
                                         <Text className="text-[11px] text-muted-foreground">
                                           {group.services.length} options
@@ -1009,15 +1015,15 @@ export default function BookScreen() {
                                             accessibilityRole="button"
                                             onPress={() => {
                                               handleSelectPackage(v.key, pkg._id, coreIds);
-                                              // Close the category accordion once an option is selected!
+                                              // Close the category accordion once an option is selected
                                               setActiveNestedCategory((prev) => ({
                                                 ...prev,
                                                 [currentPkgCategoryKey]: "",
                                               }));
-                                              // Auto-advance walkdown to Upgrades section
+                                              // Close the Choose Package section so only the selection & name show!
                                               setActiveVehicleSection((prev) => ({
                                                 ...prev,
-                                                [v.key]: "upgrades",
+                                                [v.key]: "",
                                               }));
                                             }}
                                             className={`rounded-xl border p-3.5 ${
