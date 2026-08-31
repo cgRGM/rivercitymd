@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { router } from "expo-router";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
 import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
-import { Calendar, CalendarDays, Clock, DollarSign, MapPin, Plus, RefreshCw, X } from "lucide-react-native";
+import { CalendarDays, Clock, MapPin, Plus, RefreshCw, X } from "lucide-react-native";
 
 import { EmptyState } from "@/components/empty-state";
 import { Screen, ScreenHeader } from "@/components/screen";
@@ -38,23 +38,14 @@ export default function AppointmentsScreen() {
   const [rescheduleTime, setRescheduleTime] = React.useState("");
   const [isRescheduling, setIsRescheduling] = React.useState(false);
 
-  const now = Date.now();
+  // Match the web portal: unresolved appointments remain actionable even if
+  // their scheduled time has passed, while completed/cancelled records are past.
   const upcomingAppointments = appointments
-    ?.filter(
-      (a) =>
-        a.status !== "completed" &&
-        a.status !== "cancelled" &&
-        new Date(`${a.scheduledDate}T${a.scheduledTime}`).getTime() >= now,
-    )
+    ?.filter((appointment) => appointment.status !== "completed" && appointment.status !== "cancelled")
     .sort((a, b) => `${a.scheduledDate}T${a.scheduledTime}`.localeCompare(`${b.scheduledDate}T${b.scheduledTime}`));
 
   const pastAppointments = appointments
-    ?.filter(
-      (a) =>
-        a.status === "completed" ||
-        a.status === "cancelled" ||
-        new Date(`${a.scheduledDate}T${a.scheduledTime}`).getTime() < now,
-    )
+    ?.filter((appointment) => appointment.status === "completed" || appointment.status === "cancelled")
     .sort((a, b) => `${b.scheduledDate}T${b.scheduledTime}`.localeCompare(`${a.scheduledDate}T${a.scheduledTime}`));
 
   const displayedList = activeTab === "upcoming" ? upcomingAppointments : pastAppointments;
@@ -161,7 +152,12 @@ export default function AppointmentsScreen() {
         </Button>
       </View>
 
-      {displayedList?.length ? (
+      {appointments === undefined ? (
+        <View className="items-center gap-2 py-12">
+          <ActivityIndicator size="small" color={THEME.light.accent} />
+          <Text className="text-xs text-muted-foreground">Loading your appointments...</Text>
+        </View>
+      ) : displayedList?.length ? (
         <View className="gap-3">
           {displayedList.map((appointment) => (
             <Pressable
@@ -267,7 +263,9 @@ export default function AppointmentsScreen() {
             onDateChange={setRescheduleDate}
             selectedTime={rescheduleTime}
             onTimeChange={setRescheduleTime}
-            duration={60}
+            durationMinutes={
+              appointments?.find((appointment) => appointment._id === selectedAppointmentId)?.duration ?? 60
+            }
           />
 
           <View className="flex-row gap-3 pt-2">

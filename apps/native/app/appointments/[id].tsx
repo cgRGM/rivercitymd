@@ -13,7 +13,6 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
 import type { Id } from "@rivercitymd/backend/convex/_generated/dataModel";
 import {
-  AlertTriangle,
   ArrowLeft,
   Calendar,
   CarFront,
@@ -23,7 +22,6 @@ import {
   FileText,
   MapPin,
   RotateCcw,
-  Sparkles,
   X,
   XCircle,
 } from "lucide-react-native";
@@ -137,8 +135,12 @@ export default function AppointmentDetailPage() {
 
   const invoice = appointment.invoice;
   const isDepositPaid = Boolean(invoice?.depositPaid);
-  const isPaidInFull = invoice?.status === "paid" || (invoice?.remainingBalance ?? 1) <= 0;
-  const remainingDue = invoice?.remainingBalance ?? (isDepositPaid ? Math.max(0, appointment.totalPrice - 50) : appointment.totalPrice);
+  const remainingDue =
+    invoice?.remainingBalance ??
+    (isDepositPaid
+      ? Math.max(0, appointment.totalPrice - (invoice?.depositAmount ?? 0))
+      : appointment.totalPrice);
+  const isPaidInFull = remainingDue <= 0;
   const stripeInvoiceUrl = invoice?.stripeInvoiceUrl;
 
   return (
@@ -201,6 +203,15 @@ export default function AppointmentDetailPage() {
               ) : null}
             </View>
           </View>
+
+          <View className="border-t border-border/60 pt-3 gap-0.5">
+            <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Booking ID
+            </Text>
+            <Text selectable className="text-xs font-mono text-muted-foreground">
+              {appointment._id}
+            </Text>
+          </View>
         </CardContent>
       </Card>
 
@@ -210,7 +221,15 @@ export default function AppointmentDetailPage() {
           <CardTitle className="text-base">Vehicles & Services</CardTitle>
         </CardHeader>
         <CardContent className="gap-3">
-          {appointment.vehicles.map((v: any, index: number) => (
+          {appointment.vehicles.map((v: any, index: number) => {
+            const serviceIdsForVehicle =
+              appointment.vehicleServices?.find((mapping: any) => mapping.vehicleId === v._id)
+                ?.serviceIds ?? appointment.serviceIds;
+            const servicesForVehicle = appointment.services.filter((service: any) =>
+              serviceIdsForVehicle.includes(service._id),
+            );
+
+            return (
             <View
               key={v._id || index}
               className={`gap-1.5 ${index > 0 ? "border-t border-border/50 pt-2.5" : ""}`}
@@ -227,9 +246,9 @@ export default function AppointmentDetailPage() {
 
               {/* Matched services */}
               <View className="pl-6 gap-1">
-                {appointment.services.map((s: any) => (
+                {servicesForVehicle.map((s: any) => (
                   <View key={s._id} className="flex-row items-center justify-between">
-                    <Text className="text-xs text-muted-foreground">• {s.name}</Text>
+                    <Text className="flex-1 text-xs text-muted-foreground">• {s.name}</Text>
                     <Text className="text-xs font-semibold">
                       ${((s as any).effectivePrice || s.basePrice).toFixed(2)}
                     </Text>
@@ -237,7 +256,8 @@ export default function AppointmentDetailPage() {
                 ))}
               </View>
             </View>
-          ))}
+            );
+          })}
 
           {appointment.travelFee && appointment.travelFee > 0 ? (
             <View className="flex-row items-center justify-between border-t border-border/50 pt-2">
@@ -268,7 +288,9 @@ export default function AppointmentDetailPage() {
               <Text className="text-sm text-muted-foreground">Deposit Paid (Stripe)</Text>
             </View>
             <Text className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-              {isDepositPaid ? "$50.00 Paid" : "Pending"}
+              {isDepositPaid
+                ? `$${(invoice?.depositAmount ?? 0).toFixed(2)} Paid`
+                : "Pending"}
             </Text>
           </View>
 
@@ -297,6 +319,15 @@ export default function AppointmentDetailPage() {
               <ExternalLink size={13} color={THEME.light.mutedForeground} />
             </Button>
           ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => router.push("/invoices")}
+            className="flex-row items-center justify-center gap-2"
+          >
+            <FileText size={15} color={THEME.light.accent} />
+            <Text className="text-xs font-semibold text-accent">Open Invoice Center</Text>
+          </Button>
         </CardContent>
       </Card>
 

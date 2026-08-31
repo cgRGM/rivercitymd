@@ -103,6 +103,66 @@ async function notifyAdminDepositPaid(ctx: any, args: {
   }
 }
 
+async function fulfillBookingDraftCheckout(
+  ctx: any,
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+) {
+  const bookingDraftId = session.metadata?.draftId;
+  if (!bookingDraftId) return;
+
+  if (session.payment_status !== "paid") {
+    console.info(
+      `[stripe-webhook] eventId=${event.id} eventType=${event.type} action=booking_checkout_pending_payment sessionId=${session.id} paymentStatus=${session.payment_status}`,
+    );
+    return;
+  }
+
+  const converted = await ctx.runMutation(
+    internal.bookingDrafts.convertSuccessfulCheckout,
+    {
+      draftId: bookingDraftId as Id<"bookingDrafts">,
+      stripeCustomerId:
+        typeof session.customer === "string" ? session.customer : undefined,
+      paymentIntentId:
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : undefined,
+    },
+  );
+
+  if (!converted) return;
+
+  await ctx.scheduler.runAfter(0, internal.notifications.queueBookingReceived, {
+    appointmentId: converted.appointmentId,
+    invoiceId: converted.invoiceId,
+    transition:
+      event.type === "checkout.session.async_payment_succeeded"
+        ? "checkout.session.async_payment_succeeded"
+        : converted.isFullPayment
+          ? "checkout.session.completed:full"
+          : "checkout.session.completed:deposit",
+  });
+
+  if (converted.isFullPayment) {
+    const paidUser = await ctx.runQuery(internal.users.getByIdInternal, {
+      userId: converted.userId,
+    });
+    if (paidUser) {
+      await ctx.runMutation(internal.users.updateStats, {
+        userId: converted.userId,
+        timesServiced: (paidUser.timesServiced || 0) + 1,
+        totalSpent: (paidUser.totalSpent || 0) + converted.total,
+      });
+    }
+  }
+
+  await notifyAdminDepositPaid(ctx, {
+    appointmentId: converted.appointmentId,
+    invoiceId: converted.invoiceId,
+  });
+}
+
 registerTwilioRoutes(http);
 
 // Register Stripe component webhook handler (handles data sync to component tables)
@@ -133,6 +193,14 @@ registerRoutes(http, components.stripe, {
     }
   },
   events: {
+    // Delayed payment methods emit this after checkout.session.completed.
+    "checkout.session.async_payment_succeeded": async (
+      ctx,
+      event: Stripe.CheckoutSessionAsyncPaymentSucceededEvent,
+    ) => {
+      await fulfillBookingDraftCheckout(ctx, event, event.data.object);
+    },
+
     // Handle deposit payment completion
     "checkout.session.completed": async (
       ctx,
@@ -163,52 +231,7 @@ registerRoutes(http, components.stripe, {
 
       const bookingDraftId = session.metadata?.draftId;
       if (bookingDraftId) {
-        const converted = await ctx.runMutation(
-          internal.bookingDrafts.convertSuccessfulCheckout,
-          {
-            draftId: bookingDraftId as Id<"bookingDrafts">,
-            stripeCustomerId:
-              typeof session.customer === "string" ? session.customer : undefined,
-            paymentIntentId:
-              typeof session.payment_intent === "string"
-                ? session.payment_intent
-                : undefined,
-          },
-        );
-
-        if (!converted) {
-          return;
-        }
-
-        await ctx.scheduler.runAfter(
-          0,
-          internal.notifications.queueBookingReceived,
-          {
-            appointmentId: converted.appointmentId,
-            invoiceId: converted.invoiceId,
-            transition: converted.isFullPayment
-              ? "checkout.session.completed:full"
-              : "checkout.session.completed:deposit",
-          },
-        );
-
-        if (converted.isFullPayment) {
-          const paidUser = await ctx.runQuery(internal.users.getByIdInternal, {
-            userId: converted.userId,
-          });
-          if (paidUser) {
-            await ctx.runMutation(internal.users.updateStats, {
-              userId: converted.userId,
-              timesServiced: (paidUser.timesServiced || 0) + 1,
-              totalSpent: (paidUser.totalSpent || 0) + converted.total,
-            });
-          }
-        }
-
-        await notifyAdminDepositPaid(ctx, {
-          appointmentId: converted.appointmentId,
-          invoiceId: converted.invoiceId,
-        });
+        await fulfillBookingDraftCheckout(ctx, event, session);
         return;
       }
 

@@ -58,6 +58,10 @@ export default function RootLayout() {
                   options={{ headerShown: false, presentation: "modal" }}
                 />
                 <Stack.Screen name="appointments/[id]" options={{ headerShown: false }} />
+                <Stack.Screen name="booking/success" options={{ headerShown: false }} />
+                <Stack.Screen name="booking/cancelled" options={{ headerShown: false }} />
+                <Stack.Screen name="invoices" options={{ headerShown: false }} />
+                <Stack.Screen name="subscriptions" options={{ headerShown: false }} />
                 <Stack.Screen name="vehicles/[id]" options={{ headerShown: false }} />
                 <Stack.Screen name="+not-found" />
               </Stack>

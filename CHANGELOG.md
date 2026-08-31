@@ -2,6 +2,14 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.2] - 2026-08-31
+### Added
+- **Native Stripe Checkout Return & Customer Portal**: Return authenticated mobile customers to a booking confirmation route, reconcile paid Checkout Sessions to their existing account, display appointment IDs/status badges, and expose appointment, invoice, balance-payment, and subscription management links.
+
+### Fixed
+- **Native Booking Visibility**: Refresh and classify pending/rescheduled appointments consistently with the web portal, while guarding checkout confirmation and preventing unpaid delayed-payment sessions from being fulfilled.
+- **Stripe Test Mock URL Validation**: Restrict Stripe test interception to the exact `api.stripe.com` hostname.
+
 ## [v1.2.1] - 2026-08-30
 ### Added
 - **Native In-App Accordion Booking Flow (`apps/native/app/book.tsx`)**: Replaced external browser reliance with a complete native 4-step wizard:

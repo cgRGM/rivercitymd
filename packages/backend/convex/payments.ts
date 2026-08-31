@@ -241,6 +241,11 @@ function formatStripeLineItemDescription(item: any, quantity: number): string {
 }
 
 function buildBookingRedirectUrl(origin: string, pathname: string, token: string) {
+  if (origin.startsWith("rivercitymd://") || origin.startsWith("exp://")) {
+    const scheme = origin.slice(0, origin.indexOf("://"));
+    const cleanPath = pathname.replace(/^\/+/, "");
+    return `${scheme}://${cleanPath}?token=${encodeURIComponent(token)}`;
+  }
   const url = new URL(pathname, origin);
   url.searchParams.set("token", token);
   return url.toString();
@@ -3003,12 +3008,115 @@ export const createBookingCheckout = action({
       throw new Error("Booking draft not found");
     }
 
+    const currentUserId = await getUserIdFromIdentity(ctx);
+    if (draft.sourceUserId && draft.sourceUserId !== currentUserId) {
+      throw new ConvexError("You do not have access to this booking.");
+    }
+
     return await createCheckoutSessionForDraft(
       ctx,
       draft,
       args.origin,
       args.couponCode,
     );
+  },
+});
+
+export const confirmBookingCheckout = action({
+  args: {
+    resumeToken: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    appointmentId: v.optional(v.id("appointments")),
+    status: v.string(),
+  }),
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    appointmentId?: Id<"appointments">;
+    status: string;
+  }> => {
+    const currentUserId = await getUserIdFromIdentity(ctx);
+    if (!currentUserId) {
+      throw new ConvexError("You must be signed in to confirm this booking.");
+    }
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const draft: Doc<"bookingDrafts"> | null = await ctx.runQuery(
+        internal.bookingDrafts.getByTokenInternal,
+        {
+          resumeToken: args.resumeToken,
+        },
+      );
+      if (!draft) {
+        throw new Error("Booking draft not found");
+      }
+
+      if (draft.sourceUserId !== currentUserId) {
+        throw new ConvexError("You do not have access to this booking.");
+      }
+
+      if (draft.status === "converted" && draft.convertedAppointmentId) {
+        return {
+          success: true,
+          appointmentId: draft.convertedAppointmentId,
+          status: "converted",
+        };
+      }
+
+      if (draft.stripeCheckoutSessionId) {
+        let session: any = null;
+        try {
+          session = await stripeApiCall(
+            `checkout/sessions/${draft.stripeCheckoutSessionId}`,
+            { method: "GET" },
+          );
+        } catch (err) {
+          console.error("Error checking Stripe session status:", err);
+        }
+
+        // A completed Checkout Session is not sufficient proof of payment for
+        // delayed payment methods. Fulfill only after Stripe reports paid.
+        if (session?.payment_status === "paid") {
+          const converted = await ctx.runMutation(
+            internal.bookingDrafts.convertSuccessfulCheckout,
+            {
+              draftId: draft._id,
+              stripeCustomerId:
+                typeof session.customer === "string" ? session.customer : undefined,
+              paymentIntentId:
+                typeof session.payment_intent === "string"
+                  ? session.payment_intent
+                  : undefined,
+            },
+          );
+
+          if (converted) {
+            return {
+              success: true,
+              appointmentId: converted.appointmentId,
+              status: "converted",
+            };
+          }
+        }
+      }
+
+      if (attempt < 3) {
+        await delay(750);
+      }
+    }
+
+    const latestDraft: Doc<"bookingDrafts"> | null = await ctx.runQuery(
+      internal.bookingDrafts.getByTokenInternal,
+      {
+        resumeToken: args.resumeToken,
+      },
+    );
+
+    return {
+      success: false,
+      status: latestDraft?.status ?? "draft",
+    };
   },
 });
 

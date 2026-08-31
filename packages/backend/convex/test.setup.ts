@@ -93,8 +93,15 @@ export async function stripeFetchMock(
     });
   }
 
-  // Intercept Stripe API calls
-  if (urlString.includes("api.stripe.com")) {
+  // Intercept Stripe API calls. Parse the hostname rather than matching a
+  // substring so test mocks cannot accidentally treat an arbitrary host as Stripe.
+  let isStripeUrl = false;
+  try {
+    isStripeUrl = new URL(urlString).hostname === "api.stripe.com";
+  } catch {
+    isStripeUrl = false;
+  }
+  if (isStripeUrl) {
     // Parse the endpoint to return appropriate mock responses
     if (urlString.includes("/customers")) {
       // Create or retrieve customer

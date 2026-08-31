@@ -1,6 +1,19 @@
+import { useQuery } from "convex/react";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 
+import { api } from "@rivercitymd/backend/convex/_generated/api";
+
 export default function TabsLayout() {
+  const currentUser = useQuery(api.users.getCurrentUser);
+  const appointments = useQuery(
+    api.appointments.list,
+    currentUser ? {} : "skip",
+  );
+  const activeAppointmentCount = appointments?.filter(
+    (appointment) =>
+      appointment.status !== "cancelled" && appointment.status !== "completed",
+  ).length;
+
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
@@ -10,6 +23,11 @@ export default function TabsLayout() {
       <NativeTabs.Trigger name="appointments">
         <NativeTabs.Trigger.Label>Appointments</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="calendar" md="event" />
+        {activeAppointmentCount ? (
+          <NativeTabs.Trigger.Badge>
+            {String(activeAppointmentCount)}
+          </NativeTabs.Trigger.Badge>
+        ) : null}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="vehicles">
         <NativeTabs.Trigger.Label>Vehicles</NativeTabs.Trigger.Label>

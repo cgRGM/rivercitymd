@@ -436,6 +436,86 @@ describe("payments", () => {
     );
   });
 
+  test("native booking checkout uses a valid app deep link and confirms for its owner", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await createTestUser(t, true);
+    const booking = await createTestBookingDraft(t, userId);
+
+    let checkoutRequestBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, options?: RequestInit) => {
+        const urlString = typeof url === "string" ? url : url.toString();
+        if (urlString.endsWith("/checkout/sessions")) {
+          checkoutRequestBody = String(options?.body ?? "");
+          return {
+            ok: true,
+            json: async () => ({
+              id: "cs_native_123",
+              url: "https://checkout.stripe.com/native",
+            }),
+          } as Response;
+        }
+        if (urlString.endsWith("/checkout/sessions/cs_native_123")) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: "cs_native_123",
+              payment_status: "paid",
+              customer: "cus_test_123",
+              payment_intent: "pi_native_123",
+            }),
+          } as Response;
+        }
+        return stripeFetchMock(url, options);
+      }),
+    );
+
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
+    const checkout = await asUser.action(api.payments.createBookingCheckout, {
+      draftId: booking.draftId,
+      origin: "rivercitymd://",
+    });
+
+    const bodyParams = new URLSearchParams(checkoutRequestBody);
+    expect(bodyParams.get("success_url")).toBe(
+      `rivercitymd://booking/success?token=${booking.resumeToken}`,
+    );
+    expect(bodyParams.get("cancel_url")).toBe(
+      `rivercitymd://booking/cancelled?token=${booking.resumeToken}`,
+    );
+
+    const result = await asUser.action(api.payments.confirmBookingCheckout, {
+      resumeToken: booking.resumeToken,
+    });
+    expect(result.success).toBe(true);
+    expect(result.appointmentId).toBeDefined();
+
+    const storedDraft = await t.run(async (ctx: any) => ctx.db.get(booking.draftId));
+    expect(storedDraft?.status).toBe("converted");
+  });
+
+  test("native booking checkout confirmation rejects another account", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = await createTestUser(t, true);
+    const otherUserId = await createTestUser(t, true);
+    const booking = await createTestBookingDraft(t, ownerId);
+
+    const asOtherUser = t.withIdentity({
+      subject: otherUserId,
+      email: "other@example.com",
+    });
+
+    await expect(
+      asOtherUser.action(api.payments.confirmBookingCheckout, {
+        resumeToken: booking.resumeToken,
+      }),
+    ).rejects.toThrow("access to this booking");
+  });
+
   test("booking draft includes the tiered geodesic travel fee", async () => {
     const t = convexTest(schema, modules);
     await seedBookingSetup(t, {
@@ -1052,7 +1132,11 @@ describe("payments", () => {
       }),
     );
 
-    const checkout = await t.action(api.payments.createBookingCheckout, {
+    const asUser = t.withIdentity({
+      subject: userId,
+      email: "test@example.com",
+    });
+    const checkout = await asUser.action(api.payments.createBookingCheckout, {
       draftId: booking.draftId,
       origin: "https://example.com",
     });

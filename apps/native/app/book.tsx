@@ -2,12 +2,13 @@ import * as React from "react";
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Pressable,
   ScrollView,
   Switch,
   View,
 } from "react-native";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import { router } from "expo-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
@@ -125,6 +126,7 @@ export default function BookScreen() {
 
   const createOrUpdateDraft = useAction(api.bookingDrafts.createOrUpdate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
+  const confirmBookingCheckout = useAction(api.payments.confirmBookingCheckout);
 
   const [step, setStep] = React.useState<1 | 2 | 3 | 4 | 5>(1);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -399,7 +401,7 @@ export default function BookScreen() {
         new Set(Object.values(vehicleServices).flat()),
       ) as Id<"services">[];
 
-      const { draftId } = await createOrUpdateDraft({
+      const { draftId, resumeToken } = await createOrUpdateDraft({
         name: currentUser.name || "Customer",
         email: currentUser.email || "",
         phone: currentUser.phone || "",
@@ -422,18 +424,41 @@ export default function BookScreen() {
         paymentOption,
       });
 
-      // Initiate online checkout via Stripe
+      // Use the app's configured Expo scheme so Stripe can return to the
+      // authenticated native session instead of leaving the customer in Safari.
+      const checkoutOrigin = Linking.createURL("");
+      const checkoutRedirectUrl = Linking.createURL("booking/success");
       const { url } = await createBookingCheckout({
         draftId,
-        origin: "https://rivercitymd.com",
+        origin: checkoutOrigin,
       });
 
-      if (url) {
-        await Linking.openURL(url);
-        router.replace("/(tabs)/appointments");
-      } else {
-        router.replace("/(tabs)/appointments");
+      if (!url) {
+        throw new Error("Failed to create checkout session");
       }
+
+      setIsLoading(false);
+      const browserResult = await WebBrowser.openAuthSessionAsync(
+        url,
+        checkoutRedirectUrl,
+      );
+
+      // The webhook is authoritative, but confirm from the signed-in native
+      // client as soon as Checkout returns so the appointment appears without
+      // requiring a refresh or a trip through the web claim flow.
+      setIsLoading(true);
+      try {
+        const result = await confirmBookingCheckout({ resumeToken });
+        if (result.success && result.appointmentId) {
+          router.replace(`/appointments/${result.appointmentId}`);
+          return;
+        }
+      } catch (confirmErr) {
+        console.warn("Could not confirm checkout immediately:", confirmErr);
+      }
+
+      const returnState = browserResult.type === "success" ? "" : "&checkout=closed";
+      router.replace(`/booking/success?token=${encodeURIComponent(resumeToken)}${returnState}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create booking";
       setError(message);
