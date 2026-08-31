@@ -3,9 +3,15 @@ import { ScrollView, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 
-export function Screen({ children }: PropsWithChildren) {
+export function Screen({
+  children,
+  scrollRef,
+}: PropsWithChildren<{
+  scrollRef?: React.RefObject<ScrollView | null>;
+}>) {
   return (
     <ScrollView
+      ref={scrollRef as any}
       className="flex-1 bg-background"
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={{ gap: 24, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 140 }}

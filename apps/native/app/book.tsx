@@ -169,9 +169,15 @@ export default function BookScreen() {
   // Track nested category accordion state: Record<`${vehicleKey}-pkg` | `${vehicleKey}-addon`, string>
   const [activeNestedCategory, setActiveNestedCategory] = React.useState<Record<string, string>>({});
 
-  // Step 5: Payment option & SMS
   const [paymentOption, setPaymentOption] = React.useState<"deposit" | "full" | "in_person">("deposit");
   const [smsOptIn, setSmsOptIn] = React.useState(true);
+
+  const scrollRef = React.useRef<ScrollView>(null);
+
+  // Auto-scroll to top whenever step changes
+  React.useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [step]);
 
   // Initialize selected vehicles when user profile / garage loads
   React.useEffect(() => {
@@ -437,7 +443,7 @@ export default function BookScreen() {
   };
 
   return (
-    <Screen>
+    <Screen scrollRef={scrollRef}>
       {/* Top Bar */}
       <View className="flex-row items-center justify-between">
         <Pressable
@@ -941,20 +947,6 @@ export default function BookScreen() {
 
                         {currentSection === "packages" ? (
                           <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-3">
-                            {/* Condition note if pet hair or heavy mud active */}
-                            {v.hasPet || v.hasHeavySoil ? (
-                              <View className="flex-row items-center gap-2 rounded-xl bg-amber-500/10 p-2.5 border border-amber-500/20 mb-1">
-                                <AlertTriangle size={14} color="#d97706" />
-                                <Text className="text-[11px] font-medium text-amber-800 flex-1">
-                                  {v.hasPet && v.hasHeavySoil
-                                    ? "Pet hair & heavy soil selected: Level 1 reset packages are omitted."
-                                    : v.hasPet
-                                      ? "Pet hair selected: Level 1 reset packages are omitted."
-                                      : "Heavy soil/mud selected: Level 1 reset packages are omitted."}
-                                </Text>
-                              </View>
-                            ) : null}
-
                             {/* Nested Category Accordions: Full Detail, Interior Only, Exterior Only */}
                             {standardGroups.map((group) => {
                               const isCatOpen = activePkgCat === group.slug;
