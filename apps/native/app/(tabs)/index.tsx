@@ -195,10 +195,12 @@ function QuickAccess({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      className="min-h-24 flex-1 gap-2.5 rounded-2xl border border-border bg-card p-4 active:bg-secondary justify-center items-center"
+      className="min-h-24 flex-1 gap-2 rounded-2xl border border-border bg-card px-1.5 py-3.5 active:bg-secondary justify-center items-center"
     >
       <View className="h-10 w-10 items-center justify-center rounded-xl bg-accent/10">{icon}</View>
-      <Text className="text-xs font-bold text-center">{label}</Text>
+      <Text className="text-[11px] font-bold text-center" numberOfLines={1}>
+        {label}
+      </Text>
     </Pressable>
   );
 }

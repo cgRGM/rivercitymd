@@ -121,6 +121,7 @@ export default function BookScreen() {
   );
   const allServices = useQuery(api.services.list);
   const depositSettings = useQuery(api.depositSettings.get);
+  const petFeeSettings = useQuery(api.petFeeSettings.get);
 
   const createOrUpdateDraft = useAction(api.bookingDrafts.createOrUpdate);
   const createBookingCheckout = useAction(api.payments.createBookingCheckout);
@@ -147,6 +148,17 @@ export default function BookScreen() {
   const [adHocVehicles, setAdHocVehicles] = React.useState<
     Array<VehicleLookupValue & { hasPet?: boolean; hasHeavySoil?: boolean }>
   >([]);
+
+  // Dynamic Pet Fee helper from DB
+  const getPetFeeForVehicle = React.useCallback(
+    (size: "small" | "medium" | "large") => {
+      if (petFeeSettings?.isActive === false) return 0;
+      if (size === "small") return petFeeSettings?.basePriceSmall ?? petFeeSettings?.basePriceMedium ?? 40;
+      if (size === "large") return petFeeSettings?.basePriceLarge ?? petFeeSettings?.basePriceMedium ?? 40;
+      return petFeeSettings?.basePriceMedium ?? 40;
+    },
+    [petFeeSettings],
+  );
 
   // Step 4: Services selected per vehicle: Record<vehicleKey, serviceId[]>
   const [vehicleServices, setVehicleServices] = React.useState<Record<string, string[]>>({});
@@ -275,9 +287,10 @@ export default function BookScreen() {
           }
         });
 
-        if (v.hasPet) {
-          petFees += 40;
-          duration += 30;
+        if (v.hasPet && petFeeSettings?.isActive !== false) {
+          const fee = getPetFeeForVehicle(v.size);
+          petFees += fee;
+          duration += petFeeSettings?.timeAddMinutes ?? 30;
         }
       });
 
@@ -296,7 +309,7 @@ export default function BookScreen() {
         depositTotal: calculatedDeposit,
         dueNow: due,
       };
-    }, [targetVehicles, vehicleServices, allServices, travelQuote, depositSettings, paymentOption]);
+    }, [targetVehicles, vehicleServices, allServices, travelQuote, depositSettings, petFeeSettings, paymentOption, getPetFeeForVehicle]);
 
   const canProceedToNext = () => {
     if (step === 1) {
@@ -617,7 +630,7 @@ export default function BookScreen() {
                               <View className="flex-1">
                                 <Text className="text-xs font-bold">Pet Hair Present?</Text>
                                 <Text className="text-[11px] text-muted-foreground">
-                                  Deep pet hair extraction (+ $40.00)
+                                  Deep pet hair extraction (+ ${getPetFeeForVehicle(selection?.size || v.size || "medium").toFixed(2)})
                                 </Text>
                               </View>
                             </View>
@@ -692,7 +705,7 @@ export default function BookScreen() {
                     <View className="flex-1">
                       <Text className="text-xs font-bold">Pet Hair Present?</Text>
                       <Text className="text-[11px] text-muted-foreground">
-                        Deep pet hair extraction (+ $40.00)
+                        Deep pet hair extraction (+ ${getPetFeeForVehicle(adhoc.size || "medium").toFixed(2)})
                       </Text>
                     </View>
                   </View>
@@ -729,20 +742,20 @@ export default function BookScreen() {
             </Card>
           ))}
 
-          {/* Add Another Car Button */}
-          <Button
-            variant="outline"
+          {/* Add Another Car Button (Full Height, No Clipping) */}
+          <Pressable
+            accessibilityRole="button"
             onPress={() =>
               setAdHocVehicles([
                 ...adHocVehicles,
                 { year: "", make: "", model: "", size: "medium", hasPet: false, hasHeavySoil: false },
               ])
             }
-            className="flex-row items-center justify-center gap-2 border-dashed py-3.5"
+            className="h-12 flex-row items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card active:bg-secondary"
           >
             <Plus size={16} color={THEME.light.foreground} />
-            <Text className="font-semibold text-sm">Add Another Car</Text>
-          </Button>
+            <Text className="font-semibold text-sm text-foreground">Add Another Car</Text>
+          </Pressable>
 
           {/* Proceed Button */}
           <Button
@@ -791,16 +804,35 @@ export default function BookScreen() {
                 (s) => getServiceBookingRole(s) === "addon",
               );
 
+              // Sort lists by lowest to highest price
               const standardGroups = PACKAGE_CATEGORY_ORDER.map((slug) => ({
                 slug,
                 name: PACKAGE_CATEGORY_LABELS[slug],
-                services: coreServices.filter((s) => getPackageCategorySlug(s) === slug),
+                services: coreServices
+                  .filter((s) => getPackageCategorySlug(s) === slug)
+                  .sort(
+                    (a, b) =>
+                      getEffectiveServicePricingForVehicle(a, pricingCtx).price -
+                      getEffectiveServicePricingForVehicle(b, pricingCtx).price,
+                  ),
               })).filter((group) => group.services.length > 0);
+
+              const sortedUpgradeServices = [...upgradeServices].sort(
+                (a, b) =>
+                  getEffectiveServicePricingForVehicle(a, pricingCtx).price -
+                  getEffectiveServicePricingForVehicle(b, pricingCtx).price,
+              );
 
               const addonGroups = ADDON_CATEGORY_ORDER.map((slug) => ({
                 slug,
                 name: ADDON_CATEGORY_LABELS[slug],
-                services: addonServices.filter((s) => getAddonCategorySlug(s) === slug),
+                services: addonServices
+                  .filter((s) => getAddonCategorySlug(s) === slug)
+                  .sort(
+                    (a, b) =>
+                      getEffectiveServicePricingForVehicle(a, pricingCtx).price -
+                      getEffectiveServicePricingForVehicle(b, pricingCtx).price,
+                  ),
               })).filter((group) => group.services.length > 0);
 
               const coreIds = new Set(coreServices.map((s) => String(s._id)));
@@ -1042,7 +1074,7 @@ export default function BookScreen() {
                       </Card>
 
                       {/* Walkdown Section 2: Upgrades (OPTIONAL) */}
-                      {upgradeServices.length > 0 ? (
+                      {sortedUpgradeServices.length > 0 ? (
                         <Card className="border border-border/70 overflow-hidden">
                           <Pressable
                             accessibilityRole="button"
@@ -1076,7 +1108,7 @@ export default function BookScreen() {
 
                           {currentSection === "upgrades" ? (
                             <CardContent className="p-3.5 pt-2 border-t border-border/30 gap-2">
-                              {upgradeServices.map((upg) => {
+                              {sortedUpgradeServices.map((upg) => {
                                 const isSelected = currentServices.includes(upg._id);
                                 const pricing = getEffectiveServicePricingForVehicle(upg, pricingCtx);
 
@@ -1336,10 +1368,12 @@ export default function BookScreen() {
                             </Text>
                           </View>
                         ))}
-                        {v.hasPet ? (
+                        {v.hasPet && petFeeSettings?.isActive !== false ? (
                           <View className="flex-row items-center justify-between">
                             <Text className="text-[11px] text-muted-foreground">Pet Hair Extraction</Text>
-                            <Text className="text-[11px] font-semibold text-foreground">+$40.00</Text>
+                            <Text className="text-[11px] font-semibold text-foreground">
+                              +${getPetFeeForVehicle(v.size).toFixed(2)}
+                            </Text>
                           </View>
                         ) : null}
                       </View>
