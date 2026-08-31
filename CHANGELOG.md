@@ -2,6 +2,14 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.4] - 2026-08-31
+### Added
+- **Profile Portal Navigation**: Moved invoices and subscriptions under the Profile route with shared back navigation and Profile, Invoices, and Plans tabs.
+- **Admin View Switching**: Added an admin-only switch between the mobile Admin Portal and Customer Portal views for the `cg@rocktownlabs.com` test account when its Convex role is `admin`.
+
+### Fixed
+- **Native Portal Routing**: Added nested Profile routes and removed dead root-level portal pages so customer portal destinations resolve as real navigable screens.
+
 ## [v1.2.3] - 2026-08-31
 ### Fixed
 - **Expo Web Browser Compatibility**: Lazily load `expo-web-browser` and fall back to React Native `Linking` so existing development clients without the newly added native module no longer crash at route discovery.

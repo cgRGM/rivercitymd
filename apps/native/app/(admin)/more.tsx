@@ -22,9 +22,11 @@ import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { THEME } from "@/lib/theme";
+import { useAppView } from "@/lib/app-view";
 
 export default function AdminMoreScreen() {
   const { signOut } = useClerk();
+  const { setViewMode } = useAppView();
   const currentUser = useQuery(api.users.getCurrentUser);
   const isAdmin = currentUser?.role === "admin";
 
@@ -112,6 +114,20 @@ export default function AdminMoreScreen() {
           </Card>
         ))}
       </View>
+
+      {isAdmin ? (
+        <Button
+          variant="outline"
+          onPress={() => {
+            setViewMode("customer");
+            router.replace("/(tabs)");
+          }}
+          className="flex-row items-center justify-center gap-2"
+        >
+          <Users size={16} color={THEME.light.foreground} />
+          <Text className="font-semibold">Switch to Customer View</Text>
+        </Button>
+      ) : null}
 
       {/* Sign Out */}
       <Button

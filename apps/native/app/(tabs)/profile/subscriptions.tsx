@@ -1,6 +1,5 @@
 import * as React from "react";
-import { ActivityIndicator, Alert, Pressable, View } from "react-native";
-import { router } from "expo-router";
+import { ActivityIndicator, Alert, View } from "react-native";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
 import {
@@ -20,6 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { openBrowser } from "@/lib/browser";
+import { ProfilePortalNav } from "@/components/profile-portal-nav";
 
 function statusVariant(status: string) {
   if (status === "active") return "success" as const;
@@ -50,20 +50,12 @@ export default function SubscriptionsScreen() {
 
   return (
     <Screen>
-      <View className="flex-row items-start justify-between gap-3">
-        <ScreenHeader
-          eyebrow="Customer Portal"
-          title="Subscriptions"
-          description="Manage recurring service plans and billing."
-        />
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          className="rounded-full px-2 py-1 active:bg-secondary"
-        >
-          <Text className="text-sm font-semibold text-accent">Back</Text>
-        </Pressable>
-      </View>
+      <ProfilePortalNav />
+      <ScreenHeader
+        eyebrow="Customer Portal"
+        title="Subscriptions"
+        description="Manage recurring service plans and billing."
+      />
 
       {subscriptions === undefined ? (
         <View className="items-center gap-2 py-12">

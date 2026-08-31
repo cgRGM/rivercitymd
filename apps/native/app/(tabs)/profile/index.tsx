@@ -3,9 +3,8 @@ import { Alert, View } from "react-native";
 import { useClerk, useUser } from "@clerk/expo";
 import { UserButton } from "@clerk/expo/native";
 import { useMutation, useQuery } from "convex/react";
-import { router } from "expo-router";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
-import { CalendarDays, FileText, LogOut, MapPin, Phone, Repeat2 } from "lucide-react-native";
+import { LogOut, MapPin, Phone } from "lucide-react-native";
 
 import { Screen, ScreenHeader } from "@/components/screen";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +13,7 @@ import { Text } from "@/components/ui/text";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { THEME } from "@/lib/theme";
+import { ProfilePortalNav } from "@/components/profile-portal-nav";
 
 export default function ProfileScreen() {
   const { user } = useUser();
@@ -47,6 +47,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
+      <ProfilePortalNav />
       <ScreenHeader
         eyebrow="Account"
         title="Profile & Settings"
@@ -88,39 +89,6 @@ export default function ProfileScreen() {
           ) : null}
         </CardContent>
       </Card>
-
-      {/* Customer Portal */}
-      <View className="gap-2.5">
-        <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Customer Portal
-        </Text>
-        <View className="flex-row gap-2">
-          <Button
-            variant="outline"
-            onPress={() => router.push("/invoices")}
-            className="flex-1 flex-row items-center justify-center gap-2"
-          >
-            <FileText size={16} color={THEME.light.foreground} />
-            <Text className="font-semibold">Invoices</Text>
-          </Button>
-          <Button
-            variant="outline"
-            onPress={() => router.push("/subscriptions")}
-            className="flex-1 flex-row items-center justify-center gap-2"
-          >
-            <Repeat2 size={16} color={THEME.light.foreground} />
-            <Text className="font-semibold">Plans</Text>
-          </Button>
-        </View>
-        <Button
-          variant="ghost"
-          onPress={() => router.push("/(tabs)/appointments")}
-          className="flex-row items-center justify-center gap-2"
-        >
-          <CalendarDays size={16} color={THEME.light.accent} />
-          <Text className="font-semibold text-accent">View Appointments</Text>
-        </Button>
-      </View>
 
       {/* Preferences Card */}
       <View className="gap-2.5">

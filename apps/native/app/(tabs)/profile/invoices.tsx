@@ -27,6 +27,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { openAuthSession, openBrowser } from "@/lib/browser";
+import { ProfilePortalNav } from "@/components/profile-portal-nav";
 
 function formatDate(date: string | undefined) {
   if (!date) return "Date unavailable";
@@ -62,10 +63,10 @@ export default function InvoicesScreen() {
 
   const checkoutUrls = React.useMemo(
     () => ({
-      success: ExpoLinking.createURL("invoices", {
+      success: ExpoLinking.createURL("profile/invoices", {
         queryParams: { payment: "success" },
       }),
-      cancel: ExpoLinking.createURL("invoices", {
+      cancel: ExpoLinking.createURL("profile/invoices", {
         queryParams: { payment: "cancelled" },
       }),
     }),
@@ -150,20 +151,12 @@ export default function InvoicesScreen() {
 
   return (
     <Screen>
-      <View className="flex-row items-start justify-between gap-3">
-        <ScreenHeader
-          eyebrow="Customer Portal"
-          title="Invoices"
-          description="Review deposits, balances, and payment history."
-        />
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          className="rounded-full px-2 py-1 active:bg-secondary"
-        >
-          <Text className="text-sm font-semibold text-accent">Back</Text>
-        </Pressable>
-      </View>
+      <ProfilePortalNav />
+      <ScreenHeader
+        eyebrow="Customer Portal"
+        title="Invoices"
+        description="Review deposits, balances, and payment history."
+      />
 
       {payment === "success" ? (
         <View className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">

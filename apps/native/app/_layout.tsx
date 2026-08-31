@@ -19,6 +19,7 @@ import { api } from "@rivercitymd/backend/convex/_generated/api";
 import { NAV_THEME, THEME } from "@/lib/theme";
 import { BrandMark } from "@/components/brand-mark";
 import { Text } from "@/components/ui/text";
+import { AppViewProvider, useAppView } from "@/lib/app-view";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -45,29 +46,29 @@ export default function RootLayout() {
     >
       <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
         <ThemeProvider value={NAV_THEME[resolvedColorScheme]}>
-          <StatusBar style={resolvedColorScheme === "dark" ? "light" : "dark"} />
-          <GestureHandlerRootView style={styles.root}>
-            <AuthGuard>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="(admin)" options={{ headerShown: false }} />
-                <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-                <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="book"
-                  options={{ headerShown: false, presentation: "modal" }}
-                />
-                <Stack.Screen name="appointments/[id]" options={{ headerShown: false }} />
-                <Stack.Screen name="booking/success" options={{ headerShown: false }} />
-                <Stack.Screen name="booking/cancelled" options={{ headerShown: false }} />
-                <Stack.Screen name="invoices" options={{ headerShown: false }} />
-                <Stack.Screen name="subscriptions" options={{ headerShown: false }} />
-                <Stack.Screen name="vehicles/[id]" options={{ headerShown: false }} />
-                <Stack.Screen name="+not-found" />
-              </Stack>
-            </AuthGuard>
-            <PortalHost />
-          </GestureHandlerRootView>
+          <AppViewProvider>
+            <StatusBar style={resolvedColorScheme === "dark" ? "light" : "dark"} />
+            <GestureHandlerRootView style={styles.root}>
+              <AuthGuard>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(admin)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                  <Stack.Screen
+                    name="book"
+                    options={{ headerShown: false, presentation: "modal" }}
+                  />
+                  <Stack.Screen name="appointments/[id]" options={{ headerShown: false }} />
+                  <Stack.Screen name="booking/success" options={{ headerShown: false }} />
+                  <Stack.Screen name="booking/cancelled" options={{ headerShown: false }} />
+                  <Stack.Screen name="vehicles/[id]" options={{ headerShown: false }} />
+                  <Stack.Screen name="+not-found" />
+                </Stack>
+              </AuthGuard>
+              <PortalHost />
+            </GestureHandlerRootView>
+          </AppViewProvider>
         </ThemeProvider>
       </ConvexProviderWithClerk>
     </ClerkProvider>
@@ -76,6 +77,7 @@ export default function RootLayout() {
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useAuth();
+  const { viewMode, setViewMode } = useAppView();
   const segments = useSegments();
   const currentUser = useQuery(api.users.getCurrentUser, isSignedIn ? {} : "skip");
   const userRole = useQuery(api.auth.getUserRole, isSignedIn ? {} : "skip");
@@ -94,6 +96,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const inAdminGroup = segments[0] === "(admin)";
 
     if (!isSignedIn) {
+      if (viewMode !== "admin") setViewMode("admin");
       if (!inAuthGroup) {
         router.replace("/(auth)/sign-in");
       }
@@ -114,12 +117,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (isAdmin && !inAdminGroup && ((segments as string[]).length === 0 || segments[0] === "(tabs)" || inAuthGroup)) {
+    const isAtCustomerRoot =
+      (segments as string[]).length === 0 ||
+      segments[0] === "(tabs)" ||
+      inAuthGroup;
+
+    if (isAdmin && viewMode === "admin" && !inAdminGroup && isAtCustomerRoot) {
       router.replace("/(admin)");
       return;
     }
 
-    if (!isAdmin && inAdminGroup) {
+    if ((!isAdmin || viewMode === "customer") && inAdminGroup) {
       router.replace("/(tabs)");
       return;
     }
@@ -127,7 +135,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (inAuthGroup) {
       router.replace(isAdmin ? "/(admin)" : "/(tabs)");
     }
-  }, [isLoaded, isSignedIn, currentUser, userRole, segments]);
+  }, [isLoaded, isSignedIn, currentUser, userRole, segments, viewMode, setViewMode]);
 
   if (!isLoaded || (isSignedIn && currentUser === undefined)) {
     return (

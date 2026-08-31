@@ -322,7 +322,7 @@ export default function AppointmentDetailPage() {
           <Button
             variant="ghost"
             size="sm"
-            onPress={() => router.push("/invoices")}
+            onPress={() => router.push("/profile/invoices")}
             className="flex-row items-center justify-center gap-2"
           >
             <FileText size={15} color={THEME.light.accent} />
