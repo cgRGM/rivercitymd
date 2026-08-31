@@ -6,7 +6,6 @@ import {
   View,
 } from "react-native";
 import * as ExpoLinking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
@@ -27,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
+import { openAuthSession, openBrowser } from "@/lib/browser";
 
 function formatDate(date: string | undefined) {
   if (!date) return "Date unavailable";
@@ -74,7 +74,7 @@ export default function InvoicesScreen() {
 
   const handleHostedInvoice = async (url: string) => {
     try {
-      await WebBrowser.openBrowserAsync(url);
+      await openBrowser(url);
     } catch {
       Alert.alert("Unable to open invoice", "Please try again or use the invoice link from your email.");
     }
@@ -89,7 +89,7 @@ export default function InvoicesScreen() {
         successUrl: checkoutUrls.success,
         cancelUrl: checkoutUrls.cancel,
       });
-      await WebBrowser.openAuthSessionAsync(checkout.url, checkoutUrls.success);
+      await openAuthSession(checkout.url, checkoutUrls.success);
     } catch (error) {
       Alert.alert(
         "Payment Error",
@@ -114,9 +114,9 @@ export default function InvoicesScreen() {
         cancelUrl: checkoutUrls.cancel,
       });
       if (checkout.sessionId.startsWith("in_") || checkout.url.includes("invoice")) {
-        await WebBrowser.openBrowserAsync(checkout.url);
+        await openBrowser(checkout.url);
       } else {
-        await WebBrowser.openAuthSessionAsync(checkout.url, checkoutUrls.success);
+        await openAuthSession(checkout.url, checkoutUrls.success);
       }
     } catch (error) {
       Alert.alert(

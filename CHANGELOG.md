@@ -2,6 +2,10 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.3] - 2026-08-31
+### Fixed
+- **Expo Web Browser Compatibility**: Lazily load `expo-web-browser` and fall back to React Native `Linking` so existing development clients without the newly added native module no longer crash at route discovery.
+
 ## [v1.2.2] - 2026-08-31
 ### Added
 - **Native Stripe Checkout Return & Customer Portal**: Return authenticated mobile customers to a booking confirmation route, reconcile paid Checkout Sessions to their existing account, display appointment IDs/status badges, and expose appointment, invoice, balance-payment, and subscription management links.

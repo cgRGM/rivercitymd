@@ -8,7 +8,6 @@ import {
   View,
 } from "react-native";
 import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
 import { router } from "expo-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
@@ -55,6 +54,7 @@ import {
 import { VehicleLookup, type VehicleLookupValue } from "@/components/forms/vehicle-lookup";
 import { TimeSlotPicker } from "@/components/forms/time-slot-picker";
 import { THEME } from "@/lib/theme";
+import { openAuthSession } from "@/lib/browser";
 
 import {
   getEffectiveServicePricingForVehicle,
@@ -438,10 +438,7 @@ export default function BookScreen() {
       }
 
       setIsLoading(false);
-      const browserResult = await WebBrowser.openAuthSessionAsync(
-        url,
-        checkoutRedirectUrl,
-      );
+      const browserResult = await openAuthSession(url, checkoutRedirectUrl);
 
       // The webhook is authoritative, but confirm from the signed-in native
       // client as soon as Checkout returns so the appointment appears without

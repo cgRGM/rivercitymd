@@ -1,6 +1,5 @@
 import * as React from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
-import * as WebBrowser from "expo-web-browser";
 import { router } from "expo-router";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@rivercitymd/backend/convex/_generated/api";
@@ -20,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
+import { openBrowser } from "@/lib/browser";
 
 function statusVariant(status: string) {
   if (status === "active") return "success" as const;
@@ -37,7 +37,7 @@ export default function SubscriptionsScreen() {
     setIsOpeningPortal(true);
     try {
       const url = await createPortalSession({});
-      await WebBrowser.openBrowserAsync(url);
+      await openBrowser(url);
     } catch (error) {
       Alert.alert(
         "Unable to open billing",
