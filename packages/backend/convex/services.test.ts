@@ -409,6 +409,126 @@ describe("services", () => {
     expect(groups.addons).toEqual([]);
   });
 
+  test("seeds missing categories and repairs legacy ceramic booking roles", async () => {
+    const t = convexTest(schema, modules);
+    const adminId = await t.run(async (ctx) => {
+      await ctx.db.insert("services", {
+        name: "Maintenance Refresh",
+        description: "Routine maintenance detail",
+        basePrice: 175,
+        basePriceSmall: 150,
+        basePriceMedium: 175,
+        basePriceLarge: 200,
+        duration: 90,
+        serviceType: "standard",
+        bookingRole: "core",
+        isActive: true,
+      });
+      await ctx.db.insert("services", {
+        name: "Decon + Protection",
+        description: "Exterior decontamination and protection",
+        basePrice: 250,
+        basePriceSmall: 225,
+        basePriceMedium: 250,
+        basePriceLarge: 275,
+        duration: 145,
+        serviceType: "standard",
+        bookingRole: "core",
+        isActive: true,
+      });
+      await ctx.db.insert("services", {
+        name: "18 month Ceramic Coating ",
+        description: "Ceramic coating package",
+        basePrice: 700,
+        basePriceSmall: 600,
+        basePriceMedium: 700,
+        basePriceLarge: 700,
+        duration: 200,
+        serviceType: "standard",
+        bookingRole: "core",
+        isActive: true,
+      });
+      await ctx.db.insert("services", {
+        name: "5-Year Ceramic + Correction",
+        description: "Long-term ceramic protection",
+        basePrice: 1500,
+        basePriceSmall: 1250,
+        basePriceMedium: 1500,
+        basePriceLarge: 1750,
+        duration: 390,
+        serviceType: "standard",
+        bookingRole: "core",
+        isActive: true,
+      });
+      return await ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin-service-presentation@test.com",
+        role: "admin",
+      });
+    });
+    const asAdmin = t.withIdentity({
+      subject: adminId,
+      email: "admin-service-presentation@test.com",
+    });
+
+    const preview = await asAdmin.mutation(
+      api.services.seedServicePresentationData,
+      { dryRun: true },
+    );
+
+    expect(preview.dryRun).toBe(true);
+    expect(preview.categories.map((category) => category.slug)).toEqual([
+      "full-detail",
+      "interior",
+      "exterior",
+      "wax-ceramic",
+      "add-ons",
+    ]);
+    expect(
+      preview.services.find((service) => service.name.startsWith("18 month"))
+        ?.bookingRole,
+    ).toBe("upgrade");
+    expect(
+      preview.services.find((service) => service.name === "5-Year Ceramic + Correction")
+        ?.bookingRole,
+    ).toBe("upgrade");
+    expect(
+      await t.run(async (ctx) => ctx.db.query("serviceCategories").collect()),
+    ).toHaveLength(0);
+
+    await asAdmin.mutation(api.services.seedServicePresentationData, {
+      dryRun: false,
+    });
+
+    const repaired = await t.run(async (ctx) => {
+      const categories = await ctx.db.query("serviceCategories").collect();
+      const services = await ctx.db.query("services").collect();
+      const categoryById = new Map(categories.map((category) => [category._id, category]));
+      return services.map((service) => ({
+        name: service.name,
+        bookingRole: service.bookingRole,
+        categorySlug: service.categoryId
+          ? categoryById.get(service.categoryId)?.slug
+          : undefined,
+      }));
+    });
+
+    expect(repaired.find((service) => service.name.startsWith("18 month"))).toMatchObject({
+      bookingRole: "upgrade",
+      categorySlug: "wax-ceramic",
+    });
+    expect(repaired.find((service) => service.name === "5-Year Ceramic + Correction"))
+      .toMatchObject({
+        bookingRole: "upgrade",
+        categorySlug: "wax-ceramic",
+      });
+    expect(repaired.find((service) => service.name === "Decon + Protection"))
+      .toMatchObject({
+        bookingRole: "core",
+        categorySlug: "exterior",
+      });
+  });
+
   test("updates vehicle pricing rows and compatibility buckets", async () => {
     const t = convexTest(schema, modules);
 

@@ -2,6 +2,11 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.6] - 2026-09-02
+### Fixed
+- **Convex Production Deployment**: Run the backend package's Convex production deployment from the monorepo Vercel build before publishing the web app.
+- **Service Presentation Repair**: Seed missing service categories and correct legacy ceramic packages to optional upgrade booking roles with a dry-run-first admin mutation.
+
 ## [v1.2.5] - 2026-09-02
 ### Fixed
 - **Landing Pricing Category Fallbacks**: Keep valid uncategorized Full Detail products on the homepage and classify decontamination/protection packages under Exterior when explicit category records are unavailable.
