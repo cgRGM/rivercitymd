@@ -111,14 +111,6 @@ export function inferServiceCategorySlug(
     return "add-ons";
   }
 
-  if (
-    label.includes("ceramic") ||
-    label.includes("wax") ||
-    label.includes("paint enhancement") ||
-    label.includes("protection")
-  ) {
-    return "wax-ceramic";
-  }
   if (label.includes("interior")) return "interior";
   if (
     label.includes("exterior") ||
@@ -126,6 +118,14 @@ export function inferServiceCategorySlug(
     label.includes("decon")
   ) {
     return "exterior";
+  }
+  if (
+    label.includes("ceramic") ||
+    label.includes("wax") ||
+    label.includes("paint enhancement") ||
+    label.includes("protection")
+  ) {
+    return "wax-ceramic";
   }
   return "full-detail";
 }

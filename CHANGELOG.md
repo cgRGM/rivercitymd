@@ -2,6 +2,10 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.5] - 2026-09-02
+### Fixed
+- **Landing Pricing Category Fallbacks**: Keep valid uncategorized Full Detail products on the homepage and classify decontamination/protection packages under Exterior when explicit category records are unavailable.
+
 ## [v1.2.4] - 2026-08-31
 ### Added
 - **Profile Portal Navigation**: Moved invoices and subscriptions under the Profile route with shared back navigation and Profile, Invoices, and Plans tabs.

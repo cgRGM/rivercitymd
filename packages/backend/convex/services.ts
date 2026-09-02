@@ -264,16 +264,6 @@ function getPublicLandingCategorySlug(
 
   const inferredSlug = inferServiceCategorySlug(service);
   if (inferredSlug === ADDON_CATEGORY.slug) return ADDON_CATEGORY.slug;
-  const name = service.name.toLowerCase();
-  if (
-    inferredSlug === "full-detail" &&
-    !/\blevel\s*\d+\b/.test(name) &&
-    !name.includes("full detail") &&
-    !name.includes("basic reset") &&
-    !name.includes("motorcycle")
-  ) {
-    return undefined;
-  }
   return getLandingCategory(inferredSlug)?.slug;
 }
 

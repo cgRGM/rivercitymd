@@ -325,6 +325,90 @@ describe("services", () => {
     ).not.toContain("Admin-only package");
   });
 
+  test("falls back to production-shaped categories when category records are missing", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const vehicleTypeId = await ctx.db.insert("vehicleTypes", {
+        name: "Car",
+        slug: "car",
+        legacySize: "small",
+        isActive: true,
+        displayOrder: 10,
+        apiAliases: ["car"],
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const services = [
+        { name: "18 month Ceramic Coating", price: 600, duration: 360 },
+        { name: "Decon + Protection", price: 225, duration: 135 },
+        { name: "Maintenance Refresh", price: 150, duration: 60 },
+        { name: "5-Year Ceramic + Correction", price: 1250, duration: 360 },
+        { name: "Interior Reset", price: 250, duration: 165 },
+        { name: "Deep Reset Detail", price: 400, duration: 270 },
+        { name: "Signature Detail", price: 250, duration: 165 },
+      ];
+
+      for (const service of services) {
+        const serviceId = await ctx.db.insert("services", {
+          name: service.name,
+          description: `${service.name} description`,
+          basePrice: service.price,
+          basePriceSmall: service.price,
+          basePriceMedium: service.price,
+          basePriceLarge: service.price,
+          duration: service.duration,
+          serviceType: "standard",
+          bookingRole: "core",
+          isActive: true,
+          showOnLandingPage: true,
+        });
+
+        await ctx.db.insert("serviceVehiclePrices", {
+          serviceId,
+          vehicleTypeId,
+          price: service.price,
+          duration: service.duration,
+          isAvailable: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+
+    const groups = await t.query(api.services.listLandingPagePricing, {});
+
+    expect(groups.categories.map((group) => group.slug)).toEqual([
+      "full-detail",
+      "interior",
+      "exterior",
+      "wax-ceramic",
+    ]);
+    expect(
+      groups.categories
+        .find((group) => group.slug === "full-detail")
+        ?.services.map((service) => service.name),
+    ).toEqual(["Maintenance Refresh", "Signature Detail", "Deep Reset Detail"]);
+    expect(
+      groups.categories
+        .find((group) => group.slug === "interior")
+        ?.services.map((service) => service.name),
+    ).toEqual(["Interior Reset"]);
+    expect(
+      groups.categories
+        .find((group) => group.slug === "exterior")
+        ?.services.map((service) => service.name),
+    ).toEqual(["Decon + Protection"]);
+    expect(
+      groups.categories
+        .find((group) => group.slug === "wax-ceramic")
+        ?.services.map((service) => service.name),
+    ).toEqual(["18 month Ceramic Coating", "5-Year Ceramic + Correction"]);
+    expect(groups.addons).toEqual([]);
+  });
+
   test("updates vehicle pricing rows and compatibility buckets", async () => {
     const t = convexTest(schema, modules);
 
