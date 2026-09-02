@@ -1,0 +1,28 @@
+import { NativeTabs } from "expo-router/unstable-native-tabs";
+
+export default function AdminTabsLayout() {
+  return (
+    <NativeTabs>
+      <NativeTabs.Trigger name="index">
+        <NativeTabs.Trigger.Label>Overview</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="chart.bar.fill" md="dashboard" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="appointments">
+        <NativeTabs.Trigger.Label>Appointments</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="calendar" md="event" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="customers">
+        <NativeTabs.Trigger.Label>Customers</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="person.2.fill" md="group" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="services">
+        <NativeTabs.Trigger.Label>Services</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="car.2.fill" md="directions_car" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="more">
+        <NativeTabs.Trigger.Label>More</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="ellipsis.circle.fill" md="more_horiz" />
+      </NativeTabs.Trigger>
+    </NativeTabs>
+  );
+}

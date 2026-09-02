@@ -1,0 +1,44 @@
+{
+  "name": "@rivercitymd/backend",
+  "version": "0.1.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "convex dev",
+    "typecheck": "tsc --noEmit -p convex/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@clerk/backend": "^2.29.0",
+    "@convex-dev/r2": "^0.9.1",
+    "@convex-dev/rate-limiter": "^0.3.2",
+    "@convex-dev/resend": "^0.2.3",
+    "@convex-dev/stripe": "^0.1.3",
+    "@convex-dev/twilio": "^0.2.1",
+    "@convex-dev/workflow": "^0.3.3",
+    "@convex-dev/workpool": "^0.3.1",
+    "@react-email/components": "^1.0.2",
+    "@react-email/render": "^2.0.0",
+    "convex": "^1.40.0",
+    "dotenv": "^16.6.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-email": "^5.1.0",
+    "stripe": "^19.3.1",
+    "svix": "^1.84.1",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "@rivercitymd/config": "workspace:*",
+    "@types/node": "^20.19.27",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "^19.2.3",
+    "@types/stripe": "^8.0.417",
+    "@vitest/coverage-v8": "4.0.16",
+    "convex-test": "^0.0.38",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

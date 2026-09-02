@@ -2,6 +2,79 @@
 
 All notable changes to the River City Mobile Detailing project are documented in this file, structured by releases and version numbers derived from the repository's git commit history.
 
+## [v1.2.5] - 2026-09-02
+### Fixed
+- **Landing Pricing Category Fallbacks**: Keep valid uncategorized Full Detail products on the homepage and classify decontamination/protection packages under Exterior when explicit category records are unavailable.
+
+## [v1.2.4] - 2026-08-31
+### Added
+- **Profile Portal Navigation**: Moved invoices and subscriptions under the Profile route with shared back navigation and Profile, Invoices, and Plans tabs.
+- **Admin View Switching**: Added an admin-only switch between the mobile Admin Portal and Customer Portal views for the `cg@rocktownlabs.com` test account when its Convex role is `admin`.
+
+### Fixed
+- **Native Portal Routing**: Added nested Profile routes and removed dead root-level portal pages so customer portal destinations resolve as real navigable screens.
+
+## [v1.2.3] - 2026-08-31
+### Fixed
+- **Expo Web Browser Compatibility**: Lazily load `expo-web-browser` and fall back to React Native `Linking` so existing development clients without the newly added native module no longer crash at route discovery.
+
+## [v1.2.2] - 2026-08-31
+### Added
+- **Native Stripe Checkout Return & Customer Portal**: Return authenticated mobile customers to a booking confirmation route, reconcile paid Checkout Sessions to their existing account, display appointment IDs/status badges, and expose appointment, invoice, balance-payment, and subscription management links.
+
+### Fixed
+- **Native Booking Visibility**: Refresh and classify pending/rescheduled appointments consistently with the web portal, while guarding checkout confirmation and preventing unpaid delayed-payment sessions from being fulfilled.
+- **Stripe Test Mock URL Validation**: Restrict Stripe test interception to the exact `api.stripe.com` hostname.
+
+## [v1.2.1] - 2026-08-30
+### Added
+- **Native In-App Accordion Booking Flow (`apps/native/app/book.tsx`)**: Replaced external browser reliance with a complete native 4-step wizard:
+  - Step 1: Radar-backed address search with Arkansas service territory verification and live travel fee calculation.
+  - Step 2: Live availability schedule and duration-aware time slot picker (`TimeSlotPicker`).
+  - Step 3: Saved garage vehicle selector + NHTSA vehicle lookup with vehicle condition toggles (Pet Hair Extraction +$40, Heavy Soil / Mud).
+  - Step 4: Per-vehicle collapsible accordion for detailing packages (Full Detail, Interior, Exterior) with live vehicle-type pricing, wax & ceramic upgrades, and add-on enhancements.
+  - Review & Checkout: Summary breakdown with 3 payment methods (Pay Deposit Now via Stripe with post-service invoice, Pay Full Price Upfront via Stripe, or Pay Remaining Balance in Person).
+- **Vehicle & Appointment Detail ID Pages**: Added `apps/native/app/vehicles/[id].tsx` and `apps/native/app/appointments/[id].tsx` with vehicle service histories, Stripe hosted invoice access, in-app reschedule modal, and cancellation.
+
+### Fixed
+- **Navigation Context Render Error**: Unified route structure in `apps/native/app/_layout.tsx` into a single root `<Stack>` tree observed by `AuthGuard`, eliminating conditional stack rendering errors on booking modals.
+- **Brand Consistency**: Styled all company name references as `RiverCityMD`.
+
+## [v1.2.0] - 2026-08-30
+### Added
+- **Mobile Customer Onboarding**: Added a 2-step native onboarding flow (`app/(onboarding)/index.tsx`) collecting user contact info, phone number with formatting, service address with Arkansas service area validation, and multi-vehicle garage entries with NHTSA/VPIC vehicle search and auto-classification.
+- **Mobile Multi-Step Booking Wizard**: Added a 4-step streamlined booking wizard (`app/book.tsx`) that pre-loads onboarding data (saved address and garage vehicles), supports adding ad-hoc vehicles, calculates real-time travel fees, verifies duration-aware time slot availability, supports per-vehicle service package selection (required base package, add-ons, subscriptions), calculates pet fees, and creates Stripe online checkout or in-person bookings.
+- **Mobile Admin Experience**: Added complete mobile admin portal navigation and screens mirroring the web admin portal:
+  - Overview dashboard (`(admin)/index.tsx`) with monthly KPIs (revenue, appointments, active customers, deposits), upcoming schedule, and pending trip log alerts.
+  - Appointments management (`(admin)/appointments.tsx`) with status filters (Pending, Confirmed, In Progress, Completed, Cancelled), customer search, contact shortcuts (Call, SMS), and quick status update actions.
+  - Customers directory (`(admin)/customers.tsx`) with customer search, contact shortcuts, garage vehicles, lifetime visits, and total spent.
+  - Services management (`(admin)/services.tsx`) with category tabs, size-based pricing breakdown (Small, Medium, Large), and online availability toggles.
+  - Financials & Invoices (`(admin)/payments.tsx`) with invoice search and payment statuses.
+  - Out-of-Area request review (`(admin)/out-of-area.tsx`) with customer details and status approval actions.
+  - Customer reviews (`(admin)/reviews.tsx`) with star rating visualization and testimonials.
+  - Fleet trip logs (`(admin)/logs.tsx`) with mileage and fuel expense tracking.
+  - Business settings (`(admin)/settings.tsx`) showing deposit rates, pet fee tiers, travel fee origin hub, and business info.
+- **Shared Mobile UI Components**: Added native Input, Badge, Switch, Modal, VehicleLookup, AddressSearch, and TimeSlotPicker primitives built on Tailwind / NativeWind.
+- **Role-Based Auth & Onboarding Routing**: Configured root navigation (`app/_layout.tsx`) to route admins to the Admin portal, incomplete customer profiles to Onboarding, and complete customer profiles to the Customer Portal.
+
+### Changed
+- **Customer Portal Features**: Enhanced Customer Overview with instant "Book Detail Now" CTA, added vehicle addition modal with VPIC search to Garage (`(tabs)/vehicles.tsx`), added upcoming/past tabs with live rescheduling to Appointments (`(tabs)/appointments.tsx`), and added SMS notification preference toggles to Profile (`(tabs)/profile.tsx`).
+
+## [v1.1.2] - 2026-08-28
+### Added
+- **Mobile App Foundation**: Added a pnpm/Turborepo workspace with an Expo native-bare app, shared Convex backend package, shared environment package, and React Native Reusables configuration.
+- **Customer Mobile Shell**: Added native Overview, Appointments, Vehicles, Reviews, and Profile tabs backed by the existing Convex API.
+- **Native Clerk Authentication**: Added Clerk Expo provider/token caching and Clerk's native `AuthView` sign-in/sign-up flows.
+
+### Fixed
+- **Customer Mobile Navigation**: Corrected the web dashboard's primary mobile tab to link to `/dashboard/appointments` and use the same label as the native app.
+- **CI Workspace Setup**: Updated the test workflow to use pnpm 11, Node.js 22.13+, and the new Turborepo quality-gate scripts.
+- **Vercel Monorepo Build**: Configured Vercel to detect the Next.js web package and run its workspace build from the repository root, including the root framework marker required by the existing project configuration.
+
+### Changed
+- **Web App Package**: Moved the existing Next.js application into `apps/web` while preserving its routes, components, tests, and Convex integrations.
+- **Backend Package**: Moved Convex functions and generated types into `packages/backend` for web and native reuse.
+
 ## [v1.1.1] - 2026-08-14
 ### Fixed
 - **Multi-Vehicle Appointment Edit Duration & Availability**: Fixed `appointments.update`, `create`, `previewWorkAdjustment`, and `applyWorkAdjustment` in `convex/appointments.ts` to pass per-vehicle service mappings (`vehicleServices`) to `buildVehicleServiceItems` and `buildAdjustmentPricing`. This prevents service duplication across vehicles (e.g. 290 minutes doubling to 580 minutes) that triggered false "Outside business hours" / `TIME_SLOT_UNAVAILABLE` errors when updating services on multi-vehicle appointments.
