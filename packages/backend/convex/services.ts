@@ -267,6 +267,27 @@ function getPublicLandingCategorySlug(
   return getLandingCategory(inferredSlug)?.slug;
 }
 
+function getPresentationBookingRole(
+  service: Doc<"services">,
+  categorySlug: string,
+) {
+  const bookingRole = getServiceBookingRole(service);
+  const serviceType = normalizeServiceType(service.serviceType);
+
+  // Ceramic packages belong in the optional upgrade section. This repairs
+  // legacy records that were explicitly stored as core before booking roles
+  // were introduced, while preserving add-ons and other explicit roles.
+  if (
+    bookingRole === "core" &&
+    serviceType === "standard" &&
+    categorySlug === "wax-ceramic"
+  ) {
+    return "upgrade" as const;
+  }
+
+  return bookingRole;
+}
+
 function getServiceSortWeight(service: LandingPageService) {
   const levelMatch = service.name.match(/\blevel\s*(\d+)\b/i);
   if (levelMatch?.[1]) return Number(levelMatch[1]);
@@ -689,9 +710,14 @@ export const seedServicePresentationData = mutation({
     const services = await ctx.db.query("services").collect();
     const serviceResults = [];
     for (const service of services) {
-      const categorySlug = inferServiceCategorySlug(service);
+      const existingCategory = service.categoryId
+        ? existingCategories.find((category) => category._id === service.categoryId) ?? null
+        : null;
+      const categorySlug =
+        getPublicLandingCategorySlug(service, existingCategory) ??
+        inferServiceCategorySlug(service);
       const categoryId = categoryIds.get(categorySlug);
-      const bookingRole = getServiceBookingRole(service);
+      const bookingRole = getPresentationBookingRole(service, categorySlug);
       const isLevelOne = serviceHasLevelOneName(service);
       const disallowWhenPetHair =
         service.disallowWhenPetHair ??
